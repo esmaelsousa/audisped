@@ -3,20 +3,21 @@ FROM node:20-bullseye-slim AS build-stage
 
 WORKDIR /app
 
-# Garantir que o npm instale as devDependencies para poder rodar o 'vite build'
+# Reduzir limite de memória para ser compatível com VPS menores (Ex: 1GB total)
+ENV NODE_OPTIONS="--max-old-space-size=768"
 ENV NODE_ENV=development
 
 # Copiar arquivos de dependência
 COPY package*.json ./
 
-# Limpar qualquer rastro anterior antes de instalar (evita erros de lockfile)
-RUN rm -rf node_modules package-lock.json && npm install --loglevel=error
+# Instalação limpa ignorando scripts de telemetria
+RUN npm install --no-audit --no-fund --loglevel=error
 
-# Copiar o restante do código
+# Copiar código-fonte
 COPY . .
 
-# Garantir que a pasta dist esteja limpa antes do build
-RUN rm -rf dist && npm run build
+# Comando de build com captura de erro explícita no console da Hostinger
+RUN npm run build || (echo "ERRO CRÍTICO NO BUILD VITE:" && npm run build -- --logLevel error)
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
