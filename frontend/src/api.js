@@ -1,5 +1,11 @@
-// Detecta automaticamente o host correto para o backend.
-// Se o frontend for acessado via rede (ex: 192.168.5.106), o backend
-// também será chamado no mesmo IP. Funciona tanto em localhost quanto na rede.
-const backendHost = window.location.hostname;
+// Detecta automaticamente o host correto para o backend de forma segura.
+// O uso de 'typeof window' garante que o processo de build do Vite no servidor (Node.js) não quebre.
+const getBackendHost = () => {
+    if (typeof window !== 'undefined') {
+        return window.location.hostname;
+    }
+    return 'localhost'; // Fallback para o build-time
+};
+
+const backendHost = getBackendHost();
 export const API_BASE_URL = `http://${backendHost}:15435`;
