@@ -3,9 +3,11 @@ FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Garantir ambiente de desenvolvimento para baixar o Vite
+# Garantir ambiente para build do Vite (devDependencies inclusas)
 ENV NODE_ENV=development
-ENV NODE_OPTIONS="--max-old-space-size=1024"
+
+# Reduzir RAM para caber em qualquer VPS (Evita ser morto pelo SO)
+ENV NODE_OPTIONS="--max-old-space-size=512"
 
 # Copiar arquivos de dependência
 COPY package*.json ./
@@ -16,8 +18,8 @@ RUN npm install --loglevel=error
 # Copiar código-fonte
 COPY . .
 
-# Comando de build com captura forçada de erro no terminal da Hostinger
-RUN npm run build > vite_build.log 2>&1 || (echo "--- INÍCIO DO LOG DE ERRO VITE ---" && cat vite_build.log && echo "--- FIM DO LOG DE ERRO VITE ---" && exit 1)
+# Comando de build direto (sem redirecionar logs para garantir visibilidade se falhar)
+RUN npm run build
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
