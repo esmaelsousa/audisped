@@ -45,3 +45,4 @@ speds/
 # Brain / Antigravity artifacts (if inside workspace)
 .gemini/
 antigravity-awesome-skills/
+frontend/dist/
