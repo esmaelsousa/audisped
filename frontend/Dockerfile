@@ -3,20 +3,20 @@ FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Aumentar limite de memória para o build (ajuda em VPS menores)
+# Aumentar limite de memória para o build
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 
-# Copiar arquivos de dependência
+# Copiar apenas arquivos de dependência primeiro (otimiza cache)
 COPY package*.json ./
 
-# Instalar dependências (usando ci para maior fidelidade ao ambiente local/git)
-RUN npm ci
+# Instalar dependências (usando install para mais flexibilidade)
+RUN npm install
 
 # Copiar o restante do código
 COPY . .
 
-# Realizar o build com log de erro detalhado
-RUN npm run build || (echo "Build failed! Logs follow:" && npm run build -- --debug)
+# Realizar o build para produção
+RUN npm run build
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
