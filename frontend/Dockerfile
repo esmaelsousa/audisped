@@ -1,16 +1,20 @@
 # Estágio 1: Build da aplicação
-FROM node:20 AS build-stage
+FROM node:20-alpine AS build-stage
+
+# Dependências para arquiteturas nativas (essencial para esbuild/vite no linux)
+RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-# Aumentar limite de memória para o build
-ENV NODE_OPTIONS="--max-old-space-size=2048"
+# Garantir que o npm instale as devDependencies para poder rodar o 'vite build'
+ENV NODE_ENV=development
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
-# Copiar apenas arquivos de dependência primeiro (otimiza cache)
+# Copiar arquivos de dependência
 COPY package*.json ./
 
-# Instalar dependências (usando install para mais flexibilidade)
-RUN npm install
+# Instalar dependências (incluindo devDeps)
+RUN npm install --loglevel=error
 
 # Copiar o restante do código
 COPY . .
