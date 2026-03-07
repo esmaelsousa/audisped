@@ -1,0 +1,28 @@
+{
+  "name": "audisped-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "apexcharts": "^5.6.0",
+    "axios": "^1.12.2",
+    "lucide-vue-next": "^0.575.0",
+    "vue": "^3.4.29",
+    "vue-router": "^4.5.1",
+    "vue3-apexcharts": "^1.10.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/node": "^24.10.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.2.1",
+    "vite": "^5.3.1"
+  }
+}

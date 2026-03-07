@@ -1,0 +1,16 @@
+{
+    "ignore": [
+        "*.log",
+        "audisped-backend.log",
+        "exceptions.log",
+        "uploads/*",
+        "speds/*",
+        "node_modules"
+    ],
+    "watch": [
+        "server.js",
+        "services/",
+        "src/"
+    ],
+    "ext": "js,json"
+}

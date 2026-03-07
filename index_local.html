@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudiSped v7.0 (Completo e Validado) - Plataforma de Análise Fiscal</title>
+    <style>
+        /* CSS Completo e Inalterado */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f4f7f9; color: #333; }
+        .main-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 240px; background-color: #2c3e50; color: white; padding: 20px; display: flex; flex-direction: column; }
+        .sidebar h1 { font-size: 1.5em; text-align: center; margin-bottom: 20px; color: #ecf0f1; }
+        .sidebar .menu-item { display: block; color: #ecf0f1; text-decoration: none; padding: 15px; margin: 5px 0; border-radius: 5px; transition: background-color 0.3s; }
+        .sidebar .menu-item:hover, .sidebar .menu-item.active { background-color: #34495e; }
+        .content { flex-grow: 1; padding: 30px; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .container { max-width: 1400px; margin: auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h2, h3, h4 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        .file-input-area { padding: 20px; border: 2px dashed #3498db; border-radius: 5px; text-align: center; margin-bottom: 20px; background-color: #ecf0f1; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        input[type="file"] { display: none; }
+        .upload-label { cursor: pointer; display: inline-block; padding: 10px 20px; background-color: #3498db; color: white; border-radius: 5px; font-weight: bold; }
+        .upload-label.rules { background-color: #8e44ad; }
+        .action-button { cursor: pointer; padding: 10px 20px; background-color: #27ae60; color: white; border-radius: 5px; font-weight: bold; border: none; font-size: 1em; margin-top: 15px; }
+        .status { margin-top: 15px; font-size: 1.1em; padding: 10px; border-radius: 5px; background-color: #e8f4fd; border-left: 5px solid #3498db; }
+        .accordion-header { background-color: #ecf0f1; padding: 15px; margin-top: 10px; cursor: pointer; border-radius: 5px; font-weight: bold; border: 1px solid #bdc3c7; transition: background-color 0.3s; }
+        .accordion-header.error { border-left: 5px solid #e74c3c; }
+        .accordion-header.warning { border-left: 5px solid #f39c12; }
+        .accordion-details { padding: 10px; border: 1px solid #ddd; border-top: none; display: none; border-radius: 0 0 5px 5px; }
+        .error-card { background: #fff1f1; border-color: #e74c3c; border-left-width: 5px; padding: 15px; margin-bottom: 15px; border-radius: 5px;}
+        .details { margin-top: 5px; font-family: 'Segoe UI', sans-serif; background: #fdfdfd; padding: 8px; border-radius: 4px; border: 1px solid #ddd; word-wrap: break-word; }
+        .raw-line-container { margin-top: 10px; padding: 10px; background-color: #2c3e50; color: #f1f1f1; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+        .highlight { background-color: #e74c3c; color: #fff; font-weight: bold; padding: 2px 4px; border-radius: 3px; }
+        .correction { margin-top: 10px; padding: 8px; background-color: #f0fff4; border: 1px solid #27ae60; border-radius: 4px; }
+        /* Estilos do Explorador de Documentos */
+        .tab-nav { border-bottom: 2px solid #ccc; margin-bottom: 20px; }
+        .tab-nav button { background: none; border: none; padding: 15px 20px; font-size: 1.1em; cursor: pointer; }
+        .tab-nav button.active { border-bottom: 3px solid #3498db; font-weight: bold; color: #3498db; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .doc-header { background-color: #f9f9f9; padding: 15px; border: 1px solid #ddd; cursor: pointer; margin-top: -1px; }
+        .doc-header:hover { background-color: #f0f0f0; }
+        .doc-header.active { background-color: #e8f4fd; border-left: 5px solid #3498db; }
+        .doc-header.extemporanea { color: #c0392b; border-left: 5px solid #e74c3c; font-style: italic; }
+        .doc-header-content { display: flex; justify-content: space-between; font-weight: bold; pointer-events: none; }
+        .doc-details-expanded { display: none; padding: 20px; border: 1px solid #ddd; border-top: 2px solid #3498db; }
+        .summary-panel { background: #ecf0f1; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .summary-item { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .summary-item .fuel-name, .summary-item .cfop-title { font-weight: bold; color: #2c3e50; }
+        .summary-item .fuel-qty, .summary-item .cfop-value { font-size: 1.4em; color: #3498db; }
+        .doc-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em; margin-bottom: 20px; }
+        .doc-items-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.9em; }
+        .doc-items-table thead { background-color: #34495e; color: white; }
+        .doc-items-table th, .doc-items-table td { padding: 8px; border: 1px solid #ddd; }
+        .doc-items-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="sidebar">
+            <h1>AudiSped v7.0</h1>
+            <a href="#" class="menu-item active" data-page="analisador">Analisador de Estrutura</a>
+            <a href="#" class="menu-item" data-page="explorador">Explorador de Documentos</a>
+            <a href="#" class="menu-item" data-page="relatorio-lmc">Relatório Operacional LMC</a>
+        </div>
+        <div class="content">
+            <div id="analisador" class="page active">
+                <div class="container">
+                    <h2>Analisador de Estrutura e Regras</h2>
+                    <div class="file-input-area">
+                        <div><label for="rulesFile" class="upload-label rules">1. Carregar Regras (rules.json)</label><input type="file" id="rulesFile" accept=".json"></div>
+                        <div><label for="spedFileAnalisador" class="upload-label">2. Selecionar SPED (.txt)</label><input type="file" id="spedFileAnalisador" accept=".txt" disabled></div>
+                        <div class="status" id="statusAnalisador">Aguardando arquivo de regras...</div>
+                    </div>
+                    <div id="dashboardAnalisador" style="display:none; margin-bottom: 20px;"></div>
+                    <div id="action-buttons-analisador" style="text-align: center;"><button class="action-button" id="analyzeButton" disabled>Analisar Arquivo</button></div>
+                    <div id="summaryAnalisador"></div>
+                    <div id="resultsAnalisador"></div>
+                </div>
+            </div>
+            <div id="relatorio-lmc" class="page">
+                <div class="container"><h2>Relatório Operacional LMC</h2><p>Módulo em desenvolvimento.</p></div>
+            </div>
+            <div id="explorador" class="page">
+                <div class="container">
+                    <h2>Explorador de Documentos</h2>
+                    <div id="explorador-content" style="display: none;">
+                        <div class="tab-nav">
+                            <button class="tab-button active" data-tab="entradas">Notas de Entrada</button>
+                            <button class="tab-button" data-tab="saidas">Notas de Saída</button>
+                        </div>
+                        <div id="entradas" class="tab-content active">
+                            </div>
+                        <div id="saidas" class="tab-content">
+                             </div>
+                    </div>
+                    <div id="explorador-placeholder">
+                        <p>Carregue um arquivo SPED na tela do "Analisador de Estrutura" para habilitar a exploração de documentos.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let processedData = null;
+            let validationRules = [];
+            let fileLinesAnalisador = [];
+
+            const showPage = (pageId) => {
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+                document.getElementById(pageId).classList.add('active');
+                const menuItem = document.querySelector(`.menu-item[data-page="${pageId}"]`);
+                if(menuItem) menuItem.classList.add('active');
+            };
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.addEventListener('click', (e) => { e.preventDefault(); showPage(item.dataset.page); });
+            });
+            window.toggleAccordion = (id) => {
+                const element = document.getElementById(id);
+                if (element) { element.style.display = element.style.display === 'block' ? 'none' : 'block'; }
+            };
+            const parseFloatSped = (str) => parseFloat((str || "0").replace(',', '.')) || 0;
+            const formatDate = (dateStr) => dateStr && dateStr.length === 8 ? `${dateStr.substring(0,2)}/${dateStr.substring(2,4)}/${dateStr.substring(4)}` : 'N/A';
+
+            async function processSpedFile(lines) {
+                const data = { period: {}, documents: [], suppliers: new Map(), items: new Map(), fuelCodes: new Set() };
+                const line0000 = lines.find(line => line && line.startsWith('|0000|'));
+                if (line0000) { data.period = { dtIni: line0000.split('|')[4] }; } 
+                else { throw new Error("Registro 0000 não encontrado."); }
+                let currentC100 = null;
+                lines.forEach(line => { if (line && line.startsWith('|0206|')) data.fuelCodes.add(line.split('|')[2]); });
+                lines.forEach((line, index) => {
+                    try {
+                        if (!line) return;
+                        const fields = line.split('|'); const reg = fields[1];
+                        if (reg === '0150') { data.suppliers.set(fields[2], fields[3]); }
+                        else if (reg === '0200') { data.items.set(fields[2], {descr: fields[3], isFuel: data.fuelCodes.has(fields[8])}); }
+                        else if (reg === 'C100') {
+                            currentC100 = {
+                                id: `doc-${index}`, operation: fields[2], docNumber: fields[8], supplierCode: fields[4], docDate: fields[10], 
+                                entryDate: fields[11], docValue: parseFloatSped(fields[12]), docKey: fields[9], model: fields[5],
+                                items: [], analytical: []
+                            };
+                            data.documents.push(currentC100);
+                        } else if (currentC100) {
+                            if (reg === 'C170') {
+                                currentC100.items.push({ 
+                                    itemCode: fields[3], qtd: parseFloatSped(fields[5]), value: parseFloatSped(fields[7]), 
+                                    unit: fields[6], cst: fields[9], cfop: fields[10]
+                                });
+                            } else if (reg === 'C190') {
+                                currentC100.analytical.push({
+                                    cst: fields[2], cfop: fields[3], aliq: parseFloatSped(fields[4]), vlOpr: parseFloatSped(fields[5]),
+                                    vlBcIcms: parseFloatSped(fields[6]), vlIcms: parseFloatSped(fields[7])
+                                });
+                            }
+                        }
+                    } catch (e) { console.warn(`Falha ao processar a linha ${index + 1}: ${line}`, e); }
+                });
+                return data;
+            }
+            
+            (() => {
+                const exploradorContent = document.getElementById('explorador-content');
+                const exploradorPlaceholder = document.getElementById('explorador-placeholder');
+                const tabNav = exploradorContent.querySelector('.tab-nav');
+            
+                window.updateExplorer = (data) => {
+                    processedData = data;
+                    if(data && data.documents.length > 0){
+                        exploradorContent.style.display = 'block';
+                        exploradorPlaceholder.style.display = 'none';
+                        renderEntradasTab(data);
+                        // Ativar a aba de entradas por padrão
+                        tabNav.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                        tabNav.querySelector('[data-tab="entradas"]').classList.add('active');
+                        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                        document.getElementById('entradas').classList.add('active');
+                    } else {
+                        exploradorContent.style.display = 'none';
+                        exploradorPlaceholder.style.display = 'block';
+                    }
+                }
+
+                tabNav.addEventListener('click', (e) => {
+                    if(e.target.tagName === 'BUTTON'){
+                        tabNav.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                        e.target.classList.add('active');
+                        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                        document.getElementById(e.target.dataset.tab).classList.add('active');
+                        if(e.target.dataset.tab === 'entradas') { renderEntradasTab(processedData); } 
+                        else if (e.target.dataset.tab === 'saidas') { renderSaidasTab(processedData); }
+                    }
+                });
+
+                function renderEntradasTab(data) {
+                    const entradasDiv = document.getElementById('entradas');
+                    const entradasDocs = data.documents.filter(d => d.operation === '0');
+                    const fuelSummary = {};
+                    entradasDocs.forEach(doc => {
+                        doc.items.forEach(item => {
+                            const itemInfo = data.items.get(item.itemCode);
+                            if (itemInfo && itemInfo.isFuel) {
+                                if (!fuelSummary[itemInfo.descr]) fuelSummary[itemInfo.descr] = 0;
+                                fuelSummary[itemInfo.descr] += item.qtd;
+                            }
+                        });
+                    });
+                    
+                    let summaryHtml = '<div class="summary-panel"><h3>Resumo de Compras de Combustível</h3><div class="summary-grid">';
+                    Object.keys(fuelSummary).forEach(fuelName => {
+                        summaryHtml += `<div class="summary-item"><div class="fuel-name">${fuelName}</div><div class="fuel-qty">${fuelSummary[fuelName].toFixed(3)} L</div></div>`;
+                    });
+                    summaryHtml += '</div></div>';
+
+                    let listHtml = '<h3>Documentos de Entrada</h3><div id="entradas-accordion-list">';
+                    const periodMonthYear = data.period.dtIni ? data.period.dtIni.substring(2) : '';
+                    
+                    entradasDocs.forEach(doc => {
+                        const supplierName = data.suppliers.get(doc.supplierCode) || 'Desconhecido';
+                        const docDetails = renderDocDetails(doc, data);
+                        const docMonthYear = doc.docDate && doc.docDate.length === 8 ? doc.docDate.substring(2) : '';
+                        const isExtemporanea = periodMonthYear && docMonthYear && docMonthYear !== periodMonthYear;
+                        const extemporaneaClass = isExtemporanea ? 'extemporanea' : '';
+
+                        listHtml += `
+                            <div class="doc-header ${extemporaneaClass}" data-doc-id="${doc.id}">
+                                <div class="doc-header-content">
+                                    <span>&#9658; NF ${doc.docNumber} | ${supplierName} | Emissão: ${formatDate(doc.docDate)} | Entrada: ${formatDate(doc.entryDate)}</span>
+                                    <span>R$ ${doc.docValue.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <div class="doc-details-expanded" id="details-${doc.id}">${docDetails}</div>
+                        `;
+                    });
+                    listHtml += '</div>';
+                    entradasDiv.innerHTML = summaryHtml + listHtml;
+                }
+
+                function renderSaidasTab(data) {
+                    const saidasDiv = document.getElementById('saidas');
+                    const saidasDocs = data.documents.filter(d => d.operation === '1');
+
+                    const salesSummary = { '55': {}, '65': {} };
+                    saidasDocs.forEach(doc => {
+                        const model = doc.model;
+                        if (!salesSummary[model]) return;
+                        doc.analytical.forEach(ana => {
+                            if (!salesSummary[model][ana.cfop]) salesSummary[model][ana.cfop] = 0;
+                            salesSummary[model][ana.cfop] += ana.vlOpr;
+                        });
+                    });
+
+                    let summaryHtml = '<div class="summary-panel"><h3>Resumo de Vendas por CFOP</h3><div class="summary-grid">';
+                    summaryHtml += '<div><h4 style="border:none; margin-bottom: 10px;">NF-e (Modelo 55)</h4>';
+                    Object.keys(salesSummary['55']).forEach(cfop => { summaryHtml += `<div><strong>${cfop}</strong>: R$ ${salesSummary['55'][cfop].toFixed(2)}</div>`; });
+                    summaryHtml += '</div>';
+                    summaryHtml += '<div><h4 style="border:none; margin-bottom: 10px;">NFC-e (Modelo 65)</h4>';
+                     Object.keys(salesSummary['65']).forEach(cfop => { summaryHtml += `<div><strong>${cfop}</strong>: R$ ${salesSummary['65'][cfop].toFixed(2)}</div>`; });
+                    summaryHtml += '</div></div></div>';
+                    
+                    let listHtml = '<h3>Documentos de Saída</h3><div id="saidas-accordion-list">';
+                    saidasDocs.forEach(doc => {
+                        const clientName = data.suppliers.get(doc.supplierCode) || 'Consumidor Não Identificado';
+                        const docDetails = renderSaidasDetails(doc, data);
+                        listHtml += `
+                            <div class="doc-header" data-doc-id="${doc.id}">
+                                <div class="doc-header-content">
+                                    <span>&#9658; NF ${doc.model} ${doc.docNumber} | ${clientName} | ${formatDate(doc.docDate)}</span>
+                                    <span>R$ ${doc.docValue.toFixed(2)}</span>
+                                </div>
+                            </div>
+                            <div class="doc-details-expanded" id="details-${doc.id}">${docDetails}</div>
+                        `;
+                    });
+                    listHtml += '</div>';
+                    saidasDiv.innerHTML = summaryHtml + listHtml;
+                }
+
+                function renderDocDetails(doc, data) {
+                    let itemsHtml = `<h4 style="margin-top: 20px;">Itens da Nota (Registros C170)</h4>
+                        <table class="doc-items-table">
+                            <thead><tr><th>Cód. Item</th><th>Descrição</th><th>Qtd.</th><th>Unid.</th><th>Valor</th><th>CFOP</th><th>CST</th></tr></thead>
+                            <tbody>`;
+                    doc.items.forEach(item => {
+                        const itemDescr = data.items.get(item.itemCode)?.descr || 'Item sem descrição';
+                        itemsHtml += `<tr>
+                            <td>${item.itemCode}</td><td style="text-align: left;">${itemDescr}</td><td>${item.qtd.toFixed(3)}</td>
+                            <td>${item.unit}</td><td>R$ ${item.value.toFixed(2)}</td><td>${item.cfop}</td><td>${item.cst}</td>
+                        </tr>`;
+                    });
+                    itemsHtml += `</tbody></table>`;
+                    return itemsHtml;
+                }
+                
+                function renderSaidasDetails(doc, data) {
+                    let detailsHtml = `<h4 style="margin-top: 20px;">Resumo Analítico da Nota (Registro C190)</h4>
+                        <table class="doc-items-table">
+                            <thead><tr><th>CFOP</th><th>CST</th><th>Alíquota ICMS</th><th>Valor da Operação</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr></thead>
+                            <tbody>`;
+                    doc.analytical.forEach(ana => {
+                        detailsHtml += `<tr>
+                            <td>${ana.cfop}</td><td>${ana.cst}</td><td>${ana.aliq.toFixed(2)}</td>
+                            <td>R$ ${ana.vlOpr.toFixed(2)}</td><td>R$ ${ana.vlBcIcms.toFixed(2)}</td><td>R$ ${ana.vlIcms.toFixed(2)}</td>
+                        </tr>`;
+                    });
+                    detailsHtml += `</tbody></table>`;
+                    if (doc.items.length > 0) {
+                        detailsHtml += `<h4 style="margin-top: 20px;">Itens da Nota (Registros C170)</h4>
+                        <table class="doc-items-table">
+                            <thead><tr><th>Cód. Item</th><th>Descrição</th><th>Qtd.</th><th>Unid.</th><th>Valor</th><th>CFOP</th><th>CST</th></tr></thead>
+                            <tbody>`;
+                        doc.items.forEach(item => {
+                            const itemDescr = data.items.get(item.itemCode)?.descr || 'Item sem descrição';
+                            detailsHtml += `<tr>
+                                <td>${item.itemCode}</td><td style="text-align: left;">${itemDescr}</td><td>${item.qtd.toFixed(3)}</td>
+                                <td>${item.unit}</td><td>R$ ${item.value.toFixed(2)}</td><td>${item.cfop}</td><td>${item.cst}</td>
+                            </tr>`;
+                        });
+                        detailsHtml += `</tbody></table>`;
+                    }
+                    return detailsHtml;
+                }
+
+                document.getElementById('explorador').addEventListener('click', (e) => {
+                    const header = e.target.closest('.doc-header');
+                    if (header) {
+                        const docId = header.dataset.docId;
+                        const details = document.getElementById(`details-${docId}`);
+                        const isVisible = details.style.display === 'block';
+                        const spanIcon = header.querySelector('.doc-header-content span:first-child');
+                        details.style.display = isVisible ? 'none' : 'block';
+                        header.classList.toggle('active', !isVisible);
+                        if (spanIcon) spanIcon.innerHTML = isVisible ? `&#9658; ${spanIcon.innerText.slice(2)}` : `&#9660; ${spanIcon.innerText.slice(2)}`;
+                    }
+                });
+            })();
+
+            // --- MÓDULO: ANALISADOR DE ESTRUTURA (COMPLETO E FUNCIONAL) ---
+            (() => {
+                const analisadorPage = document.getElementById('analisador');
+                analisadorPage.innerHTML = `<div class="container">
+                    <h2>Analisador de Estrutura e Regras</h2>
+                    <div class="file-input-area">
+                        <div><label for="rulesFile" class="upload-label rules">1. Carregar Regras (rules.json)</label><input type="file" id="rulesFile" accept=".json"></div>
+                        <div><label for="spedFileAnalisador" class="upload-label">2. Selecionar SPED (.txt)</label><input type="file" id="spedFileAnalisador" accept=".txt" disabled></div>
+                        <div class="status" id="statusAnalisador">Aguardando arquivo de regras...</div>
+                    </div>
+                    <div id="dashboardAnalisador" style="display:none; margin-bottom: 20px;"></div>
+                    <div id="action-buttons-analisador" style="text-align: center;"><button class="action-button" id="analyzeButton" disabled>Analisar Arquivo</button></div>
+                    <div id="summaryAnalisador"></div>
+                    <div id="resultsAnalisador"></div>
+                </div>`;
+                
+                const statusAnalisador = document.getElementById('statusAnalisador');
+                const resultsAnalisador = document.getElementById('resultsAnalisador');
+                const summaryAnalisador = document.getElementById('summaryAnalisador');
+                const dashboardAnalisador = document.getElementById('dashboardAnalisador');
+                const analyzeButton = document.getElementById('analyzeButton');
+                const rulesFileInput = document.getElementById('rulesFile');
+                const spedFileInput = document.getElementById('spedFileAnalisador');
+
+                rulesFileInput.addEventListener('change', handleRulesFileSelect);
+                spedFileInput.addEventListener('change', handleSpedFileSelect);
+                analyzeButton.addEventListener('click', runAnalysis);
+                
+                function handleRulesFileSelect(event) {
+                    const file = event.target.files[0]; if (!file) return;
+                    statusAnalisador.textContent = `Carregando regras...`;
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            validationRules = JSON.parse(e.target.result);
+                            statusAnalisador.textContent = `${validationRules.length} regras carregadas. Selecione o arquivo SPED.`;
+                            spedFileInput.disabled = false;
+                        } catch (err) { statusAnalisador.textContent = 'Erro: Arquivo de regras inválido.'; }
+                    };
+                    reader.readAsText(file);
+                }
+                function handleSpedFileSelect(event) {
+                    const file = event.target.files[0]; if (!file) return;
+                    statusAnalisador.textContent = `Processando arquivo...`;
+                    resultsAnalisador.innerHTML = ''; summaryAnalisador.innerHTML = ''; dashboardAnalisador.style.display = 'none'; analyzeButton.disabled = true;
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {
+                        fileLinesAnalisador = e.target.result.split(/\r\n|\n/);
+                        try {
+                            const data = await processSpedFile(fileLinesAnalisador);
+                            updateExplorer(data);
+                            const line0000 = fileLinesAnalisador.find(line => line && line.startsWith('|0000|'));
+                            if (line0000) {
+                                populateDashboard(line0000);
+                                dashboardAnalisador.style.display = 'block';
+                                statusAnalisador.textContent = `Arquivo carregado. Pronto para análise e exploração.`;
+                                analyzeButton.disabled = false;
+                            } else { statusAnalisador.textContent = 'Erro: Arquivo SPED inválido.'; }
+                        } catch(err) { statusAnalisador.textContent = `Erro ao processar arquivo: ${err.message}`; console.error(err); }
+                    };
+                    reader.readAsText(file, 'latin1');
+                }
+                function populateDashboard(line0000) {
+                    const fields = line0000.split('|');
+                    const dashboardData = { 'Razão Social': fields[6], 'CNPJ': fields[7] ? fields[7].replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : 'N/A', 'Período': `${formatDate(fields[4])} a ${formatDate(fields[5])}` };
+                    let html = '<h3>Dashboard do Arquivo</h3>';
+                    for (const key in dashboardData) { html += `<div><strong>${key}:</strong> ${dashboardData[key]}</div>`; }
+                    dashboardAnalisador.innerHTML = html;
+                }
+                async function runAnalysis() {
+                    if (fileLinesAnalisador.length === 0 || validationRules.length === 0) return;
+                    statusAnalisador.textContent = 'Analisando...'; analyzeButton.disabled = true;
+                    setTimeout(async () => {
+                        try {
+                            const errors = await analyzeSpedForErrors(fileLinesAnalisador, validationRules);
+                            statusAnalisador.textContent = `Análise concluída: ${errors.length} problemas encontrados.`;
+                            displayResults(errors);
+                        } catch (e) {
+                            statusAnalisador.textContent = 'Ocorreu um erro inesperado durante a análise.'; console.error("Erro na análise:", e);
+                        } finally { analyzeButton.disabled = false; }
+                    }, 50);
+                }
+                async function analyzeSpedForErrors(lines, rules) {
+                    const errors = [];
+                    const context = { itemMap: new Map(), fuelMovements: new Map() };
+                    let current1300 = null, current1310 = null;
+                    lines.forEach((line, index) => {
+                        try {
+                            if (!line) return;
+                            const fields = line.split('|'); const reg = fields[1];
+                            if (reg === '0200') { context.itemMap.set(fields[2], { descr: fields[3], unid: fields[6] }); }
+                            if (reg === '1300') {
+                                const [ , , codItem, dtFech, estqAbert, volEntr, , volSaidas, estqEscr, perda, ganho, fechFisico] = fields;
+                                if (!context.fuelMovements.has(codItem)) context.fuelMovements.set(codItem, new Map());
+                                const dayData = {
+                                    line1300: index + 1, raw1300: line, estqAbert: parseFloatSped(estqAbert), volEntr: parseFloatSped(volEntr), volSaidas: parseFloatSped(volSaidas),
+                                    estqEscr: parseFloatSped(estqEscr), perda: parseFloatSped(perda), ganho: parseFloatSped(ganho), fechFisico: parseFloatSped(fechFisico), tanks: []
+                                };
+                                context.fuelMovements.get(codItem).set(dtFech, dayData);
+                                current1300 = dayData; current1310 = null;
+                            } else if (reg === '1310' && current1300) {
+                                const [ , , numTanque, estqAbert, volEntr, , volSaidas, estqEscr, perda, ganho, fechFisico] = fields;
+                                const tankData = {
+                                    line1310: index + 1, raw1310: line, numTanque, estqAbert: parseFloatSped(estqAbert), volEntr: parseFloatSped(volEntr), volSaidas: parseFloatSped(volSaidas),
+                                    estqEscr: parseFloatSped(estqEscr), perda: parseFloatSped(perda), ganho: parseFloatSped(ganho), fechFisico: parseFloatSped(fechFisico), bicos: []
+                                };
+                                current1300.tanks.push(tankData); current1310 = tankData;
+                            } else if (reg === '1320' && current1310) {
+                                current1310.bicos.push({ line1320: index + 1, raw1320: line, volVendas: parseFloatSped(fields[11]) });
+                            }
+                        } catch (e) { console.error(`Erro ao pré-processar linha ${index + 1}: ${line}`, e); }
+                    });
+                    for (const [codItem, dailyMovements] of context.fuelMovements.entries()) {
+                        let previousDayFechFisico = new Map();
+                        const sortedDates = Array.from(dailyMovements.keys()).sort((a, b) => new Date(a.slice(4), a.slice(2,4)-1, a.slice(0,2)) - new Date(b.slice(4), b.slice(2,4)-1, b.slice(0,2)));
+                        for (const dtFech of sortedDates) {
+                            const dayData = dailyMovements.get(dtFech);
+                            const sumTanksSaidas = dayData.tanks.reduce((sum, tank) => sum + tank.volSaidas, 0);
+                            if (Math.abs(sumTanksSaidas - dayData.volSaidas) > 0.01) { errors.push(createError(rules, context, 'WARN-1300-01', dayData.line1300, dayData.raw1300, 7, `Soma dos tanques (${sumTanksSaidas.toFixed(3)} L) diverge do total (${dayData.volSaidas.toFixed(3)} L).`, codItem, dtFech)); }
+                            for (const tank of dayData.tanks) {
+                                if (previousDayFechFisico.has(tank.numTanque)) {
+                                    const prevFech = previousDayFechFisico.get(tank.numTanque);
+                                    if (Math.abs(tank.estqAbert - prevFech) > 0.01) { errors.push(createError(rules, context, 'CRIT-1300-01', tank.line1310, tank.raw1310, 3, ``, codItem, dtFech, tank.numTanque, tank.estqAbert, prevFech)); }
+                                }
+                                const sumBicosVendas = tank.bicos.reduce((sum, bico) => sum + bico.volVendas, 0);
+                                if (Math.abs(sumBicosVendas - tank.volSaidas) > 0.01) { errors.push(createError(rules, context, 'WARN-1310-01', tank.line1310, tank.raw1310, 6, `Soma dos bicos (${sumBicosVendas.toFixed(3)} L) diverge do total (${tank.volSaidas.toFixed(3)} L).`, codItem, dtFech, tank.numTanque));}
+                                const totalMovimentado = tank.estqAbert + tank.volEntr;
+                                if(totalMovimentado > 0){
+                                    const variacao = Math.abs(tank.estqEscr - tank.fechFisico);
+                                    const percentual = (variacao / totalMovimentado) * 100;
+                                    if(percentual > 0.60){ errors.push(createError(rules, context, 'WARN-1310-02', tank.line1310, tank.raw1310, 10, percentual.toFixed(2), codItem, dtFech, tank.numTanque, tank.estqEscr, tank.fechFisico)); }
+                                }
+                                previousDayFechFisico.set(tank.numTanque, tank.fechFisico);
+                            }
+                        }
+                    }
+                    return errors.filter(e => e !== null);
+                }
+                function createError(rules, context, id, line, rawLine, fieldIdx, content, codItem, dtFech, tanque = '', val1 = 0, val2 = 0) {
+                    const rule = rules.find(r => r.id === id); if (!rule) return null;
+                    const itemInfo = context.itemMap.get(codItem) || { descr: `Combustível Cód. ${codItem}`};
+                    let detailsHtml = ``;
+                    if (id === 'CRIT-1300-01') {
+                         const diferenca = Math.abs(val2 - val1);
+                         detailsHtml = `<strong>Data:</strong> ${formatDate(dtFech)}<br><strong>Combustível:</strong> ${itemInfo.descr}<br><strong>Tanque:</strong> ${tanque}<br>
+                                         <strong>Estoque Final (Dia Anterior):</strong> ${val2.toFixed(3)} L<br><strong>Estoque Inicial (Informado):</strong> ${val1.toFixed(3)} L<br>
+                                         <strong style="color: #c0392b;">Diferença Apurada: ${diferenca.toFixed(3)} L</strong>`;
+                    } else if (id === 'WARN-1310-02'){
+                        const variacao = Math.abs(val1 - val2);
+                        detailsHtml = `<strong>Data:</strong> ${formatDate(dtFech)}<br><strong>Combustível:</strong> ${itemInfo.descr}<br><strong>Tanque:</strong> ${tanque}<br>
+                                         <strong>Estoque Escritural:</strong> ${val1.toFixed(3)} L<br><strong>Estoque de Fechamento Físico:</strong> ${val2.toFixed(3)} L<br>
+                                         <strong style="color: #d35400;">Variação Apurada: ${variacao.toFixed(3)} L (${content}%)</strong>`;
+                    } else {
+                        detailsHtml = `<strong>Data:</strong> ${formatDate(dtFech)}<br><strong>Combustível:</strong> ${itemInfo.descr}<br>`;
+                        if (tanque) detailsHtml += `<strong>Tanque:</strong> ${tanque}<br>`;
+                        detailsHtml += `<strong>Detalhe:</strong> ${content}`;
+                    }
+                    return { recordType: rawLine.split('|')[1], type: rule.tipo, title: rule.titulo, line: line, rawLine: rawLine, problematicField: { index: fieldIdx }, detailsHtml: detailsHtml, description: rule.descricao, correction: rule.sugestao };
+                }
+                function displayResults(errors) {
+                    resultsAnalisador.innerHTML = '<h2>Relatório de Análise</h2>';
+                    if (errors.length === 0) {
+                        resultsAnalisador.innerHTML = '<div style="padding:15px; background-color: #e8f4fd; border-left: 5px solid #3498db;">Nenhum erro encontrado.</div>';
+                        summaryAnalisador.innerHTML = ''; return;
+                    }
+                    const groupedErrors = errors.reduce((acc, error) => {
+                        const key = error.title; if (!acc[key]) acc[key] = []; acc[key].push(error); return acc;
+                    }, {});
+                    let totalCritical = 0, totalWarning = 0;
+                    const sortedKeys = Object.keys(groupedErrors).sort();
+                    let html = '';
+                    sortedKeys.forEach(errorTitle => {
+                        const groupErrors = groupedErrors[errorTitle];
+                        const hasCritical = groupErrors.some(e => e.type === 'CRITICAL');
+                        let criticalCount = groupErrors.filter(e => e.type === 'CRITICAL').length;
+                        let warningCount = groupErrors.filter(e => e.type === 'WARNING').length;
+                        let detailsHTML = '';
+                        groupErrors.forEach(error => {
+                            let highlightedLine = error.rawLine;
+                            if (error.problematicField && error.rawLine) {
+                                 const fields = error.rawLine.split('|');
+                                 if (fields[error.problematicField.index] !== undefined) { fields[error.problematicField.index] = `<span class="highlight">${fields[error.problematicField.index]}</span>`; }
+                                 highlightedLine = fields.join('|');
+                            }
+                            detailsHTML += `<div class="error-card"><div class="details">${error.detailsHtml}</div><div class="raw-line-container"><strong>Linha ${error.line}:</strong> ${highlightedLine}</div></div>`;
+                        });
+                        totalCritical += criticalCount; totalWarning += warningCount;
+                        html += `
+                            <div class="accordion-header ${hasCritical ? 'error' : 'warning'}" onclick="toggleAccordion('details-${errorTitle.replace(/[^a-zA-Z0-9]/g, '')}')">
+                                <strong>${errorTitle} (${groupErrors.length} ocorrências)</strong> 
+                            </div>
+                            <div class="accordion-details" id="details-${errorTitle.replace(/[^a-zA-Z0-9]/g, '')}">
+                                <div class="correction"><strong>Descrição:</strong> ${groupErrors[0].description}<br><strong>Ação Sugerida:</strong> ${groupErrors[0].correction}</div>
+                                ${detailsHTML}
+                            </div>`;
+                    });
+                    resultsAnalisador.innerHTML = html;
+                    summaryAnalisador.innerHTML = `<strong style="font-size:1.2em;">Resumo Geral:</strong> <span style="color: #c0392b; font-weight:bold;">${totalCritical} Erro(s) Crítico(s)</span> | <span style="color: #d35400; font-weight:bold;">${totalWarning} Advertência(s)</span>`;
+                }
+            })();
+        });
+    </script>
+</body>
+</html>
