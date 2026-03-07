@@ -1,23 +1,23 @@
 # Estágio 1: Build da aplicação
-FROM node:20-bullseye-slim AS build-stage
+FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Reduzir limite de memória para ser compatível com VPS menores (Ex: 1GB total)
-ENV NODE_OPTIONS="--max-old-space-size=768"
+# Garantir ambiente de desenvolvimento para baixar o Vite
 ENV NODE_ENV=development
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 # Copiar arquivos de dependência
 COPY package*.json ./
 
-# Instalação limpa ignorando scripts de telemetria
-RUN npm install --no-audit --no-fund --loglevel=error
+# Instalação limpa
+RUN npm install --loglevel=error
 
 # Copiar código-fonte
 COPY . .
 
-# Comando de build com captura de erro explícita no console da Hostinger
-RUN npm run build || (echo "ERRO CRÍTICO NO BUILD VITE:" && npm run build -- --logLevel error)
+# Comando de build com captura forçada de erro no terminal da Hostinger
+RUN npm run build > vite_build.log 2>&1 || (echo "--- INÍCIO DO LOG DE ERRO VITE ---" && cat vite_build.log && echo "--- FIM DO LOG DE ERRO VITE ---" && exit 1)
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
