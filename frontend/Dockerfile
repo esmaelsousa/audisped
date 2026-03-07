@@ -3,23 +3,22 @@ FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Garantir ambiente para build do Vite (devDependencies inclusas)
+# Ignorar o tratamento de warnings como erros fatais (Hostinger/CI)
+ENV CI=false
 ENV NODE_ENV=development
-
-# Reduzir RAM para caber em qualquer VPS (Evita ser morto pelo SO)
-ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 # Copiar arquivos de dependência
 COPY package*.json ./
 
-# Instalação limpa
-RUN npm install --loglevel=error
+# Instalação limpa GARANTINDO todas as ferramentas de build
+RUN npm install --include=dev --loglevel=error
 
-# Copiar código-fonte
+# Copiar o código completo
 COPY . .
 
-# Comando de build direto (sem redirecionar logs para garantir visibilidade se falhar)
-RUN npm run build
+# Comando de build direto usando npx para evitar caminhos relativos do npm
+RUN npx vite build
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage

@@ -6,16 +6,20 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    vue(), // <-- Esta é a linha que corrige o erro
+    vue(),
     tailwindcss(),
   ],
   server: {
-    host: true, // expõe para a rede local (0.0.0.0)
+    host: true,
     port: 5173,
   },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 2000, // Evita que avisos de pacotes grandes travem o build no Hostinger
+    reportCompressedSize: false // Desabilita o report de compressão para economizar CPU no build
   }
 })
