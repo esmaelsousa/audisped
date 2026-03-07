@@ -4,7 +4,7 @@ import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import VueApexCharts from "vue3-apexcharts";
 import { useRoute } from 'vue-router'
-import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque } from '../store'
+import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped } from '../store'
 import { Loader2 } from 'lucide-vue-next'
 
 const route = useRoute();

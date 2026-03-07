@@ -37,10 +37,18 @@ export function setAuth(newToken, newUsuario) {
     }
 }
 
+export function resetArquivoSped() {
+    arquivoInfo.value = null;
+    idArquivoSped.value = null;
+    localStorage.removeItem('arquivoInfo');
+    localStorage.removeItem('idArquivoSped');
+    auditErros.value = [];
+    auditResumoGerencial.value = null;
+    auditResumoEstoque.value = [];
+}
+
 export function logout() {
     setAuth('', null);
-    setArquivoInfo(null);
+    resetArquivoSped();
     setEmpresaSelecionada(null);
-    idArquivoSped.value = null;
-    localStorage.removeItem('idArquivoSped');
 }
