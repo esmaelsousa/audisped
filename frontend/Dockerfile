@@ -4,9 +4,10 @@ FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Configurações de ambiente para build verboso
-ENV NODE_ENV=development
-ENV CI=false
+# Configurações de ambiente para estabilidade de build
+ENV NODE_ENV=production
+ENV CI=true
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Diagnóstico de Ambiente Inicial
 RUN node -v && npm -v
@@ -15,17 +16,13 @@ RUN node -v && npm -v
 COPY package*.json ./
 
 # Instalação limpa das dependências
-RUN npm install --loglevel=info
-
-# Confirmar presença do executável do Vite
-RUN ls -la node_modules/.bin/vite
+RUN npm install
 
 # Copiar código-fonte completo
 COPY . .
 
-# Realizar o build para produção com REDIRECIONAMENTO TOTAL DE SAÍDA (stdout e stderr)
-# Usamos npx para garantir a localização correta do binário e evitar erros de caminho
-RUN npx vite build --logLevel info --debug 2>&1
+# Realizar o build para produção
+RUN npm run build
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
