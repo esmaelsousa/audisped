@@ -4,7 +4,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: audisped-backend:latest
+
     ports:
       - "15435:15435"
     env_file:
@@ -15,7 +15,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: audisped-frontend:latest
+
     ports:
       - "80:80"
     depends_on:
