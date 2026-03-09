@@ -1,23 +1,31 @@
-# Estágio 1: Build da aplicação (Sugerido pelo suporte Hostinger)
-FROM node:20-alpine AS build-stage
+# Estágio 1: Build da aplicação (Máxima Compatibilidade e Depuração)
+# Usando imagem completa do Node (Debian) para garantir suporte a binários nativos do Vite/Tailwind 4
+FROM node:20 AS build-stage
 
 WORKDIR /app
 
-# Configurações de ambiente para build
+# Configurações de ambiente para build verboso
 ENV NODE_ENV=development
 ENV CI=false
 
-# Copiar arquivos de dependência (lockfile sincronizado no Mac)
-COPY package.json package-lock.json ./
+# Diagnóstico de Ambiente Inicial
+RUN node -v && npm -v
 
-# Instalação rigorosa (npm ci é o padrão para ambientes de produção/CI na Hostinger)
-RUN npm ci
+# Copiar arquivos de dependência
+COPY package*.json ./
+
+# Instalação limpa das dependências
+RUN npm install --loglevel=info
+
+# Confirmar presença do executável do Vite
+RUN ls -la node_modules/.bin/vite
 
 # Copiar código-fonte completo
 COPY . .
 
-# Realizar o build para produção (Redirecionando stdout e stderr para garantir visibilidade no log)
-RUN npm run build 2>&1
+# Realizar o build para produção com REDIRECIONAMENTO TOTAL DE SAÍDA (stdout e stderr)
+# Usamos npx para garantir a localização correta do binário e evitar erros de caminho
+RUN npx vite build --logLevel info --debug 2>&1
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
