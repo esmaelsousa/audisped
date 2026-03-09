@@ -1395,7 +1395,15 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         const volumeAntigoTotal = dailyItems.reduce((acc, i) => acc + parseFloat(i.vol_saidas || 0), 0);
         const limitRatio = 0.0050;
 
-        const aberturaInicialConsolidada = parseFloat(dailyItems[0].estq_abert_ajustado ?? dailyItems[0].estq_abert ?? 0);
+        let aberturaInicialConsolidada = parseFloat(dailyItems[0].estq_abert_ajustado ?? dailyItems[0].estq_abert ?? 0);
+
+        // NOVA TRAVA: Blindagem contra Lixo do PDV (Ex: SPED com Estoque Negativo já no dia 01)
+        // O caso "CHAPADA_02_2026" começa com o dia 1 registrando -17L de estoque de fechamento. 
+        // O algoritmo matemático quebra por não aceitar estoques impossíveis.
+        if (aberturaInicialConsolidada < 0) {
+            logger.warn(`[MOTOR MATEMATICO] ATENÇÃO: Identificado Estoque Inicial Consolidado Negativo (${aberturaInicialConsolidada}L). Resetando sumariamente para 0.5L para viabilizar as cascatas.`);
+            aberturaInicialConsolidada = 0.5;
+        }
 
         let calcs = dailyItems.map(row => ({
             data_mov: row.data_mov,
@@ -2678,22 +2686,28 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let changesApplied = 0;
         let lastC100 = { numDoc: '', chvNfe: '' };
 
+        let encerrantesBombasMap = {}; // Rastreador global contínuo (Bico -> Último Encerrante Final)
+
         let pending1300 = null;
         let pending1310s = [];
+        let pending1320s = {}; // Dicionário de Bicos { "idxAfericao": [array of fields...], ... }
         let layoutVersion = '019'; // Default para 2025 e anteriores
 
         const flush1300Group = () => {
             if (!pending1300) return;
-            // Escreve a linha 1300 ajustada
-            res.write(pending1300.line + '\r\n');
 
             if (pending1310s.length === 0) {
+                // Se não há tanques/filhos, escreve a global diretamente
+                res.write(pending1300.line + '\r\n');
                 pending1300 = null;
                 return;
             }
 
             const { orig, novo } = pending1300;
             let sumAbert = 0, sumSaida = 0, sumPerda = 0, sumGanho = 0, sumEntr = 0;
+
+            // PASS 1: Totalizadores REAIS blindados pós-escudo ANP
+            let realAbert = 0, realEntr = 0, realDisp = 0, realSaida = 0, realEscr = 0, realPerda = 0, realGanho = 0, realFisico = 0;
 
             for (let i = 0; i < pending1310s.length; i++) {
                 let tk = pending1310s[i];
@@ -2703,7 +2717,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 let tOrigEntr = parseFloat((tk[4] || '0').replace(',', '.'));
                 let tOrigSaida = parseFloat((tk[6] || '0').replace(',', '.'));
 
-                // Proporções baseadas no movimento original por tanque
+                // Proporções baseadas no movimento original por estoque global
                 let pAbert = orig.abert > 0 ? (tOrigAbert / orig.abert) : (1 / pending1310s.length);
                 let pSaida = orig.saida > 0 ? (tOrigSaida / orig.saida) : (1 / pending1310s.length);
                 let pEntr = orig.entr > 0 ? (tOrigEntr / orig.entr) : (1 / pending1310s.length);
@@ -2711,20 +2725,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 let nAbert, nSaida, nPerda, nGanho, nEntr;
 
                 if (isLast) {
-                    // O último tanque absorve a diferença de arredondamento (Soma Zero Total)
                     nAbert = Number((novo.abert - sumAbert).toFixed(3));
                     nSaida = Number((novo.saida - sumSaida).toFixed(3));
                     nPerda = Number((novo.perda - sumPerda).toFixed(3));
                     nGanho = Number((novo.ganho - sumGanho).toFixed(3));
                     nEntr = Number((novo.entr - sumEntr).toFixed(3));
 
-                    // ESCUDO FINAL ANP NO EXPORT (Blindagem de Redirecionamento)
+                    // ESCUDO FINAL ANP NO EXPORT
                     let baseTanque = nAbert + nEntr;
                     let maxDesvioPermitido = baseTanque * 0.0055;
 
                     if (nPerda > maxDesvioPermitido) nPerda = Number(maxDesvioPermitido.toFixed(3));
                     if (nGanho > maxDesvioPermitido) nGanho = Number(maxDesvioPermitido.toFixed(3));
-
                 } else {
                     nAbert = Number((novo.abert * pAbert).toFixed(3));
                     nSaida = Number((novo.saida * pSaida).toFixed(3));
@@ -2732,14 +2744,50 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     nPerda = Number((novo.perda * pAbert).toFixed(3));
                     nGanho = Number((novo.ganho * pAbert).toFixed(3));
 
-                    sumAbert = Number((sumAbert + nAbert).toFixed(3));
-                    sumSaida = Number((sumSaida + nSaida).toFixed(3));
-                    sumPerda = Number((sumPerda + nPerda).toFixed(3));
-                    sumGanho = Number((sumGanho + nGanho).toFixed(3));
-                    sumEntr = Number((sumEntr + nEntr).toFixed(3));
+                    sumAbert += nAbert; sumSaida += nSaida; sumPerda += nPerda; sumGanho += nGanho; sumEntr += nEntr;
                 }
 
-                // Lógica de Identificação do Tanque + Capacidade para o Leiaute 020
+                // Saneamento contra heranças negativas
+                if (nAbert < 0) nAbert = 0.5;
+
+                let nDisp = Number((nAbert + nEntr).toFixed(3));
+                let nEscr = Number((nDisp - nSaida).toFixed(3));
+                let nFisico = Number((nEscr - nPerda + nGanho).toFixed(3));
+
+                if (nFisico < 0) {
+                    nFisico = Math.max(0, nEscr);
+                }
+
+                tk._curated = { nAbert, nEntr, nDisp, nSaida, nEscr, nPerda, nGanho, nFisico, tOrigSaida };
+
+                realAbert += nAbert;
+                realEntr += nEntr;
+                realDisp += nDisp;
+                realSaida += nSaida;
+                realEscr += nEscr;
+                realPerda += nPerda;
+                realGanho += nGanho;
+                realFisico += nFisico;
+            }
+
+            // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
+            let fields1300 = pending1300.line.split('|');
+            fields1300[4] = realAbert.toFixed(3).replace('.', ',');
+            fields1300[5] = realEntr.toFixed(3).replace('.', ',');
+            fields1300[6] = realDisp.toFixed(3).replace('.', ',');
+            fields1300[7] = realSaida.toFixed(3).replace('.', ',');
+            fields1300[8] = realEscr.toFixed(3).replace('.', ',');
+            fields1300[9] = realPerda.toFixed(3).replace('.', ',');
+            fields1300[10] = realGanho.toFixed(3).replace('.', ',');
+            fields1300[11] = realFisico.toFixed(3).replace('.', ',');
+
+            res.write(fields1300.join('|') + '\r\n');
+
+            // PASS 3: Imprime os tanques 1310 e a cascata de Bicos 1320 atrelados
+            for (let i = 0; i < pending1310s.length; i++) {
+                let tk = pending1310s[i];
+                let curated = tk._curated;
+
                 let tanqueCod = tk[2];
                 let capTanque = 0;
                 if (mapCapacidades && mapCapacidades.has(tanqueCod)) {
@@ -2748,39 +2796,73 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     capTanque = mapCapacidades.get(pending1300.orig.codItem) || 0;
                 }
 
-                // Cálculo do disponível e final usando APENAS valores já arredondados (Efeito Calculadora)
-                let nDisp = Number((nAbert + nEntr).toFixed(3));
-                let nEscr = Number((nDisp - nSaida).toFixed(3));
-                let nFisico = Number((nEscr - nPerda + nGanho).toFixed(3));
-
-                if (nFisico < 0) nFisico = 0;
-
-                // Formatação rigorosa dos campos de estoque (Efeito Calculadora)
-                tk[3] = nAbert.toFixed(3).replace('.', ',');
-                tk[4] = nEntr.toFixed(3).replace('.', ',');
-                tk[5] = nDisp.toFixed(3).replace('.', ',');
-                tk[6] = nSaida.toFixed(3).replace('.', ',');
-                tk[7] = nEscr.toFixed(3).replace('.', ',');
-                tk[8] = nPerda.toFixed(3).replace('.', ',');
-                tk[9] = nGanho.toFixed(3).replace('.', ',');
-                tk[10] = nFisico.toFixed(3).replace('.', ',');
+                tk[3] = curated.nAbert.toFixed(3).replace('.', ',');
+                tk[4] = curated.nEntr.toFixed(3).replace('.', ',');
+                tk[5] = curated.nDisp.toFixed(3).replace('.', ',');
+                tk[6] = curated.nSaida.toFixed(3).replace('.', ',');
+                tk[7] = curated.nEscr.toFixed(3).replace('.', ',');
+                tk[8] = curated.nPerda.toFixed(3).replace('.', ',');
+                tk[9] = curated.nGanho.toFixed(3).replace('.', ',');
+                tk[10] = curated.nFisico.toFixed(3).replace('.', ',');
 
                 if (layoutVersion === '020') {
-                    // Layout 020 (Ato COTEPE 79/2025): 11 campos de dados + 2 pipes vazios laterais (Length = 13)
                     tk[11] = capTanque > 0 ? Math.round(capTanque).toString() : '';
                     tk.length = 13;
                     tk[12] = '';
                 } else {
-                    // Layout 019 ou anterior: 10 campos de dados + 2 pipes vazios laterais (Length = 12)
                     tk.length = 12;
                     tk[11] = '';
                 }
 
                 res.write(tk.join('|') + '\r\n');
+
+                // Sincronização e gravação do 1320
+                let bicosDesteTanque = pending1320s[tanqueCod] || [];
+                let fatorOtimizacao = 1;
+                if (curated.tOrigSaida > 0) {
+                    fatorOtimizacao = curated.nSaida / curated.tOrigSaida;
+                }
+
+                let volBicoAcumulado = 0;
+                for (let b = 0; b < bicosDesteTanque.length; b++) {
+                    let bFields = bicosDesteTanque[b];
+                    let isUltimoBico = (b === bicosDesteTanque.length - 1);
+
+                    let bicoNum = bFields[2];
+
+                    let volBicoOriginal = parseFloat((bFields[11] || '0').replace(',', '.'));
+                    let volBicoCalculado = 0;
+
+                    if (isUltimoBico) {
+                        volBicoCalculado = Number((curated.nSaida - volBicoAcumulado).toFixed(3));
+                        if (volBicoCalculado < 0) volBicoCalculado = 0;
+                    } else {
+                        volBicoCalculado = Number((volBicoOriginal * fatorOtimizacao).toFixed(3));
+                        volBicoAcumulado += volBicoCalculado;
+                    }
+
+                    bFields[11] = volBicoCalculado.toFixed(3).replace('.', ',');
+
+                    let volAferido = parseFloat((bFields[10] || '0').replace(',', '.'));
+                    let encInicialOriginal = parseFloat((bFields[9] || '0').replace(',', '.'));
+                    let encInicialReal = encerrantesBombasMap[bicoNum] !== undefined
+                        ? encerrantesBombasMap[bicoNum]
+                        : encInicialOriginal;
+
+                    bFields[9] = encInicialReal.toFixed(3).replace('.', ',');
+
+                    let encFinalNovo = Number((encInicialReal + volBicoCalculado + volAferido).toFixed(3));
+                    bFields[8] = encFinalNovo.toFixed(3).replace('.', ',');
+
+                    encerrantesBombasMap[bicoNum] = encFinalNovo;
+
+                    res.write(bFields.join('|') + '\r\n');
+                }
             }
 
             pending1300 = null;
             pending1310s = [];
+            pending1320s = {};
         };
 
         for await (const line of rl) {
@@ -2824,8 +2906,15 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         const aj = mapAjustes.get(key);
                         changesApplied++;
 
+                        // PROTEÇÃO: O arquivo base pode ter lixo negativo (-17L), nós forçamos a sanidade.
                         let novoAbert = Number(oldAbert.toFixed(3));
-                        if (aj.estq_abert_ajustado !== null) novoAbert = Number(parseFloat(aj.estq_abert_ajustado).toFixed(3));
+                        if (aj.estq_abert_ajustado !== null) {
+                            novoAbert = Number(parseFloat(aj.estq_abert_ajustado).toFixed(3));
+                        }
+                        // Saneador Final: Exportação nunca grava estoque virtual de abertura negativo
+                        if (novoAbert < 0) {
+                            novoAbert = 0.5;
+                        }
                         fields[4] = novoAbert.toFixed(3).replace('.', ',');
 
                         let entr = Number(oldEntr.toFixed(3));
@@ -2852,7 +2941,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         if (aj.val_ganho_ajustado !== null) novoGanho = Number(parseFloat(aj.val_ganho_ajustado).toFixed(3));
                         fields[10] = novoGanho.toFixed(3).replace('.', ',');
 
-                        const fisico = Number((escr - novoPerda + novoGanho).toFixed(3));
+                        let fisico = Number((escr - novoPerda + novoGanho).toFixed(3));
+                        // Saneador Final: O banco já protegeu, mas a aritmética flutuante no exportador pode errar a última casa decimal
+                        if (fisico < 0) fisico = Math.max(0, escr);
+
                         fields[11] = fisico.toFixed(3).replace('.', ',');
 
                         if (fields.length < 13) while (fields.length < 13) fields.push('');
@@ -2875,7 +2967,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 continue;
             }
 
-            // Qualquer outro bloco (ou 1310 sem modificação no 1300), libera buffer primeiro
+            // --- BLOCO 1320 (Aferição e Bicos atrelados ao 1310 anterior) ---
+            if (fields.length >= 2 && fields[1] === '1320' && pending1300) {
+                // Pega o número do tanque lido no último registro 1310 armazenado com sucesso
+                if (pending1310s.length > 0) {
+                    let lastTanqueNum = pending1310s[pending1310s.length - 1][2];
+                    if (!pending1320s[lastTanqueNum]) pending1320s[lastTanqueNum] = [];
+                    pending1320s[lastTanqueNum].push(fields);
+                }
+                continue;
+            }
+
+            // Qualquer outro bloco (ou bloco que não esteja vinculado à modificação no 1300), libera buffer primeiro
             flush1300Group();
             // Ajuste C100
             if (fields.length >= 2 && fields[1] === 'C100') {
