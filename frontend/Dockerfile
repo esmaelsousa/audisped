@@ -16,8 +16,8 @@ RUN npm ci
 # Copiar código-fonte completo
 COPY . .
 
-# Realizar o build para produção
-RUN npm run build
+# Realizar o build para produção (Redirecionando stdout e stderr para garantir visibilidade no log)
+RUN npm run build 2>&1
 
 # Estágio 2: Servir os arquivos com Nginx
 FROM nginx:stable-alpine AS production-stage
