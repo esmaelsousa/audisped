@@ -15,6 +15,10 @@ const { logEmitter } = require('./logger'); // Importa o emissor de logs
 const ExcelJS = require('exceljs');
 const path = require('path');
 const xml2js = require('xml2js');
+const sefazService = require('./services/sefazService');
+const mdeService = require('./services/mdeService');
+const espiaoNfeService = require('./services/espiaoNfeService');
+const { runOptimization } = require('./test_optimize');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -96,6 +100,44 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+    const dbClient = await pool.connect();
+    try {
+        const query = 'SELECT id, nome, email FROM usuarios WHERE id = $1';
+        const result = await dbClient.query(query, [req.user.id]);
+        if (result.rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar dados do usuário.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.put('/api/auth/profile', authMiddleware, async (req, res) => {
+    const { nome, email, senha } = req.body;
+    const dbClient = await pool.connect();
+    try {
+        let query;
+        let params;
+        if (senha) {
+            const hashedPassword = await bcrypt.hash(senha, 10);
+            query = 'UPDATE usuarios SET nome = $1, email = $2, senha = $3 WHERE id = $4 RETURNING id, nome, email';
+            params = [nome, email, hashedPassword, req.user.id];
+        } else {
+            query = 'UPDATE usuarios SET nome = $1, email = $2 WHERE id = $3 RETURNING id, nome, email';
+            params = [nome, email, req.user.id];
+        }
+        const result = await dbClient.query(query, params);
+        res.json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') return res.status(400).json({ message: 'Email já está em uso por outro usuário.' });
+        res.status(500).json({ message: 'Erro ao atualizar perfil.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 app.post('/api/auth/login', async (req, res) => {
     const { email, senha } = req.body;
     const dbClient = await pool.connect();
@@ -116,6 +158,239 @@ app.post('/api/auth/login', async (req, res) => {
         dbClient.release();
     }
 });
+
+// --- ROTAS PARA GESTÃO DE CFOPS ---
+app.get('/api/cfops', authMiddleware, async (req, res) => {
+    const dbClient = await pool.connect();
+    try {
+        const result = await dbClient.query('SELECT * FROM cad_cfops ORDER BY codigo ASC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar CFOPs.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.post('/api/cfops', authMiddleware, async (req, res) => {
+    const { codigo, descricao, tipo = 'entrada' } = req.body;
+    if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
+
+    const dbClient = await pool.connect();
+    try {
+        const query = 'INSERT INTO cad_cfops (codigo, descricao, tipo) VALUES ($1, $2, $3) RETURNING *';
+        const result = await dbClient.query(query, [codigo, descricao, tipo]);
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') return res.status(400).json({ message: 'CFOP já cadastrado.' });
+        res.status(500).json({ message: 'Erro ao cadastrar CFOP.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('DELETE FROM cad_cfops WHERE id = $1', [req.params.id]);
+        res.json({ message: 'CFOP excluído com sucesso.' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao excluir CFOP.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// --- ROTAS DO MANIFESTO DE DESTINATÁRIO (MD-e) ---
+app.get('/api/mde/sync/:id_empresa', authMiddleware, async (req, res) => {
+    try {
+        const result = await mdeService.syncNotas(req.params.id_empresa);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao sincronizar notas.', error: err.message });
+    }
+});
+
+app.get('/api/mde/notas/:id_empresa', authMiddleware, async (req, res) => {
+    const dbClient = await pool.connect();
+    const { inicio, fim } = req.query;
+    try {
+        let query = 'SELECT * FROM mde_cache WHERE id_empresa = $1';
+        let params = [req.params.id_empresa];
+        let pIdx = 2;
+
+        if (inicio) {
+            query += ` AND data_emissao >= $${pIdx++}`;
+            params.push(inicio);
+        }
+        if (fim) {
+            query += ` AND data_emissao <= $${pIdx++}`;
+            params.push(`${fim} 23:59:59`);
+        }
+
+        query += ' ORDER BY data_emissao DESC';
+        const result = await dbClient.query(query, params);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar notas.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+
+app.get('/api/mde/xml/:chave_nfe', authMiddleware, async (req, res) => {
+    const dbClient = await pool.connect();
+    try {
+        const result = await dbClient.query(`
+            SELECT xml_content FROM mde_cache 
+            WHERE chave_nfe = $1
+        `, [req.params.chave_nfe]);
+        
+        if (result.rows.length === 0 || !result.rows[0].xml_content) {
+            return res.status(404).json({ message: 'XML não encontrado ou ainda não baixado.' });
+        }
+        
+        res.json({ xml: result.rows[0].xml_content });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar XML.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.post('/api/mde/manifestar', authMiddleware, async (req, res) => {
+    const { id_empresa, chave_nfe, evento } = req.body;
+    try {
+        const result = await mdeService.manifestar(id_empresa, chave_nfe, evento);
+        res.json(result);
+    } catch (err) {
+        const isBusinessError = err.statusCode === 422 || err.message.includes('não localizou') || err.message.includes('Notas de saída');
+        res.status(isBusinessError ? 422 : 500).json({ message: err.message, error: err.message });
+    }
+});
+
+app.post('/api/mde/importar-chave', authMiddleware, async (req, res) => {
+    const { id_empresa, chave } = req.body;
+    try {
+        // Se houver vírgula ou espaço, trata como lote via Espião
+        if (chave.includes(',') || chave.includes(' ') || chave.includes('\n')) {
+            const result = await espiaoNfeService.importarChavesLote(id_empresa, chave);
+            return res.json(result);
+        }
+        
+        const result = await mdeService.importarChave(id_empresa, chave);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao importar nota por chave.', error: err.message });
+    }
+});
+app.post('/api/mde/delete-notas', authMiddleware, async (req, res) => {
+    const { id_empresa, chaves } = req.body;
+    if (!id_empresa || !chaves || !Array.isArray(chaves) || chaves.length === 0) {
+        return res.status(400).json({ message: 'Empresa e lista de chaves são obrigatórias.' });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        const query = 'DELETE FROM mde_cache WHERE id_empresa = $1 AND chave_nfe = ANY($2)';
+        const result = await dbClient.query(query, [id_empresa, chaves]);
+        await dbClient.query('COMMIT');
+        res.json({ message: `${result.rowCount} nota(s) excluída(s) com sucesso.` });
+    } catch (err) {
+        await dbClient.query('ROLLBACK');
+        res.status(500).json({ message: 'Erro ao excluir notas.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// --- ROTAS DO ESPIÃO NFE ---
+app.get('/api/espiao/sync/:id_empresa', authMiddleware, async (req, res) => {
+    const { id_empresa } = req.params;
+    const { inicio, fim } = req.query;
+    try {
+        const result = await espiaoNfeService.syncNotas(id_empresa, inicio || null, fim || null);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao sincronizar via EspiãoNFe.', error: err.message });
+    }
+});
+
+app.get('/api/espiao/notas/:id_empresa', authMiddleware, async (req, res) => {
+    try {
+        const notas = await espiaoNfeService.getNotas(req.params.id_empresa, req.query);
+        res.json(notas);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar notas do EspiãoNFe.', error: err.message });
+    }
+});
+
+app.post('/api/espiao/importar-lote', authMiddleware, async (req, res) => {
+    const { id_empresa, chaves } = req.body;
+    try {
+        const result = await espiaoNfeService.importarChavesLote(id_empresa, chaves);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao importar lote de chaves.', error: err.message });
+    }
+});
+
+app.post('/api/espiao/conferir-sped', authMiddleware, async (req, res) => {
+    const { id_empresa, chaves } = req.body;
+    try {
+        const result = await espiaoNfeService.conferirFaltantes(id_empresa, chaves);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao conferir chaves do Sped.', error: err.message });
+    }
+});
+
+app.post('/api/espiao/download-zip', authMiddleware, async (req, res) => {
+    const { id_empresa, chaves } = req.body;
+    try {
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', 'attachment; filename="xmls.zip"');
+        await espiaoNfeService.downloadBatchZip(id_empresa, chaves, res);
+    } catch (err) {
+        if (!res.headersSent) {
+            res.status(500).json({ message: 'Erro ao gerar ZIP de download.', error: err.message });
+        }
+    }
+});
+
+app.get('/api/espiao/download-xml/:id_empresa/:chave', authMiddleware, async (req, res) => {
+    const { id_empresa, chave } = req.params;
+    try {
+        const xml = await espiaoNfeService.downloadXml(id_empresa, chave);
+        res.set('Content-Type', 'text/xml');
+        res.send(xml);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao baixar XML.', error: err.message });
+    }
+});
+
+app.post('/api/mde/certificado', authMiddleware, async (req, res) => {
+    const { id_empresa, pfx_base64, senha, nsu, periodicidade } = req.body;
+    try {
+        const result = await mdeService.saveCertificado(id_empresa, pfx_base64, senha, nsu, periodicidade);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+app.get('/api/mde/certificado/:id_empresa', authMiddleware, async (req, res) => {
+    try {
+        const result = await mdeService.getStatusCertificado(req.params.id_empresa);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao buscar status do certificado.' });
+    }
+});
+
+
 
 const upload = multer({ dest: uploadDir });
 
@@ -260,183 +535,745 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
     }
 });
 
+// ==============================================================================
+//  ROTA: /api/arquivos/analisar-sintaxe (Validador Fiscal Rápido)
+//  Objetivo: Varrer o arquivo e aplicar heurísticas da Malha Fina sem gravar no DB
+// ==============================================================================
+app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file'), async (req, res) => {
+    try {
+        let filePath;
+        const { id_arquivo } = req.body;
+
+        if (id_arquivo) {
+            const dbRes = await pool.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id = $1', [id_arquivo]);
+            if (dbRes.rows.length === 0) return res.status(404).send({ message: "Arquivo não encontrado para análise automática." });
+            filePath = dbRes.rows[0].caminho_arquivo;
+        } else if (req.file) {
+            filePath = req.file.path;
+        } else {
+            return res.status(400).send({ message: "Nenhum arquivo ou ID enviado para análise sintática." });
+        }
+
+        logger.info(`Iniciando Validação de Malha Fina Sintática: ${filePath}`);
+
+        const fileBuffer = fs.readFileSync(filePath, 'latin1');
+        const lines = fileBuffer.split(/\r?\n/);
+
+        let infractions = {
+            c100_valores_divergentes: [],
+            c100_sem_c190: [],
+            c100_saltos_enumeracao: [],
+            h010_divergente_1300: [],
+            cfop_suspeitos: []
+        };
+
+        // Cache state machines durante leitura sequencial
+        let activeC100 = null;
+        let activeC190Sum = 0;
+        let lastC100NfeNumber = null;
+
+        let lastLmcFisico = 0;
+        let inventarioH010Fisico = 0;
+
+        // Mapa de Produtos (COD_ITEM -> { descr, ncm, cest })
+        const produtoMap = new Map();
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const parts = line.split('|');
+
+            // --- Bloco 0: Cadastros ---
+            if (parts[1] === '0200') {
+                const cod = parts[2];
+                const descr = parts[3];
+                const ncm = (parts[8] || '').trim();
+                produtoMap.set(cod, { descr, ncm });
+
+                if (!ncm || ncm.length < 8) {
+                    infractions.cfop_suspeitos.push({
+                        linha: i + 1,
+                        alerta: `Produto [${cod}] ${descr} está com NCM inválido ou ausente: ${ncm || 'VAZIO'}`
+                    });
+                }
+            }
+
+            // --- Bloco 1: LMC (Pegar ultimo fisico do periodo) ---
+            if (parts[1] === '1300') {
+                // Em SPED, podem haver varios 1300, vamos guardar e reescrever o ultimo do mes
+                let fisicoStr = parts[11];
+                if (fisicoStr) lastLmcFisico = parseFloat(fisicoStr.replace(',', '.'));
+            }
+
+            // --- Bloco H: Inventário ---
+            if (parts[1] === 'H010') {
+                // Identifica combustiveis pelo COD_ITEM
+                inventarioH010Fisico += parseFloat((parts[4] || '0').replace(',', '.'));
+            }
+
+            // --- Bloco C: Documentos (NFE e NFCe) ---
+            if (parts[1] === 'C100') {
+                // Ao abrir um novo C100, checar se o Anterior fechou a matemática com seus C190 filhos
+                if (activeC100) {
+                    if (Math.abs(activeC100.vl_doc - activeC190Sum) > 1.0) {
+                        infractions.c100_valores_divergentes.push({
+                            linha: activeC100.linha,
+                            num_doc: activeC100.num_doc,
+                            valor_capa: activeC100.vl_doc,
+                            soma_c190: activeC190Sum,
+                            diferenca: (activeC100.vl_doc - activeC190Sum).toFixed(2)
+                        });
+                    }
+                    if (activeC190Sum === 0 && activeC100.vl_doc > 0) {
+                        infractions.c100_sem_c190.push({ linha: activeC100.linha, num_doc: activeC100.num_doc });
+                    }
+                }
+
+                // Iniciar escopo do novo C100
+                const num_doc = parts[8];
+                const vl_doc = parseFloat((parts[12] || '0').replace(',', '.'));
+
+                // Quebra/Salto de Nfe
+                let currNum = parseInt(num_doc, 10);
+                if (lastC100NfeNumber && (currNum - lastC100NfeNumber > 1) && (currNum - lastC100NfeNumber < 50)) {
+                    // Ex: pulou do 150 pro 155
+                    infractions.c100_saltos_enumeracao.push({
+                        ultimo_visto: lastC100NfeNumber,
+                        salto_identificado: currNum
+                    });
+                }
+                lastC100NfeNumber = currNum;
+
+                activeC100 = { linha: i + 1, num_doc, vl_doc };
+                activeC190Sum = 0; // zera pro novo pai
+            }
+
+            // --- Itens Diários e Totalizador C190 ---
+            if (parts[1] === 'C190') {
+                let vl_opr = parseFloat((parts[5] || '0').replace(',', '.'));
+                let cfop = parts[3];
+                let cst = parts[2];
+                activeC190Sum += vl_opr;
+
+                // Heurística de CFOP de Devolução x CST
+                if (['1202', '2202', '1411'].includes(cfop) && cst === '060') {
+                    infractions.cfop_suspeitos.push({
+                        linha: i + 1,
+                        nf: activeC100 ? activeC100.num_doc : 'Desconhecida',
+                        alerta: `CFOP ${cfop} de devolução requer CST tributado, encontrado CST ${cst}`
+                    });
+                }
+            }
+        }
+
+        // Finaliza o loop checando o último C100 q ficou aberto
+        if (activeC100) {
+            if (Math.abs(activeC100.vl_doc - activeC190Sum) > 1.0) {
+                infractions.c100_valores_divergentes.push({
+                    linha: activeC100.linha, num_doc: activeC100.num_doc,
+                    valor_capa: activeC100.vl_doc, soma_c190: activeC190Sum,
+                    diferenca: (activeC100.vl_doc - activeC190Sum).toFixed(2)
+                });
+            }
+        }
+
+        // Cruzamento 1300 vs H010
+        if (lastLmcFisico > 0 && inventarioH010Fisico > 0) {
+            if (Math.abs(lastLmcFisico - inventarioH010Fisico) > 0.5) {
+                infractions.h010_divergente_1300.push({
+                    erro: "Inventário (Bloco H) difere do último Estoque Físico de LMC Mês (1300)",
+                    estoque_lmc: lastLmcFisico,
+                    estoque_inventario: inventarioH010Fisico,
+                    diferenca: (lastLmcFisico - inventarioH010Fisico).toFixed(3)
+                });
+            }
+        }
+
+        res.status(200).send({
+            message: "Análise Sintática finalizada",
+            infractions
+        });
+
+    } catch (error) {
+        logger.error('Erro ao analisar sintaxe do arquivo: ', error);
+        res.status(500).send({ message: "Erro ao processar auditoria estática.", error: error.message });
+    }
+});
+
+
 // --- ROTA DE PARSER DE XMLs (INJETOR SPED FASE 1) ---
+
+const parseValorNFe = (val) => {
+    if (val === undefined || val === null) return 0;
+    if (typeof val === 'number') return val;
+    const cleanStr = String(val).replace(',', '.').trim();
+    const parsed = parseFloat(cleanStr);
+    return isNaN(parsed) ? 0 : parsed;
+};
+
+// --- HELPER PARA EXTRAIR DADOS DO XML DA NF-e ---
+const extractNfeData = (nfeNode) => {
+    if (!nfeNode || !nfeNode.infNFe) return null;
+    const inf = nfeNode.infNFe;
+    const ide = inf.ide;
+    const emit = inf.emit;
+    const dest = inf.dest;
+
+    // Tenta múltiplos caminhos para o nó de totais (compatibilidade com diferentes versões de NF-e)
+    const totalBlock = inf.total || {};
+    const total = totalBlock.ICMSTot || totalBlock.totNFe || totalBlock.Tot || totalBlock || {};
+
+    let detArray = inf.det || [];
+    if (!Array.isArray(detArray)) detArray = [detArray];
+
+    const itens = detArray.filter(det => det && det.prod).map(det => {
+        const prod = det.prod;
+        const imposto = det.imposto;
+        
+        // Extração básica de impostos
+        let cstIcms = '000';
+        let vBC = 0, pICMS = 0, vICMS = 0;
+        let vBCST = 0, vICMSST = 0;
+        let vIPI = 0, cstIPI = '99';
+
+        if (imposto?.ICMS) {
+            const icmsNode = Object.values(imposto.ICMS)[0];
+            if (icmsNode && typeof icmsNode === 'object') {
+                cstIcms = icmsNode.CST || icmsNode.CSOSN || '000';
+                vBC = parseValorNFe(icmsNode.vBC);
+                pICMS = parseValorNFe(icmsNode.pICMS);
+                vICMS = parseValorNFe(icmsNode.vICMS);
+                vBCST = parseValorNFe(icmsNode.vBCST);
+                vICMSST = parseValorNFe(icmsNode.vICMSST);
+                // Adicionando FCP e FCPST
+                const vFCP = parseValorNFe(icmsNode.vFCP);
+                const vFCPST = parseValorNFe(icmsNode.vFCPST);
+                vICMS += vFCP; // No SPED, vICMS costuma englobar vFCP se for para o mesmo CST
+                vICMSST += vFCPST;
+            }
+        }
+
+        let vBCIPI = 0, pIPI = 0;
+        if (imposto?.IPI?.IPITrib) {
+            vIPI = parseValorNFe(imposto.IPI.IPITrib.vIPI);
+            vBCIPI = parseValorNFe(imposto.IPI.IPITrib.vBC);
+            pIPI = parseValorNFe(imposto.IPI.IPITrib.pIPI);
+            cstIPI = imposto.IPI.IPITrib.CST || '99';
+        }
+
+        const pisNode = imposto?.PIS?.PISAliq || imposto?.PIS?.PISNT || imposto?.PIS?.PISOutr || {};
+        const cofinsNode = imposto?.COFINS?.COFINSAliq || imposto?.COFINS?.COFINSNT || imposto?.COFINS?.COFINSOutr || {};
+
+        return {
+            num_item: det.$?.nItem || '0',
+            cod_item: prod.cProd,
+            descr_item: prod.xProd,
+            ncm: prod.NCM || prod.ncm || '',
+            cfop: prod.CFOP,
+            ucom: prod.uCom || 'UN',
+            qcom: parseValorNFe(prod.qCom),
+            vuncom: parseValorNFe(prod.vUnCom),
+            vprod: parseValorNFe(prod.vProd),
+            vdesc: parseValorNFe(prod.vDesc),
+            voutro: parseValorNFe(prod.vOutro),
+            vfrete: parseValorNFe(prod.vFrete),
+            vseg: parseValorNFe(prod.vSeg),
+            vunid: parseValorNFe(prod.vUnCom),
+            cst_icms: cstIcms,
+            vbc_icms: vBC,
+            vicms: vICMS,
+            picms: pICMS,
+            vbc_icms_st: vBCST,
+            vicms_st: vICMSST,
+            cst_ipi: cstIPI,
+            vbc_ipi: vBCIPI,
+            pipi: pIPI,
+            vipi: vIPI,
+            cst_pis: pisNode.CST || '07',
+            vbc_pis: parseValorNFe(pisNode.vBC),
+            ppis: parseValorNFe(pisNode.pPIS),
+            vpis: parseValorNFe(pisNode.vPIS),
+            cst_cofins: cofinsNode.CST || '07',
+            vbc_cofins: parseValorNFe(cofinsNode.vBC),
+            pcofins: parseValorNFe(cofinsNode.pCOFINS),
+            vcofins: parseValorNFe(cofinsNode.vCOFINS),
+            vipidevol: parseValorNFe(prod.vIPIDevol || det.impostoDevol?.IPI?.vIPIDevol)
+        };
+    });
+
+    // Calcula vl_doc do bloco total; se vier zerado ou indefinido, soma os itens como fallback
+    let vlDocFromTotal = parseValorNFe(total.vNF);
+    let vlMercFromTotal = parseValorNFe(total.vProd);
+
+    if (!vlDocFromTotal || vlDocFromTotal === 0) {
+        // Fallback: soma itens (vProd - vDesc + vFrete + vSeg + vOutro + vIPI + vICMSST + vFCP + vIPIDevol)
+        vlDocFromTotal = itens.reduce((acc, it) => {
+            return acc + 
+                (it.vprod || 0) - 
+                (it.vdesc || 0) + 
+                (it.vfrete || 0) + 
+                (it.vseg || 0) + 
+                (it.voutro || 0) + 
+                (it.vipi || 0) + 
+                (it.vicms_st || 0) +
+                (it.vipidevol || 0);
+        }, 0);
+        console.warn(`[extractNfeData] vl_doc do bloco total era 0 ou ausente. Calculado via soma de itens: ${vlDocFromTotal.toFixed(2)}`);
+    }
+    if (!vlMercFromTotal || vlMercFromTotal === 0) {
+        vlMercFromTotal = itens.reduce((acc, it) => acc + it.vprod, 0);
+    }
+
+    return {
+        emitente: {
+            cnpj: emit.CNPJ || emit.CPF,
+            nome: emit.xNome,
+            ie: emit.IE,
+            cod_mun: emit.enderEmit?.cMun,
+            x_lgr: emit.enderEmit?.xLgr || '',
+            nro: emit.enderEmit?.nro || '',
+            x_cpl: emit.enderEmit?.xCpl || '',
+            x_bairro: emit.enderEmit?.xBairro || ''
+        },
+        destinatario: {
+            cnpj: dest?.CNPJ || dest?.CPF,
+            nome: dest?.xNome
+        },
+        c100: {
+            chv_nfe: inf.$.Id?.replace('NFe', ''),
+            num_doc: ide.nNF,
+            serie: ide.serie,
+            mod: ide.mod || '55',
+            dt_doc: ide.dhEmi ? ide.dhEmi.substring(0, 10) : '',
+            dt_e_s: ide.dhSaiEnt ? ide.dhSaiEnt.substring(0, 10) : (ide.dhEmi ? ide.dhEmi.substring(0, 10) : ''),
+            vl_doc: vlDocFromTotal,
+            vl_merc: vlMercFromTotal,
+            vl_desc: parseValorNFe(total.vDesc),
+            vl_outros: parseValorNFe(total.vOutro),
+            vl_frete: parseValorNFe(total.vFrete),
+            vl_seguro: parseValorNFe(total.vSeg),
+            vl_bc_icms: parseValorNFe(total.vBC),
+            vl_icms: parseValorNFe(total.vICMS),
+            vl_bc_st: parseValorNFe(total.vBCST),
+            vl_icms_st: parseValorNFe(total.vST),
+            vl_ipi: parseValorNFe(total.vIPI),
+            vl_pis: parseValorNFe(total.vPIS),
+            vl_cofins: parseValorNFe(total.vCOFINS),
+            ind_pgto: ide.indPag || '0', 
+            ind_emit: '1', 
+            ind_oper: '0', 
+            cod_sit: '00'
+        },
+        itens
+    };
+};
+
+// --- ANALISAR ITENS DOS XMLS (PRÉ-INJEÇÃO) ---
+app.post('/api/xml-injector/analyze-items', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
+    }
+
+    try {
+        const parsedNotes = [];
+        const parser = new xml2js.Parser({ explicitArray: false });
+
+        for (const file of req.files) {
+            try {
+                const xmlData = fs.readFileSync(file.path, 'utf-8');
+                const result = await parser.parseStringPromise(xmlData);
+                if (!result) continue;
+
+                const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
+                if (!nfeNode) continue;
+                
+                const notaData = extractNfeData(nfeNode);
+                if (notaData) {
+                    notaData.arquivo = file.originalname;
+                    parsedNotes.push(notaData);
+                }
+            } catch (err) {
+                console.error(`Erro ao processar arquivo ${file.originalname}:`, err);
+            } finally {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            }
+        }
+
+        const { transformarNotasEmSped } = require('./services/xmlInjectorService');
+        const userCfopPadrao = req.body.cfop_padrao || '1102';
+        const idEmpresa = req.body.id_empresa;
+        const result = await transformarNotasEmSped(pool, parsedNotes, { 
+            userCfop: userCfopPadrao, 
+            analyzeOnly: true,
+            idEmpresa: idEmpresa 
+        }); 
+
+        res.json({
+            itens: result.itensDetectados,
+            totalNotas: parsedNotes.length,
+            notas: parsedNotes.map(n => ({
+                numero: n.c100.num_doc,
+                data: n.c100.dt_doc,
+                valor: n.c100.vl_doc,
+                arquivo: n.arquivo
+            }))
+        });
+
+    } catch (error) {
+        console.error('Erro na análise de XML:', error);
+        res.status(500).json({ message: 'Erro ao analisar arquivos.', error: error.message });
+    }
+});
+
+
+// --- SALVAR MAPEAMENTOS EM LOTE (DE-PARA) ---
+app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res) => {
+    const { mapeamentos } = req.body;
+    if (!mapeamentos || !Array.isArray(mapeamentos)) {
+        return res.status(400).json({ error: 'Mapeamentos inválidos.' });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        
+        await dbClient.query(`
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS ncm VARCHAR(20);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cod_interno VARCHAR(60);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS conta_contabil VARCHAR(60);
+        `);
+
+        const query = `
+            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, ncm, cod_interno, conta_contabil)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml) 
+            DO UPDATE SET 
+                novo_cfop = EXCLUDED.novo_cfop,
+                novo_cst = EXCLUDED.novo_cst,
+                descricao_produto = EXCLUDED.descricao_produto,
+                ncm = EXCLUDED.ncm,
+                cod_interno = EXCLUDED.cod_interno,
+                conta_contabil = EXCLUDED.conta_contabil,
+                updated_at = CURRENT_TIMESTAMP
+        `;
+
+        for (const m of mapeamentos) {
+            await dbClient.query(query, [
+                m.id_empresa,
+                m.cnpj_emissor,
+                m.cod_produto_xml,
+                m.novo_cfop,
+                m.novo_cst,
+                m.descricao_produto,
+                m.ncm,
+                m.cod_interno,
+                m.conta_contabil
+            ]);
+        }
+
+        await dbClient.query('COMMIT');
+        res.json({ success: true, count: mapeamentos.length });
+    } catch (err) {
+        await dbClient.query('ROLLBACK');
+        console.error('Erro ao salvar batch de-para:', err);
+        res.status(500).json({ error: 'Erro ao salvar mapeamentos.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
 app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
 
-    logger.info(`Iniciando parse de ${req.files.length} arquivos XMLs enviados.`);
+    const parser = new xml2js.Parser({ explicitArray: false });
     const parsedNotes = [];
     const erros = [];
-
-    const parser = new xml2js.Parser({ explicitArray: false }); // Para não transformar tags únicas em array
 
     for (const file of req.files) {
         try {
             const xmlData = fs.readFileSync(file.path, 'utf-8');
             const result = await parser.parseStringPromise(xmlData);
-
-            // Verificar se é uma NF-e válida
             const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
-            if (!nfeNode || !nfeNode.infNFe) {
+            
+            const notaData = extractNfeData(nfeNode);
+            if (notaData) {
+                notaData.arquivo = file.originalname;
+                parsedNotes.push(notaData);
+            } else {
                 erros.push(`Arquivo ${file.originalname} não é um XML de NF-e válido.`);
-                continue;
             }
-
-            const inf = nfeNode.infNFe;
-
-            // Emitente
-            const emit = inf.emit;
-            const emitente = {
-                cnpj: emit.CNPJ,
-                nome: emit.xNome,
-                ie: emit.IE,
-                cod_mun: emit.enderEmit ? emit.enderEmit.cMun : ''
-            };
-
-            // Dados da C100 (Nota)
-            const ide = inf.ide;
-            const tpNF = (ide.tpNF || '0').toString(); // 0=Entrada, 1=Saída
-
-            const c100 = {
-                chv_nfe: (inf.$.Id || '').replace('NFe', ''),
-                ind_oper: tpNF, // 0=Entrada, 1=Saída
-                ind_emit: tpNF === '1' ? '0' : '1', // 0=Própria (Saída), 1=Terceiros (Entrada)
-                cod_mod: ide.mod,
-                cod_sit: '00', // Documento Regular
-                num_doc: ide.nNF,
-                serie: ide.serie,
-                dt_doc: ide.dhEmi.substring(0, 10), // YYYY-MM-DD
-                dt_e_s: ide.dhEmi.substring(0, 10), // Idealmente hora da entrada, usando emissão como fallback
-                vl_doc: inf.total.ICMSTot.vNF,
-                ind_frt: ide.modFrete,
-                vl_merc: inf.total.ICMSTot.vProd,
-                vl_desc: inf.total.ICMSTot.vDesc
-            };
-
-            // Itens (C170)
-            let detArray = inf.det;
-            if (!Array.isArray(detArray)) detArray = [detArray]; // Se tiver só 1 item, força array
-
-            const itens = detArray.map(det => {
-                const prod = det.prod;
-                const imposto = det.imposto;
-
-                // Buscar CST do ICMS original (pode vir de vários grupos)
-                let cstOringinal = '';
-                if (imposto?.ICMS) {
-                    const icmsNode = Object.values(imposto.ICMS)[0]; // ICMS00, ICMS40, etc
-                    cstOringinal = (icmsNode.CST) ? icmsNode.CST : ((icmsNode.CSOSN) ? icmsNode.CSOSN : '000');
-                }
-
-                return {
-                    num_item: det.$.nItem,
-                    cod_item: prod.cProd,
-                    descr_item: prod.xProd,
-                    qtd: prod.qCom,
-                    unid: prod.uCom,
-                    vl_item: prod.vProd,
-                    vl_desc: prod.vDesc || '0',
-                    cfop_original: prod.CFOP,
-                    cst_icms_original: cstOringinal
-                };
-            });
-
-            parsedNotes.push({
-                arquivo: file.originalname,
-                emitente,
-                c100,
-                itens
-            });
-
         } catch (e) {
-            logger.error(`Erro ao parsear XML ${file.originalname}:`, e);
-            erros.push(`Falha na leitura do arquivo ${file.originalname}`);
+            erros.push(`Falha no arquivo ${file.originalname}: ${e.message}`);
         } finally {
-            // Limpa o arquivo físico após processar a memória
-            if (fs.existsSync(file.path)) {
-                fs.unlinkSync(file.path);
-            }
+            if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         }
     }
 
-    // --- FASE 2: MOTOR TRIBUTÁRIO ---
-    const { transformarNotasEmSped } = require('./services/xmlInjectorService');
-    // Em breve vamos resgatar cfop_padrao e forceCst do corpo da requisição (req.body)
-    const userCfopPadrao = req.body.cfop_padrao || '1102'; // Fallback
-    const forcarCst040 = req.body.forcar_uso_consumo === 'true' || req.body.forcar_uso_consumo === true;
+    if (parsedNotes.length === 0) {
+        return res.status(400).json({ message: 'Nenhuma nota válida encontrada nos XMLs.', erros });
+    }
 
-    logger.info(`Iniciando Fase 2: Conversão Tributária (CFOP Base: ${userCfopPadrao}, CST040: ${forcarCst040})`);
-
-    let spedDataPayload = null;
     try {
-        spedDataPayload = transformarNotasEmSped(parsedNotes, userCfopPadrao, forcarCst040);
-        logger.info(`Fase 2 Concluída. Geradas ${spedDataPayload.bloco0.length} linhas do Bloco 0 e ${spedDataPayload.blocoC.length} linhas do Bloco C.`);
-    } catch (err) {
-        logger.error(`Erro na geração de linhas do SPED da Fase 2:`, err);
-        return res.status(500).json({ message: "Erro interno ao processar regras de negócio SPED no motor da Fase 2.", error: err.message });
-    }
+        const { transformarNotasEmSped } = require('./services/xmlInjectorService');
+        const idSpedBase = req.body.id_sped_arquivo;
+        let chavesExistentes = [];
+        let chavesParaSubstituir = [];
+        const forceReplace = req.body.forceReplace === 'true' || req.body.forceReplace === true;
+        
+        let spedBaseObj = null;
+        let fullSpedPath = null;
 
-    // --- FASES 3 E 4: COSTUREIRA FÍSICA E RECÁLCULO DE BLOCOS ---
-    const idSpedBase = req.body.id_sped_arquivo;
-    if (idSpedBase) {
-        try {
-            logger.info(`Iniciando Fase 3 e 4: Injeção Física no SPED ID ${idSpedBase}`);
-            const dbClient = await pool.connect();
-            const fileQuery = await dbClient.query('SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idSpedBase]);
-            dbClient.release();
-
-            if (fileQuery.rows.length === 0) {
-                return res.status(404).json({ message: 'Arquivo SPED Base não encontrado no banco de dados.' });
-            }
-
-            const spedBaseObj = fileQuery.rows[0];
-            // caminho_arquivo pode ser string simples ou JSON (compatibilidade com versões antigas)
-            let fullSpedPath = spedBaseObj.caminho_arquivo;
+        if (idSpedBase) {
             try {
-                const parsed = JSON.parse(spedBaseObj.caminho_arquivo);
-                if (parsed && typeof parsed === 'object') {
-                    fullSpedPath = Object.values(parsed)[0];
+                // Obter caminho do arquivo primeiro
+                const dbClient = await pool.connect();
+                const fileQuery = await dbClient.query('SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idSpedBase]);
+                dbClient.release();
+
+                if (fileQuery.rows.length === 0) {
+                    return res.status(404).json({ message: 'Arquivo SPED Base não encontrado no banco de dados.' });
                 }
-            } catch (e) {
-                // É uma string simples, usa diretamente
+
+                spedBaseObj = fileQuery.rows[0];
                 fullSpedPath = spedBaseObj.caminho_arquivo;
+                try {
+                    const parsed = JSON.parse(spedBaseObj.caminho_arquivo);
+                    if (parsed && typeof parsed === 'object') {
+                        fullSpedPath = Object.values(parsed)[0];
+                    }
+                } catch (e) {
+                    fullSpedPath = spedBaseObj.caminho_arquivo;
+                }
+
+                if (!fs.existsSync(fullSpedPath)) {
+                    return res.status(404).json({ message: 'O arquivo SPED Físico não foi localizado no disco do servidor para validação.' });
+                }
+
+                // Lê o arquivo para buscar as chaves existentes e evitar duplicadas
+                const fileContent = fs.readFileSync(fullSpedPath, 'latin1');
+                const lines = fileContent.split(/\r?\n/);
+                const mapKeys = new Map();
+                for (const line of lines) {
+                    if (line.startsWith('|C100|')) {
+                        const params = line.split('|');
+                        const chave = params[9];
+                        if (chave) {
+                            mapKeys.set(chave, {
+                                chv_nfe: chave,
+                                num_doc: params[8],
+                                vl_doc: params[12]
+                            });
+                        }
+                    }
+                }
+                
+                chavesExistentes = Array.from(mapKeys.keys());
+
+                if (!forceReplace && !req.body.analyzeOnly) {
+                    const duplicadas = [];
+                    for (const nota of parsedNotes) {
+                        const chaveXML = nota.c100?.chv_nfe;
+                        if (chaveXML && mapKeys.has(chaveXML)) {
+                            const found = mapKeys.get(chaveXML);
+                            duplicadas.push({ chv_nfe: found.chv_nfe, num_doc: found.num_doc, valor: found.vl_doc });
+                        }
+                    }
+
+                    const isPularDuplicados = req.body.pular_duplicados === 'true' || req.body.pular_duplicados === true;
+
+                    if (duplicadas.length > 0 && !isPularDuplicados) {
+                        return res.status(409).json({
+                            message: 'Atenção: A(s) seguinte(s) Nota(s) Fiscais já existem neste SPED e estão prontas para serem substituídas:',
+                            duplicadas
+                        });
+                    }
+                } else if (forceReplace) {
+                    // Collect which keys we are actually going to replace
+                    for (const nota of parsedNotes) {
+                        const chaveXML = nota.c100?.chv_nfe;
+                        if (chaveXML && mapKeys.has(chaveXML)) {
+                            chavesParaSubstituir.push(chaveXML);
+                        }
+                    }
+                }
+            } catch (errKey) {
+                console.error('Erro ao buscar chaves existentes:', errKey);
             }
-
-            if (!fs.existsSync(fullSpedPath)) {
-                return res.status(404).json({ message: 'O arquivo SPED Físico não foi localizado no disco do servidor.' });
-            }
-
-            const { injetarXmlEPersistir } = require('./services/spedCostureiraService');
-            const finalSpedString = await injetarXmlEPersistir(fullSpedPath, spedDataPayload);
-
-            // Devolver como download
-            const rawName = `${spedBaseObj.cnpj_empresa}_${spedBaseObj.periodo_apuracao}`;
-            const safeName = rawName.replace(/[\s\/\\:*?"<>|]+/g, '_') + '.txt';
-            res.setHeader('Content-disposition', `attachment; filename=${safeName}`);
-            res.setHeader('Content-type', 'text/plain; charset=iso-8859-1');
-            res.write(finalSpedString);
-            return res.end();
-
-        } catch (err) {
-            logger.error(`Erro na Fase 3/4 da Injeção Física:`, err);
-            return res.status(500).json({ message: "Erro interno ao injetar XMLs no arquivo matriz.", error: err.message });
         }
+
+        const options = {
+            userCfop: req.body.cfop_padrao || '1102',
+            forcarUsoConsumo: req.body.forcar_uso_consumo === 'true' || req.body.forcar_uso_consumo === true || req.body.forceCst040 === 'true' || req.body.forceCst040 === true,
+            ajusteIpi: req.body.ajuste_ipi === 'true' || req.body.ajuste_ipi === true,
+            ajusteIcms: req.body.ajuste_icms === 'true' || req.body.ajuste_icms === true,
+            itemMapping: req.body.item_mapping ? JSON.parse(req.body.item_mapping) : [],
+            analyzeOnly: req.body.analyzeOnly === 'true' || req.body.analyzeOnly === true,
+            pularDuplicados: (!forceReplace && (req.body.pular_duplicados === 'true' || req.body.pular_duplicados === true)),
+            chavesExistentes,
+            idEmpresa: req.body.id_empresa
+        };
+
+        const spedDataPayload = await transformarNotasEmSped(pool, parsedNotes, options);
+
+        if (idSpedBase && fullSpedPath && spedBaseObj) {
+            try {
+                const { injetarXmlEPersistir } = require('./services/spedCostureiraService');
+                const finalSpedString = await injetarXmlEPersistir(fullSpedPath, spedDataPayload, chavesParaSubstituir);
+
+                fs.writeFileSync(fullSpedPath, finalSpedString, { encoding: 'latin1' });
+                const totalLinhas = finalSpedString.split('\n').length;
+
+                return res.json({
+                    message: 'Injeção concluída com sucesso.',
+                    detalhes: {
+                        sped_id: idSpedBase,
+                        nome_arquivo: spedBaseObj.nome_arquivo,
+                        total_xml_injetados: parsedNotes.length,
+                        total_linhas_sped: totalLinhas,
+                        estatisticas: spedDataPayload.relatorio
+                    },
+                    erros
+                });
+            } catch (err) {
+                console.error('Erro na Injeção Física:', err);
+                return res.status(500).json({ message: "Erro ao injetar no arquivo físico.", error: err.message });
+            }
+        }
+
+        // Senão, retorna apenas o payload processado
+        res.json({
+            bloco0: spedDataPayload.bloco0,
+            blocoC: spedDataPayload.blocoC,
+            itensDetectados: spedDataPayload.itensDetectados,
+            gerencial: spedDataPayload.gerencial,
+            relatorio: spedDataPayload.relatorio,
+            erros
+        });
+
+    } catch (err) {
+        console.error('Erro ao processar SPED:', err);
+        res.status(500).json({ message: 'Erro no processamento SPED Fiscal.' });
+    }
+});
+
+// --- NOVO: GERAÇÃO DE SPED COMPLETO (STANDALONE) APENAS COM XMLs ---
+app.post('/api/xml-injector/standalone', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
 
-    // Fallback: Se não mandou um ID base, devolve só o Log Analítico
-    res.status(200).json({
-        message: "Extração XML e Formatação (Fase 1 e 2) concluída com sucesso. SPED Físico não informado para injeção.",
-        gerencial: {
-            totalArquivosRecebidos: req.files.length,
-            sucessoParsings: parsedNotes.length,
-            falhaParsings: erros.length,
-            erroFiles: erros,
-            estatisticasTributarias: spedDataPayload.relatorio
-        },
-        payloadInjecao: spedDataPayload
-    });
+    try {
+        let companyCnpj = "";
+        if (req.body.id_empresa) {
+            try {
+                const empRes = await pool.query('SELECT cnpj FROM empresas WHERE id = $1', [req.body.id_empresa]);
+                if (empRes.rows.length > 0) companyCnpj = empRes.rows[0].cnpj.replace(/\D/g, '');
+            } catch (err) {
+                logger.error('Erro ao buscar CNPJ da empresa:', err);
+            }
+        }
+
+        const parser = new xml2js.Parser({ explicitArray: false });
+
+        for (const file of req.files) {
+            try {
+                const xmlData = fs.readFileSync(file.path, 'utf-8');
+                const result = await parser.parseStringPromise(xmlData);
+                const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
+                if (!nfeNode || !nfeNode.infNFe) {
+                    erros.push(`Arquivo ${file.originalname} não é um XML de NF-e válido.`);
+                    continue;
+                }
+                const inf = nfeNode.infNFe;
+                const emit = inf.emit;
+                const emitente = {
+                    cnpj: emit.CNPJ,
+                    nome: emit.xNome,
+                    ie: emit.IE,
+                    cod_mun: emit.enderEmit ? emit.enderEmit.cMun : ''
+                };
+                const ide = inf.ide;
+                const tpNF = (ide.tpNF || '0').toString();
+                const emitCnpj = (emit.CNPJ || '').replace(/\D/g, '');
+                let ind_oper, ind_emit;
+
+                if (companyCnpj && emitCnpj !== companyCnpj) {
+                    ind_oper = '0';
+                    ind_emit = '1';
+                } else {
+                    ind_oper = tpNF;
+                    ind_emit = '0';
+                }
+
+                const c100 = {
+                    chv_nfe: (inf.$.Id || '').replace('NFe', ''),
+                    ind_oper,
+                    ind_emit,
+                    cod_mod: ide.mod,
+                    cod_sit: '00',
+                    num_doc: ide.nNF,
+                    serie: ide.serie,
+                    dt_doc: ide.dhEmi.substring(0, 10),
+                    dt_e_s: ide.dhEmi.substring(0, 10),
+                    vl_doc: inf.total.ICMSTot.vNF,
+                    ind_frt: ide.modFrete,
+                    vl_merc: inf.total.ICMSTot.vProd,
+                    vl_desc: inf.total.ICMSTot.vDesc
+                };
+                let detArray = inf.det;
+                if (!Array.isArray(detArray)) detArray = [detArray];
+                const itens = detArray.map(det => {
+                    const prod = det.prod;
+                    const imposto = det.imposto;
+                    let cstOringinal = '';
+                    if (imposto?.ICMS) {
+                        const icmsNode = Object.values(imposto.ICMS)[0];
+                        cstOringinal = (icmsNode.CST) ? icmsNode.CST : ((icmsNode.CSOSN) ? icmsNode.CSOSN : '000');
+                    }
+                    return {
+                        num_item: det.$.nItem,
+                        cod_item: prod.cProd,
+                        descr_item: prod.xProd,
+                        qtd: prod.qCom,
+                        unid: prod.uCom,
+                        vl_item: prod.vProd,
+                        vl_desc: prod.vDesc || '0',
+                        cfop_original: prod.CFOP,
+                        cst_icms_original: cstOringinal
+                    };
+                });
+                parsedNotes.push({ arquivo: file.originalname, emitente, c100, itens });
+            } catch (e) {
+                erros.push(`Falha na leitura do arquivo ${file.originalname}`);
+            } finally {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            }
+        }
+
+        const { transformarNotasEmSped } = require('./services/xmlInjectorService');
+        const options = {
+            userCfop: req.body.cfop_padrao || '1102',
+            forcarUsoConsumo: req.body.forcar_uso_consumo === 'true' || req.body.forcar_uso_consumo === true,
+            ajusteIpi: req.body.ajuste_ipi === 'true' || req.body.ajuste_ipi === true,
+            ajusteIcms: req.body.ajuste_icms === 'true' || req.body.ajuste_icms === true,
+            itemMapping: req.body.item_mapping ? JSON.parse(req.body.item_mapping) : [],
+            idEmpresa: req.body.id_empresa
+        };
+        
+        const spedDataPayload = await transformarNotasEmSped(pool, parsedNotes, options);
+        
+        const { gerarSpedFragmentado } = require('./services/spedCostureiraService');
+        const finalSpedString = gerarSpedFragmentado(spedDataPayload.bloco0, spedDataPayload.blocoC);
+
+        res.setHeader('Content-Type', 'text/plain; charset=latin1');
+        res.setHeader('Content-Disposition', `attachment; filename=sped_standalone_${new Date().toISOString().split('T')[0]}.txt`);
+        return res.status(200).send(Buffer.from(finalSpedString, 'latin1'));
+
+    } catch (error) {
+        logger.error(`Erro na geração do SPED standalone:`, error);
+        return res.status(500).json({ message: "Erro interno na geração do arquivo standalone.", error: error.message });
+    }
 });
 
 // --- ROTA DE ANÁLISE COM MOTOR REAL (PRESENTE) ---
@@ -1047,7 +1884,7 @@ app.get('/api/arquivos', authMiddleware, async (req, res) => {
     const dbClient = await pool.connect();
     try {
         const query = `
-            SELECT a.id, a.nome_arquivo, a.periodo_apuracao, a.data_upload, a.caminho_arquivo, e.nome_empresa
+            SELECT a.id, a.nome_arquivo, a.periodo_apuracao, a.data_upload, a.caminho_arquivo, e.nome_empresa, e.cnpj as cnpj_empresa
             FROM sped_arquivos a
             LEFT JOIN empresas e ON a.id_empresa = e.id
             WHERE a.caminho_arquivo IS NOT NULL
@@ -1067,7 +1904,8 @@ app.get('/api/arquivos', authMiddleware, async (req, res) => {
             nome_arquivo: row.nome_arquivo,
             periodo_apuracao: row.periodo_apuracao,
             data_upload: row.data_upload,
-            nome_empresa: row.nome_empresa
+            nome_empresa: row.nome_empresa,
+            cnpj_empresa: row.cnpj_empresa
         }));
 
         res.json(arquivosValidos);
@@ -1974,6 +2812,46 @@ app.get('/api/empresas', authMiddleware, async (req, res) => {
     }
 });
 
+// --- ROTA PARA CRIAR EMPRESA ---
+app.post('/api/empresas', authMiddleware, async (req, res) => {
+    logger.info('Recebida requisição para CRIAR empresa.');
+    const { cnpj, nome_empresa, uf, nome_fantasia } = req.body;
+
+    if (!cnpj || !nome_empresa) {
+        return res.status(400).json({ message: 'CNPJ e Nome da Empresa são obrigatórios.' });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        
+        // Verificar se CNPJ já existe
+        const verificaCnpj = await dbClient.query('SELECT id FROM empresas WHERE cnpj = $1', [cnpj]);
+        if (verificaCnpj.rows.length > 0) {
+            await dbClient.query('ROLLBACK');
+            return res.status(400).json({ message: 'Já existe uma empresa cadastrada com este CNPJ.' });
+        }
+
+        const query = `
+            INSERT INTO empresas (cnpj, nome_empresa, uf, nome_fantasia)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *;
+        `;
+        const params = [cnpj, nome_empresa, uf || null, nome_fantasia || null];
+        const { rows } = await dbClient.query(query, params);
+
+        await dbClient.query('COMMIT');
+        logger.info(`Empresa criada com sucesso ID: ${rows[0].id}`);
+        res.status(201).json(rows[0]);
+    } catch (error) {
+        await dbClient.query('ROLLBACK');
+        logger.error('--- ERRO AO CRIAR EMPRESA ---', { message: error.message, stack: error.stack });
+        res.status(500).json({ message: "Erro ao criar empresa no banco de dados.", error: error.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // --- ROTA PARA LISTAR ARQUIVOS POR EMPRESA (PRESENTE) ---
 app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, async (req, res) => {
     const idEmpresa = parseInt(req.params.id_empresa);
@@ -1990,13 +2868,81 @@ app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, async (req, res) =>
             FROM sped_arquivos 
             WHERE id_empresa = $1 
             ORDER BY data_upload DESC;
-`;
+        `;
         const { rows } = await dbClient.query(query, [idEmpresa]);
         logger.info(`Encontrados ${rows.length} arquivos para a empresa ID: ${idEmpresa} `);
         res.status(200).json(rows);
     } catch (error) {
         logger.error('--- ERRO AO BUSCAR ARQUIVOS POR EMPRESA ---', { message: error.message, stack: error.stack });
         res.status(500).json({ message: "Erro ao buscar arquivos no banco de dados.", error: error.message });
+    } finally {
+        if (dbClient) dbClient.release();
+    }
+});
+
+// --- ROTA PARA EXCLUIR EMPRESA ---
+app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
+    const idEmpresa = parseInt(req.params.id);
+    const { cascade } = req.query; // se true, exclui tudo da empresa
+
+    if (isNaN(idEmpresa)) {
+        return res.status(400).send({ message: "ID de empresa inválido." });
+    }
+
+    logger.info(`Recebida requisição para excluir empresa ID: ${idEmpresa}, cascade: ${cascade}`);
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+
+        // Busca o CNPJ antes de excluir para limpar lmc_tanques_config
+        const empresaRes = await dbClient.query('SELECT cnpj FROM empresas WHERE id = $1', [idEmpresa]);
+        if (empresaRes.rowCount === 0) {
+            await dbClient.query('ROLLBACK');
+            return res.status(404).json({ message: "Empresa não encontrada." });
+        }
+        const cnpjEmpresa = empresaRes.rows[0].cnpj;
+
+        if (cascade === 'true') {
+            const filesResult = await dbClient.query('SELECT id FROM sped_arquivos WHERE id_empresa = $1', [idEmpresa]);
+            const fileIds = filesResult.rows.map(row => row.id);
+
+            if (fileIds.length > 0) {
+                // 1. Erros de análise
+                await dbClient.query('DELETE FROM erros_analise WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                
+                // 2. Itens e Registros vinculados a Documentos C100 (via subquery de documentos)
+                await dbClient.query('DELETE FROM documentos_itens_c170 WHERE id_documento_c100 IN (SELECT id FROM documentos_c100 WHERE id_sped_arquivo = ANY($1::int[]))', [fileIds]);
+                await dbClient.query('DELETE FROM documentos_c190 WHERE id_documento_c100 IN (SELECT id FROM documentos_c100 WHERE id_sped_arquivo = ANY($1::int[]))', [fileIds]);
+                
+                // 3. Documentos mestres
+                await dbClient.query('DELETE FROM documentos_c100 WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                await dbClient.query('DELETE FROM documentos_d100 WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                
+                // 4. LMC, Produtos e Participantes
+                await dbClient.query('DELETE FROM lmc_movimentacao WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                await dbClient.query('DELETE FROM sped_produtos WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                await dbClient.query('DELETE FROM sped_participantes WHERE id_sped_arquivo = ANY($1::int[])', [fileIds]);
+                
+                // 5. Arquivos SPED
+                await dbClient.query('DELETE FROM sped_arquivos WHERE id_empresa = $1', [idEmpresa]);
+            }
+
+            // 6. Dados específicos da empresa (fora dos arquivos)
+            await dbClient.query('DELETE FROM empresa_certificados WHERE id_empresa = $1', [idEmpresa]);
+            if (cnpjEmpresa) {
+                await dbClient.query('DELETE FROM lmc_tanques_config WHERE cnpj = $1', [cnpjEmpresa]);
+            }
+        }
+
+        const deleteResult = await dbClient.query('DELETE FROM empresas WHERE id = $1 RETURNING id', [idEmpresa]);
+        
+        await dbClient.query('COMMIT');
+        logger.info(`Empresa ID: ${idEmpresa} excluída com sucesso.`);
+        res.status(200).json({ message: 'Empresa excluída com sucesso.' });
+    } catch (error) {
+        if (dbClient) await dbClient.query('ROLLBACK');
+        logger.error(`Erro ao excluir empresa ID ${idEmpresa}:`, error);
+        res.status(500).json({ message: "Erro ao excluir empresa.", error: error.message });
     } finally {
         if (dbClient) dbClient.release();
     }
@@ -2206,6 +3152,282 @@ lmc.cod_item as cod_item,
     }
 });
 
+
+// --- ROTA DE RENTABILIDADE E POSIÇÃO DE ESTOQUE (PRO) ---
+app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    if (isNaN(arquivoId)) {
+        return res.status(400).send({ message: "ID de arquivo inválido." });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        const query = `
+            WITH params AS (
+                SELECT id_empresa FROM sped_arquivos WHERE id = $1
+            ),
+            vendas_periodo AS (
+                SELECT 
+                    it.cod_item,
+                    SUM(it.qtd::float8) as qtd_vendida,
+                    SUM(it.vl_item::float8) as total_venda
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                WHERE c100.id_sped_arquivo = $1 AND c100.ind_oper = '1'
+                GROUP BY it.cod_item
+            ),
+            compras_periodo AS (
+                SELECT 
+                    it.cod_item,
+                    SUM(it.qtd::float8) as qtd_comprada,
+                    SUM(it.vl_item::float8) as total_compra
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                WHERE c100.id_sped_arquivo = $1 AND c100.ind_oper = '0'
+                GROUP BY it.cod_item
+            ),
+            ultima_venda AS (
+                -- Preço unitário da última venda conhecida da empresa (global)
+                SELECT DISTINCT ON (it.cod_item)
+                    it.cod_item,
+                    (it.vl_item::float8 / NULLIF(it.qtd::float8, 0)) as preco_unitario
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                JOIN sped_arquivos a ON c100.id_sped_arquivo = a.id
+                WHERE a.id_empresa = (SELECT id_empresa FROM params)
+                  AND c100.ind_oper = '1'
+                  AND it.qtd > 0
+                ORDER BY it.cod_item, c100.dt_doc DESC, c100.id DESC
+            ),
+            ultima_compra AS (
+                -- Preço unitário da última compra conhecida da empresa (global)
+                SELECT DISTINCT ON (it.cod_item)
+                    it.cod_item,
+                    (it.vl_item::float8 / NULLIF(it.qtd::float8, 0)) as preco_unitario
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                JOIN sped_arquivos a ON c100.id_sped_arquivo = a.id
+                WHERE a.id_empresa = (SELECT id_empresa FROM params)
+                  AND c100.ind_oper = '0'
+                  AND it.qtd > 0
+                ORDER BY it.cod_item, c100.dt_doc DESC, c100.id DESC
+            ),
+            estoque_lmc AS (
+                SELECT 
+                    lmc.cod_item,
+                    (SELECT SUM(e1.estq_abert::float8) FROM lmc_movimentacao e1 
+                     WHERE e1.id_sped_arquivo = $1 AND e1.cod_item = lmc.cod_item 
+                     AND e1.data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as estoque_inicial_lmc,
+                    (SELECT SUM(COALESCE(e2.fech_fisico_ajustado, e2.fech_fisico)::float8) FROM lmc_movimentacao e2 
+                     WHERE e2.id_sped_arquivo = $1 AND e2.cod_item = lmc.cod_item 
+                     AND e2.data_mov = (SELECT MAX(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as estoque_final_lmc,
+                    SUM(COALESCE(vol_saidas_ajustado, vol_saidas)::float8) as qtd_vendida_lmc
+                FROM lmc_movimentacao lmc
+                WHERE lmc.id_sped_arquivo = $1
+                GROUP BY lmc.cod_item
+            )
+            SELECT 
+                p.cod_item,
+                p.descr_item as produto,
+                COALESCE(v.qtd_vendida, l.qtd_vendida_lmc, 0) as qtd_vendida,
+                COALESCE(l.estoque_inicial_lmc, 0) as estoque_inicial,
+                COALESCE(l.estoque_final_lmc, 0) as estoque_final,
+                v.total_venda,
+                c.total_compra,
+                c.qtd_comprada,
+                uv.preco_unitario as preco_ultima_venda,
+                uc.preco_unitario as preco_ultima_compra,
+                l.qtd_vendida_lmc
+            FROM sped_produtos p
+            LEFT JOIN vendas_periodo v ON p.cod_item = v.cod_item
+            LEFT JOIN compras_periodo c ON p.cod_item = c.cod_item
+            LEFT JOIN estoque_lmc l ON p.cod_item = l.cod_item
+            LEFT JOIN ultima_venda uv ON p.cod_item = uv.cod_item
+            LEFT JOIN ultima_compra uc ON p.cod_item = uc.cod_item
+            WHERE p.id_sped_arquivo = $1
+            ORDER BY p.descr_item;
+        `;
+
+        const { rows } = await dbClient.query(query, [arquivoId]);
+
+        const relatorio = rows.map(r => {
+            // Prioridade Custo: Média do mês -> Se 0, Última Compra conhecida
+            const custoMedio = r.qtd_comprada > 0 ? (r.total_compra / r.qtd_comprada) : (r.preco_ultima_compra || 0);
+
+            return {
+                codigo: r.cod_item,
+                produto: r.produto,
+                grupo: r.estoque_inicial > 0 || r.estoque_final > 0 || r.qtd_vendida_lmc > 0 ? 'COMBUSTÍVEIS' : 'OUTROS',
+                estoque_inicial: r.estoque_inicial,
+                qtd_comprada: r.qtd_comprada,
+                qtd_vendida: r.qtd_vendida,
+                estoque_final: r.estoque_final,
+                custo_medio: custoMedio,
+                usou_historico_custo: r.qtd_comprada <= 0 && r.preco_ultima_compra > 0
+            };
+        }).filter(r => r.qtd_vendida > 0 || r.estoque_final > 0 || r.estoque_inicial > 0 || r.qtd_comprada > 0);
+
+        res.status(200).json(relatorio);
+    } catch (error) {
+        logger.error('--- ERRO AO GERAR RELATÓRIO DE RENTABILIDADE ---', { message: error.message });
+        res.status(500).json({ message: "Erro ao processar rentabilidade.", error: error.message });
+    } finally {
+        if (dbClient) dbClient.release();
+    }
+});
+app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    const { grupo } = req.query; // Captura o filtro de grupo enviado pelo frontend
+    const dbClient = await pool.connect();
+    try {
+        // 1. Buscar Informações da Empresa e Arquivo
+        const fileQuery = `
+            SELECT a.periodo_apuracao, e.nome_empresa, e.cnpj 
+            FROM sped_arquivos a
+            JOIN empresas e ON a.id_empresa = e.id
+            WHERE a.id = $1
+        `;
+        const fileRes = await dbClient.query(fileQuery, [arquivoId]);
+        if (fileRes.rows.length === 0) return res.status(404).send("Arquivo não encontrado.");
+        const info = fileRes.rows[0];
+
+        // 2. Buscar Dados do Relatório
+        const dataQuery = `
+            WITH params AS (SELECT id_empresa FROM sped_arquivos WHERE id = $1),
+            vendas_periodo AS (
+                SELECT it.cod_item, SUM(it.qtd::float8) as qtd, SUM(it.vl_item::float8) as total
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                WHERE c100.id_sped_arquivo = $1 AND c100.ind_oper = '1'
+                GROUP BY it.cod_item
+            ),
+            compras_periodo AS (
+                SELECT it.cod_item, SUM(it.qtd::float8) as qtd, SUM(it.vl_item::float8) as total
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                WHERE c100.id_sped_arquivo = $1 AND c100.ind_oper = '0'
+                GROUP BY it.cod_item
+            ),
+            ultima_compra AS (
+                SELECT DISTINCT ON (it.cod_item) it.cod_item, (it.vl_item::float8 / NULLIF(it.qtd::float8, 0)) as preco
+                FROM documentos_itens_c170 it
+                JOIN documentos_c100 c100 ON it.id_documento_c100 = c100.id
+                JOIN sped_arquivos a ON c100.id_sped_arquivo = a.id
+                WHERE a.id_empresa = (SELECT id_empresa FROM params) AND c100.ind_oper = '0' AND it.qtd > 0
+                ORDER BY it.cod_item, c100.dt_doc DESC, c100.id DESC
+            ),
+            estoque_lmc AS (
+                SELECT lmc.cod_item,
+                    (SELECT SUM(e1.estq_abert::float8) FROM lmc_movimentacao e1 WHERE e1.id_sped_arquivo = $1 AND e1.cod_item = lmc.cod_item AND e1.data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as inicial,
+                    (SELECT SUM(COALESCE(e2.fech_fisico_ajustado, e2.fech_fisico)::float8) FROM lmc_movimentacao e2 WHERE e2.id_sped_arquivo = $1 AND e2.cod_item = lmc.cod_item AND e2.data_mov = (SELECT MAX(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as final,
+                    SUM(COALESCE(vol_saidas_ajustado, vol_saidas)::float8) as saidas_lmc
+                FROM lmc_movimentacao lmc
+                WHERE lmc.id_sped_arquivo = $1
+                GROUP BY lmc.cod_item
+            )
+            SELECT p.cod_item, p.descr_item, COALESCE(l.inicial, 0) as inicial, 
+                   COALESCE(c.qtd, 0) as entradas, COALESCE(v.qtd, l.saidas_lmc, 0) as saídas, COALESCE(l.final, 0) as final,
+                   COALESCE(c.total / NULLIF(c.qtd, 0), uc.preco, 0) as custo_medio,
+                   CASE WHEN l.cod_item IS NOT NULL THEN 'COMBUSTÍVEIS' ELSE 'OUTROS' END as grupo_item
+            FROM sped_produtos p
+            LEFT JOIN vendas_periodo v ON p.cod_item = v.cod_item
+            LEFT JOIN compras_periodo c ON p.cod_item = c.cod_item
+            LEFT JOIN estoque_lmc l ON p.cod_item = l.cod_item
+            LEFT JOIN ultima_compra uc ON p.cod_item = uc.cod_item
+            WHERE p.id_sped_arquivo = $1
+            ORDER BY p.descr_item
+        `;
+        const { rows } = await dbClient.query(dataQuery, [arquivoId]);
+
+        // Aplicar filtro de grupo e limpar itens sem movimentação/estoque
+        let data = rows.filter(r => r.inicial > 0 || r.entradas > 0 || r.saídas > 0 || r.final > 0);
+        if (grupo && grupo !== 'TODOS') {
+            data = data.filter(r => r.grupo_item === grupo);
+        }
+
+        // 3. Gerar o PDF
+        const doc = new PDFDocument({ margin: 30, size: 'A4' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=Posicao_Estoque_${info.cnpj}.pdf`);
+        doc.pipe(res);
+
+        // Cabeçalho
+        doc.font('Helvetica-Bold').fontSize(16).text('POSIÇÃO DO ESTOQUE', { align: 'center' });
+        doc.moveDown(0.2);
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#059669').text(grupo ? `Filtro: ${grupo}` : 'Filtro: TODOS', { align: 'center' });
+        doc.fillColor('#000000').moveDown(0.5);
+
+        doc.fontSize(10).font('Helvetica').text(`Empresa: ${info.nome_empresa}`, { align: 'left' });
+        doc.text(`CNPJ: ${info.cnpj}`);
+        doc.text(`Período: ${info.periodo_apuracao}`);
+        doc.moveDown();
+        doc.rect(30, doc.y, 535, 1).fill('#cbd5e1');
+        doc.moveDown();
+
+        // Tabela
+        const startX = 30;
+        const colWidths = [60, 180, 60, 60, 60, 60, 55];
+        const headers = ['Código', 'Produto', 'Est. Inic.', 'Entradas', 'Vendas', 'Est. Final', 'Custo (M)'];
+
+        // Desenhar Header da Tabela
+        let currentY = doc.y;
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#475569');
+        headers.forEach((h, i) => {
+            const x = startX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
+            doc.text(h, x, currentY, { width: colWidths[i], align: i > 1 ? 'right' : 'left' });
+        });
+        doc.moveDown(0.5);
+        doc.rect(30, doc.y, 535, 0.5).fill('#f1f5f9');
+        doc.moveDown(0.5);
+
+        // Linhas da Tabela
+        doc.font('Helvetica').fontSize(8).fillColor('#1e293b');
+        data.forEach((row, idx) => {
+            if (doc.y > 750) {
+                doc.addPage();
+                // Repetir cabeçalho da tabela em nova página (opcional, mas bom)
+                currentY = 30;
+                doc.font('Helvetica-Bold').fontSize(8).fillColor('#475569');
+                headers.forEach((h, i) => {
+                    const x = startX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
+                    doc.text(h, x, currentY, { width: colWidths[i], align: i > 1 ? 'right' : 'left' });
+                });
+                doc.moveDown(0.8);
+                doc.font('Helvetica').fontSize(8).fillColor('#1e293b');
+            }
+
+            currentY = doc.y;
+
+            // Fundo zebrado
+            if (idx % 2 === 0) {
+                doc.rect(30, currentY - 2, 535, 12).fill('#f8fafc').fillColor('#1e293b');
+            }
+
+            const vals = [
+                row.cod_item,
+                row.descr_item.substring(0, 35),
+                row.inicial.toFixed(2),
+                row.entradas.toFixed(2),
+                row.saídas.toFixed(2),
+                row.final.toFixed(2),
+                'R$ ' + row.custo_medio.toFixed(2)
+            ];
+
+            vals.forEach((v, i) => {
+                const x = startX + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
+                doc.text(v, x, currentY, { width: colWidths[i], align: i > 1 ? 'right' : 'left' });
+            });
+            doc.moveDown(1.2);
+        });
+
+        doc.end();
+    } catch (error) {
+        logger.error('Erro na exportação de PDF:', error);
+        res.status(500).send("Erro interno ao gerar PDF.");
+    } finally {
+        dbClient.release();
+    }
+});
 
 // --- CONFIGURAÇÃO DE CAPACIDADE DE TANQUES (LMC) ---
 
@@ -2630,7 +3852,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         const arqInfo = await dbClient.query('SELECT * FROM sped_arquivos WHERE id = $1', [arquivoId]);
         if (arqInfo.rows.length === 0) return res.status(404).send('Arquivo não encontrado.');
 
-        const pathOrig = arqInfo.rows[0].caminho_arquivo;
+        let pathOrig = arqInfo.rows[0].caminho_arquivo;
+        // caminho_arquivo pode ser JSON string {"sped":"/path/..."} (uploads antigos) ou string simples
+        try {
+            const parsed = JSON.parse(pathOrig);
+            if (parsed && typeof parsed === 'object') {
+                pathOrig = Object.values(parsed)[0];
+            }
+        } catch (e) {
+            // É string simples, usa diretamente
+        }
         if (!pathOrig || !fs.existsSync(pathOrig)) {
             return res.status(400).send('O arquivo físico original não foi localizado no servidor para retificação (Upload antigo).');
         }
@@ -2659,8 +3890,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         // 1.2 Buscar configs de capacidades e ajustes C100/C190 para este arquivo
         const configs = await dbClient.query('SELECT cod_item, capacidade FROM lmc_tanques_config WHERE cnpj = $1', [arqInfo.rows[0].cnpj_empresa]);
-        const mapCapacidades = new Map(configs.rows.map(r => [r.cod_item, parseFloat(r.capacidade)]));
-
+        const mapCapacidades = new Map(); // Mantido vazio por compatibilidade
+        const mapCapacidadesPorItem = new Map();
+        configs.rows.forEach(r => {
+            const cap = parseFloat(r.capacidade);
+            if (r.cod_item) mapCapacidadesPorItem.set(r.cod_item, cap);
+        });
         const ajustesC100 = await dbClient.query('SELECT num_doc, vl_doc_ajustado, chv_nfe FROM documentos_c100 WHERE id_sped_arquivo = $1 AND vl_doc_ajustado IS NOT NULL', [arquivoId]);
         const mapC100 = new Map(ajustesC100.rows.map(r => [r.num_doc + '_' + (r.chv_nfe || ''), r.vl_doc_ajustado]));
 
@@ -2671,6 +3906,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             WHERE doc.id_sped_arquivo = $1 AND (r190.vl_opr_ajustado IS NOT NULL OR r190.vl_bc_icms_ajustado IS NOT NULL OR r190.vl_icms_ajustado IS NOT NULL)
         `, [arquivoId]);
         const mapC190 = new Map(ajustesC190.rows.map(r => [`${r.num_doc}_${r.chv_nfe || ''}_${r.cst_icms}_${r.cfop}_${parseFloat(r.aliq_icms).toFixed(2)}`, r]));
+
+        const c170Itens = await dbClient.query(`
+            SELECT doc.num_doc, doc.chv_nfe, item.num_item, item.cod_item, item.cst_icms, item.cfop, item.cst_pis, item.cst_cofins
+            FROM documentos_itens_c170 item
+            JOIN documentos_c100 doc ON item.id_documento_c100 = doc.id
+            WHERE doc.id_sped_arquivo = $1
+        `, [arquivoId]);
+        const mapC170 = new Map(c170Itens.rows.map(r => [`${r.num_doc}_${r.chv_nfe || ''}_${r.num_item}_${r.cod_item}`, r]));
 
         // 2. Processar o arquivo original e substituir pipes
         logger.info(`Iniciando exportação retificada: Arquivo ID ${arquivoId}, Path: ${pathOrig}`);
@@ -2792,8 +4035,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 let capTanque = 0;
                 if (mapCapacidades && mapCapacidades.has(tanqueCod)) {
                     capTanque = mapCapacidades.get(tanqueCod);
-                } else if (mapCapacidades && pending1300 && pending1300.orig && pending1300.orig.codItem) {
-                    capTanque = mapCapacidades.get(pending1300.orig.codItem) || 0;
+                } else if (mapCapacidadesPorItem && pending1300 && pending1300.orig && pending1300.orig.codItem) {
+                    capTanque = mapCapacidadesPorItem.get(pending1300.orig.codItem) || 0;
                 }
 
                 tk[3] = curated.nAbert.toFixed(3).replace('.', ',');
@@ -2865,7 +4108,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             pending1320s = {};
         };
 
+        let last1300CodItem = null; // FIX: track the item code from the parent 1300 for direct 1310 processing
+
         for await (const line of rl) {
+            // Ignorar linhas em branco (alguns SPEDs têm \r\n\r\n entre linhas)
+            if (line.trim() === '') continue;
             linesProcessed++;
             const fields = line.split('|').map(v => v.replace(/\r$/, '')); // Sanear carriage return imediato
 
@@ -2891,6 +4138,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 flush1300Group(); // Descarrega agrupamento anterior 1300/1310 se houver
 
                 const codItem = fields[2];
+                last1300CodItem = codItem; // Save the code for direct 1310 passes
                 const dtMovStr = fields[3];
 
                 if (dtMovStr && dtMovStr.length === 8) {
@@ -2967,6 +4215,28 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 continue;
             }
 
+            // --- BLOCO 1310 (Passagem direta: 1300 pai NÃO foi modificado, mas layout 020 exige CAP_TANQUE) ---
+            if (fields.length >= 2 && fields[1] === '1310' && layoutVersion === '020') {
+                // O arquivo original é v019 (10 campos de dados). Precisamos adicionar o CAP_TANQUE.
+                // Formato v019: |1310|NUM|ABERT|ENTR|DISP|SAIDA|ESCR|PERDA|GANHO|FISICO|  (12 elementos split)
+                // Formato v020: |1310|NUM|ABERT|ENTR|DISP|SAIDA|ESCR|PERDA|GANHO|FISICO|CAP|  (13 elementos split)
+                const tanqueCodDirect = fields[2];
+                let capTanqueDirect = 0;
+                if (mapCapacidades && mapCapacidades.has(tanqueCodDirect)) {
+                    capTanqueDirect = mapCapacidades.get(tanqueCodDirect);
+                } else if (mapCapacidadesPorItem && last1300CodItem) { // FIX: Use the fallback if the tank ID isn't linked
+                    capTanqueDirect = mapCapacidadesPorItem.get(last1300CodItem) || 0;
+                }
+                // Garante que o array tem exatamente 13 posições
+                while (fields.length < 12) fields.push('');
+                fields[11] = capTanqueDirect > 0 ? Math.round(capTanqueDirect).toString() : '';
+                fields.length = 13;
+                fields[12] = '';
+                res.write(fields.join('|') + '\r\n');
+                changesApplied++;
+                continue;
+            }
+
             // --- BLOCO 1320 (Aferição e Bicos atrelados ao 1310 anterior) ---
             if (fields.length >= 2 && fields[1] === '1320' && pending1300) {
                 // Pega o número do tanque lido no último registro 1310 armazenado com sucesso
@@ -2992,6 +4262,41 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     changesApplied++;
                     res.write(fields.join('|') + '\r\n');
                     continue;
+                }
+            }
+
+            // Ajuste C170
+            if (fields.length >= 2 && fields[1] === 'C170') {
+                const numItem = fields[2];
+                const codItem = fields[3];
+                const key = `${lastC100.numDoc}_${lastC100.chvNfe || ''}_${numItem}_${codItem}`;
+
+                if (mapC170.has(key)) {
+                    const row = mapC170.get(key);
+                    let changed = false;
+
+                    if (row.cst_icms && fields[10] !== row.cst_icms) {
+                        fields[10] = String(row.cst_icms).padStart(3, '0');
+                        changed = true;
+                    }
+                    if (row.cfop && fields[11] !== row.cfop) {
+                        fields[11] = String(row.cfop).padStart(4, '0');
+                        changed = true;
+                    }
+                    if (row.cst_pis && fields[25] !== row.cst_pis && fields.length > 25) {
+                        fields[25] = String(row.cst_pis).padStart(2, '0');
+                        changed = true;
+                    }
+                    if (row.cst_cofins && fields[31] !== row.cst_cofins && fields.length > 31) {
+                        fields[31] = String(row.cst_cofins).padStart(2, '0');
+                        changed = true;
+                    }
+
+                    if (changed) {
+                        changesApplied++;
+                        res.write(fields.join('|') + '\r\n');
+                        continue;
+                    }
                 }
             }
 
@@ -3184,8 +4489,8 @@ function parseSpedFile(filePath, originalFilename) {
                 } else if (reg === 'C170' && currentC100) {
                     currentC100.items.push({
                         num_item: parseInt(fields[2]), cod_item: fields[3], qtd: parseFloatSped(fields[5]),
-                        unid: fields[6], vl_item: parseFloatSped(fields[7]), cst_icms: fields[9], cfop: fields[10],
-                        cst_pis: fields[25], cst_cofins: fields[30]
+                        unid: fields[6], vl_item: parseFloatSped(fields[7]), cst_icms: fields[10], cfop: fields[11],
+                        cst_pis: fields[25], cst_cofins: fields[31]
                     });
                 } else if (reg === 'C190' && currentC100) {
                     currentC100.analytical.push({
@@ -3210,6 +4515,151 @@ function parseSpedFile(filePath, originalFilename) {
         });
     });
 }
+// --- ENDPOINT OTIMIZAÇÃO DE LMC ---
+app.post('/api/lmc/optimize', authMiddleware, async (req, res) => {
+    const { arquivoId, codItem, targetVolume } = req.body;
+    
+    if (!arquivoId || !codItem || !targetVolume) {
+        return res.status(400).json({ message: 'Parâmetros obrigatórios ausentes: arquivoId, codItem, targetVolume' });
+    }
+
+    try {
+        logger.info(`Iniciando otimização LMC para arquivo ${arquivoId}, item ${codItem}, alvo ${targetVolume}`);
+        const result = await runOptimization(arquivoId, codItem, targetVolume);
+        
+        if (result && result.success) {
+            logger.info(`Otimização LMC finalizada com sucesso. Linhas atualizadas: ${result.updates}`);
+            res.json(result);
+        } else {
+            res.status(400).json({ message: 'Otimização concluída, mas sem confirmação de sucesso.', result });
+        }
+    } catch (error) {
+        logger.error(`Erro na otimização: ${error.message}`);
+        res.status(500).json({ message: 'Erro interno ao tentar otimizar LMC', error: error.message });
+    }
+});
+
+// --------------------------------------------------------------------------
+// ENDPOINTS: DE-PARA XML
+// --------------------------------------------------------------------------
+
+app.get('/api/de-para', async (req, res) => {
+    try {
+        const { cnpj, id_empresa } = req.query;
+        let query = 'SELECT * FROM de_para_xml WHERE 1=1';
+        let params = [];
+        
+        if (id_empresa) {
+            params.push(id_empresa);
+            query += ` AND id_empresa = $${params.length}`;
+        }
+
+        if (cnpj) {
+            params.push(cnpj);
+            query += ` AND cnpj_emissor = $${params.length}`;
+        }
+        
+        query += ' ORDER BY cnpj_emissor, cod_produto_xml';
+        
+        const result = await pool.query(query, params);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Erro ao buscar de-para:', err);
+        res.status(500).json({ error: 'Erro interno buscador de-para' });
+    }
+});
+
+app.post('/api/de-para', async (req, res) => {
+    try {
+        const { id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno } = req.body;
+        
+        if (!id_empresa || !cnpj_emissor || !cod_produto_xml) {
+            return res.status(400).json({ error: 'Empresa, CNPJ e Código do Produto são obrigatórios' });
+        }
+
+        await pool.query('ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cod_interno VARCHAR(60)');
+
+        const query = `
+            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml) 
+            DO UPDATE SET 
+                novo_cfop = EXCLUDED.novo_cfop,
+                novo_cst = EXCLUDED.novo_cst,
+                descricao_produto = EXCLUDED.descricao_produto,
+                cod_interno = EXCLUDED.cod_interno,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        `;
+        
+        const result = await pool.query(query, [id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Erro ao salvar de-para:', err);
+        res.status(500).json({ error: 'Erro interno ao salvar de-para' });
+    }
+});
+
+app.delete('/api/de-para/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM de_para_xml WHERE id = $1', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Erro ao deletar de-para:', err);
+        res.status(500).json({ error: 'Erro interno ao deletar de-para' });
+    }
+});
+
+// --- FASE: CONFERÊNCIA SPED vs MD-E ---
+app.post('/api/mde/check-sped', authMiddleware, async (req, res) => {
+    try {
+        const { chaves, id_empresa } = req.body;
+        if (!chaves || !Array.isArray(chaves)) return res.status(400).json({ error: 'Lista de chaves inválida' });
+
+        const result = await pool.query(`
+            SELECT chave_nfe FROM mde_cache WHERE id_empresa = $1 AND chave_nfe = ANY($2)
+            UNION
+            SELECT chv_nfe as chave_nfe FROM documentos_c100 dc 
+            JOIN sped_arquivos sa ON dc.id_sped_arquivo = sa.id
+            WHERE sa.id_empresa = $1 AND dc.chv_nfe = ANY($2)
+        `, [id_empresa, chaves]);
+
+        const chavesEncontradas = result.rows.map(r => r.chave_nfe);
+        const chavesFaltantes = chaves.filter(c => !chavesEncontradas.includes(c));
+
+        res.json({
+            total_arquivo: chaves.length,
+            encontradas: chavesEncontradas.length,
+            faltantes: chavesFaltantes.length,
+            lista_faltantes: chavesFaltantes
+        });
+    } catch (err) {
+        logger.error('Erro na conferência Sped:', err);
+        res.status(500).json({ error: 'Falha ao processar conferência' });
+    }
+});
+
+app.post('/api/mde/sync-missing', authMiddleware, async (req, res) => {
+    try {
+        const { chaves, id_empresa } = req.body;
+        if (!chaves || !Array.isArray(chaves)) return res.status(400).json({ error: 'Lista de chaves inválida' });
+
+        logger.info(`Solicitada captura de ${chaves.length} chaves faltantes via EspiãoNFe na empresa ${id_empresa}`);
+        
+        // Realmente chama o serviço para importar as chaves
+        const result = await espiaoNfeService.importarChavesLote(id_empresa, chaves);
+        
+        res.json({ 
+            success: true, 
+            message: `${chaves.length} chaves enviadas para fila de captura via EspiãoNFe.`,
+            detalhes: result.detalhes
+        });
+    } catch (err) {
+        logger.error('Erro ao sincronizar faltantes:', err);
+        res.status(500).json({ error: 'Falha ao iniciar sincronização' });
+    }
+});
 
 // Inicia o servidor
 app.listen(PORT, '0.0.0.0', () => {

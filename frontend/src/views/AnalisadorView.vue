@@ -4,7 +4,7 @@ import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import VueApexCharts from "vue3-apexcharts";
 import { useRoute } from 'vue-router'
-import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped } from '../store'
+import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, setIdArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped, token } from '../store'
 import { Loader2 } from 'lucide-vue-next'
 
 const route = useRoute();
@@ -81,6 +81,19 @@ const showOtimizadorModal = ref(false);
 const productToOtimizar = ref(null);
 const targetVolume = ref(0);
 const savingOtimizacao = ref(false);
+
+// --- Estado Auditoria Sintática Flash (Fase 1) ---
+const infractions = ref({
+    c100_valores_divergentes: [],
+    c100_sem_c190: [],
+    c100_saltos_enumeracao: [],
+    h010_divergente_1300: [],
+    cfop_suspeitos: []
+});
+const loadingSintaxe = ref(false);
+const totalInfractions = computed(() => {
+    return Object.values(infractions.value).reduce((acc, curr) => acc + curr.length, 0);
+});
 
 
 function openNfEdit(nf) {
@@ -235,7 +248,26 @@ watch(activeTab, (newTab) => {
         else loadSaidasMod65();
     }
     if (newTab === 'lmc') loadLmcDetailed();
+    if (newTab === 'sintaxe') runSyntaxAnalysis();
 });
+
+async function runSyntaxAnalysis() {
+    if (!idArquivoSped.value) return;
+    loadingSintaxe.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.post(`${API_BASE_URL}/api/arquivos/analisar-sintaxe`, {
+            id_arquivo: idArquivoSped.value
+        }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        infractions.value = res.data.infractions;
+    } catch (e) {
+        console.error("Erro na Análise Sintática:", e);
+    } finally {
+        loadingSintaxe.value = false;
+    }
+}
 
 // --- Lógica LMC Detalhada ---
 async function loadLmcDetailed() {
@@ -487,7 +519,7 @@ onMounted(async () => {
             const res = await axios.get(`${API_BASE_URL}/api/arquivo/info/${id}`);
             
             // Reconstruir estado global
-            idArquivoSped.value = res.data.id;
+            setIdArquivoSped(res.data.id);
             setArquivoInfo(res.data);
             setEmpresaSelecionada({
                 id: res.data.id_empresa,
@@ -510,20 +542,27 @@ onMounted(async () => {
 // --- Funções de Exportação ---
 function downloadDossie() {
     if (!idArquivoSped.value) return;
-    const token = localStorage.getItem('token');
-    window.open(`${API_BASE_URL}/api/relatorio/dossie/${idArquivoSped.value}${token ? '?token=' + token : ''}`, '_blank');
+    const currentToken = token.value || localStorage.getItem('token');
+    const url = `${API_BASE_URL}/api/relatorio/dossie/${idArquivoSped.value}${currentToken ? '?token=' + currentToken : ''}`;
+    window.open(url, '_blank');
 }
 
 function downloadSpedRetificado() {
-    if (!idArquivoSped.value) return;
-    const token = localStorage.getItem('token');
-    window.open(`${API_BASE_URL}/api/exportar-sped/${idArquivoSped.value}${token ? '?token=' + token : ''}`, '_blank');
+    console.log("Tentando exportar SPED ID:", idArquivoSped.value);
+    if (!idArquivoSped.value) {
+        alert("Nenhum arquivo SPED selecionado para exportação.");
+        return;
+    }
+    const currentToken = token.value || localStorage.getItem('token');
+    const url = `${API_BASE_URL}/api/exportar-sped/${idArquivoSped.value}${currentToken ? '?token=' + currentToken : ''}`;
+    window.open(url, '_blank');
 }
 
 function downloadExcel() {
     if (!idArquivoSped.value) return;
-    const token = localStorage.getItem('token');
-    window.open(`${API_BASE_URL}/api/relatorio/excel/${idArquivoSped.value}${token ? '?token=' + token : ''}`, '_blank');
+    const currentToken = token.value || localStorage.getItem('token');
+    const url = `${API_BASE_URL}/api/relatorio/excel/${idArquivoSped.value}${currentToken ? '?token=' + currentToken : ''}`;
+    window.open(url, '_blank');
 }
 
 async function applyBulkCorrection(regra_id) {
@@ -820,6 +859,15 @@ const getStatusColor = (score) => {
         </span>
       </button>
       <button 
+        @click="activeTab = 'sintaxe'"
+        :class="activeTab === 'sintaxe' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
+        🔍 Malha Fina Sintática
+        <span v-if="totalInfractions" class="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-slate-100">
+          {{ totalInfractions }}
+        </span>
+      </button>
+      <button 
         @click="activeTab = 'notas'"
         :class="activeTab === 'notas' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
         class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
@@ -831,6 +879,113 @@ const getStatusColor = (score) => {
         class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
         🧾 Saídas NF
       </button>
+    </div>
+
+    <!-- Conteúdo: Auditoria Sintática (Malha Fina) -->
+    <div v-if="activeTab === 'sintaxe'" class="space-y-6">
+      <!-- Resumo Geral -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-red-500">📉</div>
+          <div>
+            <p class="text-[10px] font-black text-slate-400 uppercase">Divergência NFe</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.c100_valores_divergentes.length }}</p>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500">❓</div>
+          <div>
+            <p class="text-[10px] font-black text-slate-400 uppercase">Omissão (Saltos)</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.c100_saltos_enumeracao.length }}</p>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-500">📦</div>
+          <div>
+            <p class="text-[10px] font-black text-slate-400 uppercase">Erros Cadastro</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.cfop_suspeitos.length }}</p>
+          </div>
+        </div>
+        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500">⛽</div>
+          <div>
+            <p class="text-[10px] font-black text-slate-400 uppercase">LMC x Inventário</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.h010_divergente_1300.length }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detalhamento das Infrações -->
+      <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+        <div class="p-6 border-b border-slate-50 bg-slate-50/30 flex justify-between items-center">
+          <h3 class="text-lg font-black text-slate-800 tracking-tight uppercase">Laudo de Auditoria Sintática</h3>
+          <button @click="runSyntaxAnalysis" class="px-3 py-1 bg-brand-accent text-white rounded-lg text-[10px] font-bold" :disabled="loadingSintaxe">
+            {{ loadingSintaxe ? 'PROCESSANDO...' : 'RE-ANALISAR AGORA' }}
+          </button>
+        </div>
+
+        <div v-if="loadingSintaxe" class="py-20 flex flex-col items-center justify-center">
+           <div class="animate-spin rounded-full h-10 w-10 border-4 border-brand-accent border-t-transparent mb-4"></div>
+           <p class="text-xs font-bold text-slate-400 tracking-widest uppercase">Motor em Memória: Escaneando Layout SPED...</p>
+        </div>
+
+        <div v-else class="divide-y divide-slate-100">
+           <!-- Divergência C100 -->
+           <div v-if="infractions.c100_valores_divergentes.length" class="p-6 bg-red-50/20">
+              <h4 class="text-xs font-black text-red-600 uppercase mb-4 flex items-center gap-2">🚨 Divergência: Capa vs Itens (C190)</h4>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                 <div v-for="err in infractions.c100_valores_divergentes" :key="err.linha" class="p-3 bg-white border border-red-100 rounded-xl text-[11px] flex justify-between items-center">
+                    <div>
+                      <span class="font-bold">L-{{ err.linha }}:</span> NF {{ err.num_doc }} divergente. 
+                      Capa: <span class="font-bold">{{ formatCurrency(err.valor_capa) }}</span> vs 
+                      Escriturado: <span class="font-bold">{{ formatCurrency(err.valor_calculado) }}</span>
+                    </div>
+                 </div>
+              </div>
+           </div>
+
+           <!-- Saltos de Numeração -->
+           <div v-if="infractions.c100_saltos_enumeracao.length" class="p-6 bg-amber-50/20">
+              <h4 class="text-xs font-black text-amber-600 uppercase mb-4 flex items-center gap-2">❓ Omissão de Notas (Saltos no Sequencial)</h4>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                 <div v-for="err in infractions.c100_saltos_enumeracao" :key="err.linha" class="p-3 bg-white border border-amber-100 rounded-xl text-[11px]">
+                    Detectado salto na linha {{ err.linha }}. Anterior: {{ err.num_anterior }} | Próxima: {{ err.num_atual }}. 
+                    <span class="block font-bold text-amber-500 mt-1">Possível falta de lançamento.</span>
+                 </div>
+              </div>
+           </div>
+
+           <!-- Cadastro de Produtos -->
+           <div v-if="infractions.cfop_suspeitos.length" class="p-6">
+              <h4 class="text-xs font-black text-indigo-600 uppercase mb-4 flex items-center gap-2">📦 Vícios de Cadastro de Produtos (NCM/CEST/CFOP)</h4>
+              <div class="space-y-2">
+                 <div v-for="err in infractions.cfop_suspeitos" :key="err.linha" class="p-3 bg-indigo-50/30 rounded-xl text-[11px] border border-indigo-50">
+                    <span class="font-bold">Linha {{ err.linha }}:</span> {{ err.alerta }}
+                 </div>
+              </div>
+           </div>
+
+           <!-- Bloco H vs 1300 -->
+           <div v-if="infractions.h010_divergente_1300.length" class="p-6 bg-emerald-50/20">
+              <h4 class="text-xs font-black text-emerald-600 uppercase mb-4 flex items-center gap-2">⛽ Descasamento Físico: LMC x Inventário</h4>
+              <div v-for="err in infractions.h010_divergente_1300" :key="err.alerta" class="p-4 bg-white border border-emerald-100 rounded-2xl text-xs">
+                 {{ err.alerta }} 
+                 <div class="mt-2 flex gap-4 text-[10px]">
+                    <span>LMC: <span class="font-bold">{{ formatNumber(err.lmc) }} L</span></span>
+                    <span>Inventário: <span class="font-bold">{{ formatNumber(err.inventario) }} L</span></span>
+                    <span class="text-red-500">Diferença: {{ formatNumber(err.diff) }} L</span>
+                 </div>
+              </div>
+           </div>
+
+           <!-- Sem erros -->
+           <div v-if="totalInfractions === 0" class="py-20 text-center flex flex-col items-center gap-3">
+              <div class="text-4xl">💎</div>
+              <p class="text-lg font-black text-emerald-600 uppercase tracking-widest">Nenhuma Infração Estrutural Detectada</p>
+              <p class="text-xs text-slate-400">O arquivo parece íntegro nos cruzamentos de Bloco C e H.</p>
+           </div>
+        </div>
+      </div>
     </div>
 
     <!-- Conteúdo: NFs Analíticas (C100/170/190) -->

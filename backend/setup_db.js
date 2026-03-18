@@ -51,6 +51,42 @@ async function setupDatabase() {
                 vl_icms NUMERIC(15,2)
             );
         `);
+        // Tabela de Configuração de CFOP/CST forçado
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS config_tributaria (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id),
+                cfop_entrada TEXT,
+                cst_icms_entrada TEXT,
+                force_cst BOOLEAN DEFAULT true,
+                UNIQUE(id_empresa, cfop_entrada)
+            );
+        `);
+
+        // Tabela para De-Para de Produtos (Participante + Código Item Fornecedor -> Código Interno)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS mapeamento_produtos (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id),
+                cod_participante TEXT, -- CNPJ do fornecedor
+                cod_item_fornecedor TEXT,
+                cod_item_interno TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(id_empresa, cod_participante, cod_item_fornecedor)
+            );
+        `);
+
+        // Tabela para De-Para de Participantes (CNPJ Fornecedor no XML -> Código Interno no SPED)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS mapeamento_participantes (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id),
+                cnpj_fornecedor TEXT,
+                cod_participante_interno TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(id_empresa, cnpj_fornecedor)
+            );
+        `);
         // Criar/Ajustar tabela para LMC Movimentacao
         await client.query(`
             CREATE TABLE IF NOT EXISTS lmc_movimentacao (
@@ -85,6 +121,12 @@ async function setupDatabase() {
         await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS estq_escr NUMERIC(15,3)`);
         await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS fech_fisico NUMERIC(15,3)`);
         await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS fech_fisico_ajustado NUMERIC(15,3)`);
+        
+        // Colunas de ajuste adicionais (do migrate_db.js)
+        await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS val_perda_ajustado NUMERIC`);
+        await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS val_ganho_ajustado NUMERIC`);
+        await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS estq_abert_ajustado NUMERIC`);
+        await client.query(`ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS vol_escr_ajustado NUMERIC`);
 
         // Garantir tipo TEXT nas colunas existentes
         await client.query(`ALTER TABLE documentos_d100 ALTER COLUMN num_doc TYPE TEXT`);
@@ -92,8 +134,13 @@ async function setupDatabase() {
         await client.query(`ALTER TABLE documentos_d100 ALTER COLUMN cod_sit TYPE TEXT`);
         await client.query(`ALTER TABLE documentos_d100 ALTER COLUMN cfop TYPE TEXT`);
 
-        // Garantir colunas de ajuste no C100
+        // Garantir colunas de ajuste no C100 e D100
         await client.query(`ALTER TABLE documentos_c100 ADD COLUMN IF NOT EXISTS vl_doc_ajustado NUMERIC(15,2);`);
+        await client.query(`ALTER TABLE documentos_c100 ADD COLUMN IF NOT EXISTS ind_oper CHARACTER VARYING(1);`);
+        await client.query(`ALTER TABLE documentos_c100 ADD COLUMN IF NOT EXISTS chv_nfe CHARACTER VARYING(44);`);
+        await client.query(`ALTER TABLE documentos_d100 ADD COLUMN IF NOT EXISTS ind_oper CHARACTER VARYING(1);`);
+        await client.query(`ALTER TABLE documentos_d100 ADD COLUMN IF NOT EXISTS vl_icms NUMERIC(15,2);`);
+        await client.query(`ALTER TABLE documentos_d100 ADD COLUMN IF NOT EXISTS chv_nfe CHARACTER VARYING(44);`);
 
         // Garantir colunas de ajuste no C190
         await client.query(`ALTER TABLE documentos_c190 ADD COLUMN IF NOT EXISTS vl_opr_ajustado NUMERIC(15,2);`);
@@ -111,7 +158,105 @@ async function setupDatabase() {
             );
         `);
 
-        console.log('Estrutura de Auditoria Avançada estabilizada com colunas de ajuste e configurações de LMC.');
+        // --- FASE 5: DE-PARA XML (PRODUTOS) ---
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS de_para_xml (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+                cnpj_emissor TEXT NOT NULL,
+                cod_produto_xml TEXT NOT NULL,
+                cod_produto_interno TEXT,
+                descricao_produto TEXT,
+                novo_cfop TEXT,
+                novo_cst TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(id_empresa, cnpj_emissor, cod_produto_xml)
+            );
+        `);
+
+        // --- FASE 4: COFRE DE CERTIFICADOS A1 ---
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS empresa_certificados (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+                pfx_base64 TEXT NOT NULL,
+                senha_encriptada TEXT NOT NULL,
+                validade_inicio TIMESTAMP,
+                validade_fim TIMESTAMP,
+                thumbprint TEXT,
+                serial_number TEXT,
+                emissor TEXT,
+                ultimo_nsu_consultado TEXT DEFAULT '0',
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(id_empresa)
+            );
+        `);
+        await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS ultimo_nsu_consultado TEXT DEFAULT '0';`);
+        await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS periodicidade_sincronizacao INTEGER DEFAULT 0;`);
+
+        // --- MANIFESTO DE DESTINATÁRIO (MD-e) CACHE ---
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS mde_cache (
+                id SERIAL PRIMARY KEY,
+                id_empresa INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+                chave_nfe TEXT UNIQUE NOT NULL,
+                nsu TEXT,
+                cnpj_emissor TEXT,
+                nome_emissor TEXT,
+                valor NUMERIC(15,2),
+                data_emissao TIMESTAMP,
+                status_manifesto TEXT, 
+                tipo_operacao TEXT,
+                xml_content TEXT,
+                numero_nfe TEXT,
+                serie TEXT,
+                itens_json JSONB,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS nsu TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS tipo_operacao TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS numero_nfe TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS serie TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS itens_json JSONB;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS cnpj_emissor TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS nome_emissor TEXT;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS valor NUMERIC(15,2);`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS data_emissao TIMESTAMP;`);
+        await client.query(`ALTER TABLE mde_cache ADD COLUMN IF NOT EXISTS status_manifesto TEXT;`);
+
+
+        // --- CADASTRO DE CFOPS ---
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS cad_cfops (
+                id SERIAL PRIMARY KEY,
+                codigo TEXT NOT NULL UNIQUE,
+                descricao TEXT,
+                tipo TEXT, -- 'entrada' ou 'saida'
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        // Inserir CFOPs padrão se a tabela estiver vazia
+        const cfopsExist = await client.query('SELECT COUNT(*) FROM cad_cfops');
+        if (parseInt(cfopsExist.rows[0].count) === 0) {
+            console.log('Populando CFOPs padrão...');
+            const defaultCfops = [
+                ['1102', 'Compra para comercialização', 'entrada'],
+                ['1556', 'Compra de material para uso ou consumo', 'entrada'],
+                ['1652', 'Compra de combustível ou lubrificante para consumo', 'entrada'],
+                ['1551', 'Compra de bem para o ativo imobilizado', 'entrada'],
+                ['1403', 'Compra para comercialização em operação com mercadoria sujeita ao regime de substituição tributária', 'entrada'],
+                ['2102', 'Compra para comercialização (Outro Estado)', 'entrada'],
+                ['2556', 'Compra de material para uso ou consumo (Outro Estado)', 'entrada']
+            ];
+            for (const [cod, desc, tipo] of defaultCfops) {
+                await client.query('INSERT INTO cad_cfops (codigo, descricao, tipo) VALUES ($1, $2, $3)', [cod, desc, tipo]);
+            }
+        }
+
+        console.log('Estrutura de Auditoria Avançada, Cofre A1 e Cadastro de CFOPs estabilizada.');
     } catch (err) {
         console.error('Erro ao configurar banco:', err);
     } finally {

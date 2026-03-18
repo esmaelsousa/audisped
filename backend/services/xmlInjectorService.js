@@ -7,16 +7,16 @@ function parseValor(v) {
     return isNaN(num) ? 0.0 : num;
 }
 
-// Formata para o padrão SPED Fiscal: duas decimais com vírgula
+// Formata para o padrão SPED Fiscal: duas decimais com vírgula (ou mais para QTD)
 function formatSpedFloat(val, algarismos = 2) {
-    if (isNaN(val)) return '0,00';
+    if (val === undefined || val === null || isNaN(val)) return '0,00';
     return val.toFixed(algarismos).replace('.', ',');
 }
 
 // Remove os hífens e formata data DDMMAAAA -> AAAAMMDD ou vice versa
 function formatDate(isoDateStr) {
     if (!isoDateStr) return '';
-    // Recebe do XML 2021-01-10 -> SPED: 10012021
+    // Recebe do XML 2021-01-10 -> SPED: DDMMAAAA
     const [y, m, d] = isoDateStr.substring(0, 10).split('-');
     return `${d}${m}${y}`;
 }
@@ -25,218 +25,615 @@ function formatDate(isoDateStr) {
  * Função Core do Motor de Tributação.
  * Traduz JSON da NF-e para Strings de Linha SPED (Blocos 0 e C).
  */
-function transformarNotasEmSped(parsedNotes, userCfop, forceCst040) {
+async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
+    const {
+        userCfop = '1102',
+        forcarUsoConsumo = false, 
+        ajusteIpi = false,
+        ajusteIcms = false,
+        analyzeOnly = false,
+        itemMapping = [], 
+        pularDuplicados = false,
+        chavesExistentes = [], 
+        idEmpresa = null
+    } = options;
+
     let linhasBloco0 = [];
     let linhasBlocoC = [];
 
+    const map0150 = new Map();
+    const map0190 = new Map();
+    const map0200 = new Map();
+
     let totalNotas = 0;
+    let totalPuladas = 0;
     let totalValorCompras = 0;
 
-    let codItemInterno = 9000; // Caso queiramos anonimizar os códigos dos produtos
+    let codItemInterno = 9000; 
+
+    // --- CARREGAR MAPEAMENTOS (DE-PARA) SE HOUVER dbClient ---
+    const mapeamentos = new Map();
+    
+    // 1. Prioridade: Mapeamento Manual do Frontend
+    if (itemMapping && Array.isArray(itemMapping)) {
+        for (const item of itemMapping) {
+            const key = `${(item.cnpj_emissor || '').replace(/\D/g, '')}_${item.codigo}`;
+            mapeamentos.set(key, {
+                novo_cfop: item.cfop_alvo,
+                novo_cst: item.cst_alvo || '000',
+                conta_contabil: item.conta_contabil,
+                descricao_produto: item.descricao,
+                ncm: item.ncm,
+                cod_interno: item.cod_interno
+            });
+        }
+    }
+
+    // 2. Complemento: Mapeamento do Banco de Dados (se não estiver no manual)
+    if (dbClient) {
+        try {
+            const cnpjs = [...new Set(parsedNotes.map(n => (n.emitente.cnpj || '').replace(/\D/g, '')))];
+            if (cnpjs.length > 0) {
+                const query = `
+                    SELECT cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, conta_contabil, descricao_produto, ncm, cod_interno
+                    FROM de_para_xml
+                    WHERE cnpj_emissor = ANY($1)
+                `;
+                const res = await dbClient.query(query, [cnpjs]);
+                for (const row of res.rows) {
+                    const key = `${row.cnpj_emissor}_${row.cod_produto_xml}`;
+                    if (!mapeamentos.has(key)) {
+                        mapeamentos.set(key, {
+                            novo_cfop: row.novo_cfop,
+                            novo_cst: row.novo_cst,
+                            conta_contabil: row.conta_contabil,
+                            descricao_produto: row.descricao_produto,
+                            ncm: row.ncm
+                        });
+                    }
+                }
+                logger.info(`Carregados ${res.rowCount} mapeamentos De-Para do BD.`);
+            }
+
+            // Lógica para buscar dados da empresa e gerar registros 0000, 0005, 0100
+            let empresaData = {
+                cnpj: '00000000000000',
+                nome_empresa: 'EMPRESA EXEMPLO LTDA',
+                uf: 'SP',
+                nome_fantasia: 'EXEMPLO'
+            };
+
+            if (idEmpresa && dbClient) {
+                try {
+                    const res = await dbClient.query('SELECT * FROM empresas WHERE id = $1', [idEmpresa]);
+                    if (res.rows.length > 0) {
+                        empresaData = res.rows[0];
+                    }
+                } catch (err) {
+                    console.error('Erro ao buscar dados da empresa para o Bloco 0:', err);
+                }
+            }
+
+            // --- REGISTRO 0000: ABERTURA DO ARQUIVO DIGITAL E IDENTIFICAÇÃO DA ENTIDADE ---
+            // 01-REG | 02-COD_VER | 03-COD_FIN | 04-DT_INI | 05-DT_FIN | 06-NOME | 07-CNPJ | 08-CPF | 09-UF | 10-IE | 11-COD_MUN | 12-IM | 13-SUFRAMA | 14-IND_PERFIL | 15-IND_ATIV
+            const reg0000 = [
+                '',
+                '0000',
+                '018', // Versão do layout (018 para 2024 onwards)
+                '0',   // Original
+                '01012025', // Ajustar dinamicamente depois
+                '31012025', // Ajustar dinamicamente depois
+                empresaData.nome_empresa.toUpperCase(),
+                empresaData.cnpj.replace(/\D/g, ''),
+                '',
+                empresaData.uf.toUpperCase(),
+                '', // IE (Placeholder)
+                '3550308', // Cód Município (Placeholder: São Paulo)
+                '', // IM
+                '', // SUFRAMA
+                'A', // Perfil A
+                '1', // Outros (Atividade Industrial ou equiparada)
+                ''
+            ];
+            linhasBloco0.push(reg0000.join('|'));
+
+            // --- REGISTRO 0005: DADOS COMPLEMENTARES DA ENTIDADE ---
+            // 01-REG | 02-FANTASIA | 03-CEP | 04-END | 05-NUM | 06-COMPL | 07-BAIRRO | 08-FONE | 09-FAX | 10-EMAIL
+            const reg0005 = [
+                '',
+                '0005',
+                (empresaData.nome_fantasia || empresaData.nome_empresa).toUpperCase(),
+                '00000000', // CEP Placeholder
+                'LOGRADOURO EXEMPLO',
+                'S/N',
+                '',
+                'CENTRO',
+                '',
+                '',
+                '',
+                ''
+            ];
+            linhasBloco0.push(reg0005.join('|'));
+
+            // --- REGISTRO 0100: DADOS DO CONTABILISTA ---
+            // 01-REG | 02-NOME | 03-CPF | 04-CRC | 05-CNPJ | 06-CEP | 07-END | 08-NUM | 09-COMPL | 10-BAIRRO | 11-FONE | 12-FAX | 13-EMAIL | 14-COD_MUN
+            const reg0100 = [
+                '',
+                '0100',
+                'CONTADOR EXEMPLO',
+                '00000000000',
+                'SP000000O0',
+                '',
+                '00000000',
+                'END CONTADOR',
+                '123',
+                '',
+                'CENTRO',
+                '',
+                '',
+                'contador@exemplo.com',
+                '3550308',
+                ''
+            ];
+            linhasBloco0.push(reg0100.join('|'));
+        } catch (err) {
+            logger.error('Erro ao carregar mapeamentos De-Para do BD:', err);
+        }
+    }
+
+    const setChaves = new Set(chavesExistentes);
 
     for (const nota of parsedNotes) {
-        totalNotas++;
-        // --- 0150: PARTICIPANTE / EMITENTE ---
-        // |REG|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
-        // Usamos o próprio CNPJ como COD_PART para garantir unicidade
-        const cnpjLimpo = (nota.emitente.cnpj || '').replace(/\D/g, '');
-        const emitLine = `|0150|${cnpjLimpo}|${nota.emitente.nome || 'FORNECEDOR'}|01058|${cnpjLimpo}||${nota.emitente.ie || ''}|${nota.emitente.cod_mun || ''}||||||`;
-        linhasBloco0.push(emitLine);
+        // Verificação de duplicidade
+        if (pularDuplicados && nota.c100.chv_nfe && setChaves.has(nota.c100.chv_nfe)) {
+            totalPuladas++;
+            logger.info(`Nota ${nota.c100.num_doc} ignorada por duplicidade (já existe no SPED).`);
+            continue;
+        }
 
-        // --- C100: CABEÇALHO DA NOTA ---
+        if (!nota.itens || nota.itens.length === 0) {
+            logger.warn(`Nota ${nota.c100.num_doc} (Chave: ${nota.c100.chv_nfe}) ignorada pois não possui itens (causaria erro de filho obrigatório).`);
+            continue;
+        }
+
+        totalNotas++;
+        const cnpjLimpo = (nota.emitente.cnpj || '').replace(/\D/g, '');
+        const notaLinhas = []; // Captura as linhas desta nota específica
+
         const vlTotalDoc = parseValor(nota.c100.vl_doc);
         const vlMercadoria = parseValor(nota.c100.vl_merc);
         const vlDesc = parseValor(nota.c100.vl_desc);
-        const vlFrt = parseValor(nota.c100.ind_frt); // se for 0, 1, 2...
 
         if (nota.c100.ind_oper === '0') {
             totalValorCompras += vlTotalDoc;
         }
 
-        // |REG|IND_OPER|IND_EMIT|COD_PART|COD_MOD|COD_SIT|SER|NUM_DOC|CHV_NFE|DT_DOC|DT_E_S|VL_DOC|IND_PGTO|VL_DESC|VL_ABAT_NT|VL_MERC|IND_FRT|VL_FRT|VL_SEG|VL_OUT_DA|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|VL_PIS|VL_COFINS|COD_INF|
-        // Total: 29 campos (sem contar o pipe inicial vazio)
-        const c100Line = [
-            '',                                        // pipe inicial
-            'C100',                                    // 1. REG
-            nota.c100.ind_oper || '0',                 // 2. IND_OPER (0=Entrada, 1=Saída)
-            nota.c100.ind_emit || '1',                 // 3. IND_EMIT (0=Própria, 1=Terceiros)
-            cnpjLimpo,                                 // 4. COD_PART
-            nota.c100.cod_mod || '55',                 // 5. COD_MOD
-            '00',                                      // 6. COD_SIT
-            nota.c100.serie || '1',                    // 7. SER
-            nota.c100.num_doc,                         // 8. NUM_DOC
-            nota.c100.chv_nfe,                         // 9. CHV_NFE
-            formatDate(nota.c100.dt_doc),              // 10. DT_DOC
-            formatDate(nota.c100.dt_e_s),              // 11. DT_E_S
-            formatSpedFloat(vlTotalDoc),               // 12. VL_DOC
-            '0',                                       // 13. IND_PGTO
-            formatSpedFloat(vlDesc),                   // 14. VL_DESC
-            '0',                                       // 15. VL_ABAT_NT
-            formatSpedFloat(vlMercadoria),             // 16. VL_MERC
-            '0',                                       // 17. IND_FRT (0=Contratação por Conta do Emitente)
-            '0,00',                                    // 18. VL_FRT
-            '0,00',                                    // 19. VL_SEG
-            '0,00',                                    // 20. VL_OUT_DA
-            '0,00',                                    // 21. VL_BC_ICMS
-            '0,00',                                    // 22. VL_ICMS
-            '0,00',                                    // 23. VL_BC_ICMS_ST
-            '0,00',                                    // 24. VL_ICMS_ST
-            '0,00',                                    // 25. VL_RED_BC
-            '0,00',                                    // 26. VL_IPI
-            '0,00',                                    // 27. VL_PIS
-            '0,00',                                    // 28. VL_COFINS
-            '',                                        // 29. COD_INF
-            '',                                        // trailing pipe
-        ].join('|');
-        linhasBlocoC.push(c100Line);
+        // --- 0150: PARTICIPANTE / EMITENTE ---
+        const end = nota.emitente.x_lgr || '';
+        const num = nota.emitente.nro || '';
+        const compl = nota.emitente.x_cpl || '';
+        const bairro = nota.emitente.x_bairro || '';
 
-        // Hash Map de Consolidação (Para o C190)
-        const agregadorC190 = new Map();
-
-        // --- C170: ITENS E O MOTOR FISCAL ---
-        for (const item of nota.itens) {
-            let finalCfop = userCfop || item.cfop_original || '1102';
-            let finalCst = item.cst_icms_original || '000';
-
-            let vlItem = parseValor(item.vl_item);
-            let descItem = parseValor(item.vl_desc);
-            let baseIcms = 0;
-            let aliquotaIcms = 0;
-            let valorIcms = 0;
-
-            // REGRA MAGNA DO USUÁRIO
-            if (finalCfop === '1556' && forceCst040) {
-                finalCst = '040';
-                baseIcms = 0;
-                aliquotaIcms = 0;
-                valorIcms = 0;
-            }
-
-            // Produtos no bloco 0
-            const codUnit = item.unid || 'UN';
-            const codProdutoNfe = item.cod_item || (codItemInterno++).toString();
-            linhasBloco0.push(`|0190|${codUnit}|Unidade Extraida Nfe|`);
-            const linha0200 = [
-                '',
-                '0200',
-                codProdutoNfe,
-                item.descr_item,
-                '', // COD_BARRA
-                '', // COD_ANT_ITEM
-                codUnit, // UNID_INV
-                '00', // TIPO_ITEM
-                '', // COD_NCM
-                '', // EX_IPI
-                '', // COD_GEN
-                '', // COD_LST
-                '', // ALIQ_ICMS
-                '', // CEST
-                '' // trailing pipe
-            ].join('|');
-            linhasBloco0.push(linha0200);
-
-            // |REG|NUM_ITEM|COD_ITEM|DESCR_COMPL|QTD|UNID|VL_ITEM|VL_DESC|IND_MOV|CST_ICMS|CFOP|COD_NAT|
-            // |VL_BC_ICMS|ALIQ_ICMS|VL_ICMS|VL_BC_ICMS_ST|ALIQ_ST|VL_ICMS_ST|IND_APUR|CST_IPI|COD_ENQ|
-            // |VL_BC_IPI|ALIQ_IPI|VL_IPI|CST_PIS|VL_BC_PIS|ALIQ_PIS_PERC|QUANT_BC_PIS|ALIQ_PIS_QUANT|VL_PIS|
-            // |CST_COFINS|VL_BC_COFINS|ALIQ_COFINS_PERC|QUANT_BC_COFINS|ALIQ_COFINS_QUANT|VL_COFINS|COD_CTA|VL_ABAT_NT|
-            // Total: 38 campos
-            const c170Line = [
-                '',                                               // pipe inicial
-                'C170',                                           // 1. REG
-                item.num_item,                                    // 2. NUM_ITEM
-                codProdutoNfe,                                    // 3. COD_ITEM
-                '',                                               // 4. DESCR_COMPL
-                formatSpedFloat(parseValor(item.qtd), 5),         // 5. QTD
-                codUnit,                                          // 6. UNID
-                formatSpedFloat(vlItem),                          // 7. VL_ITEM
-                formatSpedFloat(descItem),                        // 8. VL_DESC
-                nota.c100.ind_oper === '1' ? '1' : '0',           // 9. IND_MOV (1=Saída, 0=Entrada)
-                finalCst,                                         // 10. CST_ICMS
-                finalCfop,                                        // 11. CFOP
-                '',                                               // 12. COD_NAT
-                formatSpedFloat(baseIcms),                        // 13. VL_BC_ICMS
-                formatSpedFloat(aliquotaIcms),                    // 14. ALIQ_ICMS
-                formatSpedFloat(valorIcms),                       // 15. VL_ICMS
-                '0,00',                                           // 16. VL_BC_ICMS_ST
-                '0,00',                                           // 17. ALIQ_ST
-                '0,00',                                           // 18. VL_ICMS_ST
-                '0',                                              // 19. IND_APUR (0=Apuração mensal)
-                '',                                               // 20. CST_IPI (Zerado a pedido do dev)
-                '',                                               // 21. COD_ENQ (vazio para não-IPI)
-                '0,00',                                           // 22. VL_BC_IPI
-                '0,00',                                           // 23. ALIQ_IPI
-                '0,00',                                           // 24. VL_IPI
-                '99',                                             // 25. CST_PIS (99=Outras operações)
-                '0,00',                                           // 26. VL_BC_PIS
-                '0,00',                                           // 27. ALIQ_PIS_PERC
-                '0,00',                                           // 28. QUANT_BC_PIS
-                '0,00',                                           // 29. ALIQ_PIS_QUANT
-                '0,00',                                           // 30. VL_PIS
-                '99',                                             // 31. CST_COFINS (99=Outras operações)
-                '0,00',                                           // 32. VL_BC_COFINS
-                '0,00',                                           // 33. ALIQ_COFINS_PERC
-                '0,00',                                           // 34. QUANT_BC_COFINS
-                '0,00',                                           // 35. ALIQ_COFINS_QUANT
-                '0,00',                                           // 36. VL_COFINS
-                '',                                               // 37. COD_CTA
-                '0,00',                                           // 38. VL_ABAT_NT
-                '',                                               // trailing pipe
-            ].join('|');
-            linhasBlocoC.push(c170Line);
-
-            // AGREGAR PARA O C190
-            const keyAgregacao = `${finalCst}_${finalCfop}_${aliquotaIcms}`;
-            if (!agregadorC190.has(keyAgregacao)) {
-                agregadorC190.set(keyAgregacao, {
-                    cst: finalCst,
-                    cfop: finalCfop,
-                    aliq: aliquotaIcms,
-                    vl_opr: 0,
-                    vl_bc_icms: 0,
-                    vl_icms: 0
-                });
-            }
-            const agg = agregadorC190.get(keyAgregacao);
-            agg.vl_opr += (vlItem - descItem);
-            agg.vl_bc_icms += baseIcms;
-            agg.vl_icms += valorIcms;
+        const emitLineFields = [
+            '', '0150', cnpjLimpo, nota.emitente.nome || 'FORNECEDOR', '01058', cnpjLimpo, '', 
+            nota.emitente.ie || '', nota.emitente.cod_mun || '', '', end, num, compl, bairro, ''
+        ];
+        const emitLine = emitLineFields.join('|');
+        if (!analyzeOnly) {
+            map0150.set(cnpjLimpo, emitLine);
         }
 
-        // --- C190: ANALÍTICO DA NOTA ---
-        // |REG|CST_ICMS|CFOP|ALIQ_ICMS|VL_OPR|VL_BC_ICMS|VL_ICMS|VL_BC_ICMS_ST|VL_ICMS_ST|VL_RED_BC|VL_IPI|COD_OBS|
-        // Total: 12 campos
+        // --- C100: CABEÇALHO DA NOTA ---
+        const agregadorC190 = new Map();
+        const bufferedC170s = [];
+        
+        let somaVlBcIcms = 0;
+        let somaVlIcms = 0;
+        let somaVlBcSt = 0;
+        let somaVlIcmsSt = 0;
+        let somaVlIpi = 0;
+        let somaVlMerc = 0;
+
+        // --- C170: ITENS ---
+        for (const item of nota.itens) {
+            const mKey = `${cnpjLimpo}_${item.cod_item}`;
+            const m = mapeamentos.get(mKey);
+
+            let finalCfop = m ? m.novo_cfop : (userCfop || item.cfop || item.cfop_original || '1102');
+            let finalCst = m ? m.novo_cst : (item.cst_icms || item.cst_icms_original || '000');
+            finalCst = String(finalCst).padStart(3, '0');
+            let contaContabil = m ? m.conta_contabil : '';
+
+            // Importante: usar os campos reais que o extractNfeData produz (vprod, vdesc, etc)
+            let vlItem = parseValor(item.vprod);
+            let descItem = parseValor(item.vdesc);
+            let vlIpi = parseValor(item.vipi);
+            let vlIcms = parseValor(item.vicms);
+            let aliqIcms = parseValor(item.picms);
+
+            let vlCofins = parseValor(item.vcofins);
+            let vIpiDevol = parseValor(item.vipidevol);
+
+            // Novos campos extraídos (BCs e Alíquotas)
+            let bcIpi = parseValor(item.vbc_ipi);
+            let aliqIpi = parseValor(item.pipi);
+            let bcIcmsSt = parseValor(item.vbc_icms_st);
+            let vlIcmsSt = parseValor(item.vicms_st);
+            let cstPis = item.cst_pis || '07';
+            let bcPis = parseValor(item.vbc_pis);
+            let aliqPis = parseValor(item.ppis);
+            let vlPis = parseValor(item.vpis);
+            let cstCofins = item.cst_cofins || '07';
+            let bcCofins = parseValor(item.vbc_cofins);
+            let aliqCofins = parseValor(item.pcofins);
+
+            // Extração de valores acessórios
+            let vFrete = parseValor(item.vfrete);
+            let vSeg = parseValor(item.vseg);
+            let vOutro = parseValor(item.voutro);
+
+            // Ajustes de Custo (Premium Feature)
+            if (ajusteIpi) {
+                // IPI é externo ao valor do produto na NF-e, então adicionamos ao valor do item para compor custo
+                vlItem += vlIpi;
+                // Zeramos os campos de imposto destacados se solicitado ajuste
+                vlIpi = 0; 
+                bcIpi = 0;
+                aliqIpi = 0;
+            }
+            if (ajusteIcms) {
+                // ICMS já está embutido no vProd (vlItem) na NF-e. 
+                // Apenas zeramos os campos de impostos para que não haja crédito no SPED
+                vlIcms = 0;
+                aliqIcms = 0;
+            }
+
+            if (forcarUsoConsumo && finalCfop === '1556') {
+                finalCst = '040';
+                // No uso e consumo, ICMS ST, IPI e IPI Devol tornam-se custo do produto
+                vlItem += vlIcmsSt;
+                vlItem += vlIpi;
+                vlItem += vIpiDevol;
+                
+                // Zeramos os impostos destacados para o SPED (não há crédito)
+                vlIcms = 0;
+                aliqIcms = 0;
+                bcIcmsSt = 0;
+                vlIcmsSt = 0;
+                vlIpi = 0;
+                bcIpi = 0;
+                aliqIpi = 0;
+                vIpiDevol = 0;
+            }
+
+            // Base de ICMS: (Valor Produto - Desconto + Frete + Seguro + Outros)
+            const bcIcms = (finalCst === '000' || finalCst === '020') ? (vlItem - descItem + vFrete + vSeg + vOutro) : 0;
+            const vIcmsCalc = (bcIcms * aliqIcms) / 100;
+
+            const codUnit = item.ucom || 'UN';
+            const codProdutoNfe = (m && m.cod_interno) ? m.cod_interno : (item.cod_item || (codItemInterno++).toString());
+            const descricaoFinal = m && m.descricao_produto ? m.descricao_produto : item.descr_item;
+            const ncmFinal = m && m.ncm ? m.ncm : (item.ncm || '');
+
+            const reg0190 = ['', '0190', codUnit, 'Unidade Extraida Nfe', ''].join('|');
+            const reg0200 = ['', '0200', codProdutoNfe, descricaoFinal, '', '', codUnit, '00', ncmFinal, '', '', '', '', '', ''].join('|');
+            
+            if (!analyzeOnly) {
+                map0190.set(codUnit, reg0190);
+                map0200.set(codProdutoNfe, reg0200);
+            }
+
+            // Correção CST_IPI para entradas
+            let finalCstIpi = item.cst_ipi || '99';
+            if (finalCfop.startsWith('1') || finalCfop.startsWith('2') || finalCfop.startsWith('3')) {
+                if (parseInt(finalCstIpi) >= 50) {
+                    finalCstIpi = '49';
+                }
+            }
+
+            // QTD deve ser > 0; se o XML vier com 0, usa 1,0 como mínimo seguro
+            const qtd = parseValor(item.qcom);
+            const qtdFinal = qtd > 0 ? qtd : 1.0;
+
+            const c170Fields = [
+                '', 'C170', item.num_item, codProdutoNfe, '',
+                formatSpedFloat(qtdFinal, 5),
+                codUnit, 
+                formatSpedFloat(vlItem), 
+                formatSpedFloat(descItem), 
+                nota.c100.ind_oper === '1' ? '1' : '0', 
+                finalCst, 
+                finalCfop, 
+                '', 
+                formatSpedFloat(bcIcms), 
+                formatSpedFloat(aliqIcms), 
+                formatSpedFloat(vIcmsCalc), 
+                formatSpedFloat(bcIcmsSt), 
+                '0,00', 
+                formatSpedFloat(vlIcmsSt), 
+                '0', 
+                finalCstIpi, 
+                '', 
+                formatSpedFloat(bcIpi), 
+                formatSpedFloat(aliqIpi), 
+                formatSpedFloat(vlIpi), 
+                cstPis, 
+                formatSpedFloat(bcPis), 
+                formatSpedFloat(aliqPis), 
+                '0,00', 
+                '0,00', 
+                formatSpedFloat(vlPis), 
+                cstCofins, 
+                formatSpedFloat(bcCofins), 
+                formatSpedFloat(aliqCofins), 
+                '0,00', 
+                '0,00', 
+                formatSpedFloat(vlCofins), 
+                contaContabil, formatSpedFloat(vIpiDevol), ''
+            ];
+            const c170Line = c170Fields.join('|');
+            bufferedC170s.push(c170Line);
+
+            const keyAg = `${finalCst}_${finalCfop}_${aliqIcms}`;
+            if (!agregadorC190.has(keyAg)) {
+                agregadorC190.set(keyAg, { 
+                    cst: finalCst, 
+                    cfop: finalCfop, 
+                    aliq: aliqIcms, 
+                    vl_opr: 0, 
+                    vl_bc_icms: 0, 
+                    vl_icms: 0, 
+                    vl_bc_st: 0,
+                    vl_icms_st: 0,
+                    vl_ipi: 0 
+                });
+            }
+            const agg = agregadorC190.get(keyAg);
+            // Valor da Operação no C190: Valor Produto - Desconto + Acréscimos (Frete, Seg, Outro) + ST + IPI + IpiDevol
+            // Isso deve bater exatamente com o VL_DOC do C100
+            const valorOperacaoItem = (vlItem - descItem + vFrete + vSeg + vOutro + vlIcmsSt + vlIpi + vIpiDevol);
+            
+            agg.vl_opr += valorOperacaoItem;
+            agg.vl_bc_icms += bcIcms;
+            agg.vl_icms += vIcmsCalc;
+            agg.vl_bc_st += bcIcmsSt;
+            agg.vl_icms_st += vlIcmsSt;
+            agg.vl_ipi += vlIpi;
+
+            // Totais para o Cabeçalho C100
+            somaVlBcIcms += bcIcms;
+            somaVlIcms += vIcmsCalc;
+            somaVlBcSt += bcIcmsSt;
+            somaVlIcmsSt += vlIcmsSt;
+            somaVlIpi += vlIpi;
+            somaVlMerc += vlItem;
+        }
+
+        // --- C190 (Cálculo do VL_DOC final baseado na soma dos analíticos) ---
+        const c190LinesParaNota = [];
+        let vlDocCalculado = 0;
         for (const [key, agg] of agregadorC190.entries()) {
+            vlDocCalculado += agg.vl_opr;
             const c190Line = [
-                '',
-                'C190',
-                agg.cst,                             // CST_ICMS
-                agg.cfop,                            // CFOP
-                formatSpedFloat(agg.aliq),           // ALIQ_ICMS
-                formatSpedFloat(agg.vl_opr),         // VL_OPR
-                formatSpedFloat(agg.vl_bc_icms),     // VL_BC_ICMS
-                formatSpedFloat(agg.vl_icms),        // VL_ICMS
-                '0,00',                              // VL_BC_ICMS_ST
-                '0,00',                              // VL_ICMS_ST
-                '0,00',                              // VL_RED_BC
-                '0,00',                              // VL_IPI
-                '',                                  // COD_OBS
-                '',                                  // trailing pipe
+                '', 'C190', agg.cst, agg.cfop, 
+                formatSpedFloat(agg.aliq), 
+                formatSpedFloat(agg.vl_opr), 
+                formatSpedFloat(agg.vl_bc_icms), 
+                formatSpedFloat(agg.vl_icms), 
+                formatSpedFloat(agg.vl_bc_st), 
+                formatSpedFloat(agg.vl_icms_st), 
+                '0,00', 
+                formatSpedFloat(agg.vl_ipi), 
+                '', ''
             ].join('|');
-            linhasBlocoC.push(c190Line);
+            c190LinesParaNota.push(c190Line);
+        }
+
+        // Fallback: se a nota não tiver itens, gera um C190 sintético para satisfazer a obrigatoriedade
+        if (c190LinesParaNota.length === 0) {
+            const vlDoc = parseValor(nota.c100.vl_doc) || 0;
+            vlDocCalculado = vlDoc;
+            if (vlDoc > 0) {
+                const fallbackC190 = ['', 'C190', '000', userCfop, '0,00',
+                    formatSpedFloat(vlDoc), '0,00', '0,00', '0,00', '0,00', '0,00', '0,00', '', ''].join('|');
+                c190LinesParaNota.push(fallbackC190);
+            }
+        }
+
+        // --- Geração Final C100 (Usando o total calculado dos itens para não dar erro de validação) ---
+        const c100LineFields = [
+            '', 'C100', 
+            nota.c100.ind_oper || '0', 
+            nota.c100.ind_emit || '1', 
+            cnpjLimpo, 
+            nota.c100.mod || '55', 
+            nota.c100.cod_sit || '00', 
+            nota.c100.serie || '1', 
+            nota.c100.num_doc, 
+            nota.c100.chv_nfe, 
+            formatDate(nota.c100.dt_doc), 
+            formatDate(nota.c100.dt_e_s), 
+            formatSpedFloat(vlDocCalculado), // Agora bate 100% com o C190
+            nota.c100.ind_pgto || '0', 
+            formatSpedFloat(vlDesc), 
+            '0,00', 
+            formatSpedFloat(somaVlMerc), 
+            '0', 
+            formatSpedFloat(nota.c100.vl_frete), 
+            formatSpedFloat(nota.c100.vl_seguro), 
+            formatSpedFloat(nota.c100.vl_outros), 
+            formatSpedFloat(somaVlBcIcms), 
+            formatSpedFloat(somaVlIcms), 
+            formatSpedFloat(somaVlBcSt), 
+            formatSpedFloat(somaVlIcmsSt), 
+            formatSpedFloat(somaVlIpi), 
+            formatSpedFloat(nota.c100.vl_pis), 
+            formatSpedFloat(nota.c100.vl_cofins), 
+            '0,00', '', ''
+        ];
+        const c100Line = c100LineFields.join('|');
+
+        if (!analyzeOnly) {
+            linhasBlocoC.push(c100Line);
+            linhasBlocoC.push(...bufferedC170s);
+            linhasBlocoC.push(...c190LinesParaNota);
+        }
+        
+        notaLinhas.push(c100Line); 
+        notaLinhas.push(...bufferedC170s);
+        notaLinhas.push(...c190LinesParaNota);
+
+
+
+        // Armazena as linhas na nota para o frontend consumir
+        nota.generatedLinesPreview = notaLinhas;
+    }
+
+    // Coletar itens detectados para o Frontend
+    const itensDetectados = [];
+    const itensVistos = new Set();
+    const notasProcessadasResult = [];
+
+    for (const nota of parsedNotes) {
+        if (!nota.generatedLinesPreview) continue; // Pula nota ignorada por duplicidade se houver
+
+        const cnpjFornecedor = (nota.emitente.cnpj || '').replace(/\D/g, '');
+        
+        // Dados para o resumo por nota no frontend
+        notasProcessadasResult.push({
+            chave: nota.c100.chv_nfe,
+            numero: nota.c100.num_doc,
+            emitente: nota.emitente.nome || 'FORNECEDOR',
+            valor_total: parseValor(nota.c100.vl_doc),
+            data: nota.c100.dt_doc,
+            linhas_geradas: nota.generatedLinesPreview
+        });
+
+        for (const item of nota.itens) {
+            const mappingKey = `${cnpjFornecedor}_${item.cod_item}`;
+            // Se estiver apenas analisando para mapeamento, mostramos o item para cada nota diferente
+            const displayKey = analyzeOnly 
+                ? `${cnpjFornecedor}_${item.cod_item}_${nota.c100.num_doc}`
+                : mappingKey;
+
+            if (!itensVistos.has(displayKey)) {
+                itensVistos.add(displayKey);
+                
+                const mapping = mapeamentos.get(mappingKey);
+                itensDetectados.push({
+                    cnpj_fornecedor: cnpjFornecedor,
+                    nome_fornecedor: nota.emitente.nome || 'FORNECEDOR',
+                    cod_produto_xml: item.cod_item,
+                    descricao_produto: item.descr_item,
+                    ncm: item.ncm || '',
+                    cfop_atual: mapping ? mapping.novo_cfop : (userCfop || item.cfop || item.cfop_original || '1102'),
+                    cst_atual: mapping ? mapping.novo_cst : (item.cst_icms || item.cst_icms_original || '000'),
+                    conta_contabil: mapping ? mapping.conta_contabil : '',
+                    isMapped: !!mapping,
+                    cod_interno: mapping ? mapping.cod_interno : null,
+                    cod_item_sugerido: (analyzeOnly && !mapping) ? await sugerirCodInterno(dbClient, idEmpresa, item.ncm, item.descr_item) : null,
+                    // Novos campos solicitados pelo usuário
+                    numero_nota: nota.c100.num_doc,
+                    data_nota: nota.c100.dt_doc,
+                    valor_unitario: item.vuncom,
+                    valor_total: item.vprod,
+                    desconto: item.vdesc,
+                    frete: item.vfrete,
+                    // Novos campos de tributação para conferência
+                    vl_ipi: item.vipi || 0,
+                    vl_pis: item.vpis || 0,
+                    vl_cofins: item.vcofins || 0,
+                    vl_icms: item.vicms || 0,
+                    bc_icms: item.vbc || 0,
+                    vl_icms_st: item.vicms_st || 0,
+                    bc_icms_st: item.vbc_st || 0
+                });
+            }
         }
     }
 
-    // Limpar duplicações do Bloco 0 (Ex: várias notas com mesmo fornecedor ou unidade, cria strings idênticas)
-    linhasBloco0 = [...new Set(linhasBloco0)];
+    if (!analyzeOnly) {
+        linhasBloco0.push(...map0150.values());
+        linhasBloco0.push(...map0190.values());
+        linhasBloco0.push(...map0200.values());
+    }
 
     return {
         bloco0: linhasBloco0,
         blocoC: linhasBlocoC,
+        itensDetectados,
+        gerencial: {
+            notas_processadas: notasProcessadasResult,
+            estatisticas: {
+                totalNotas,
+                totalPuladas,
+                valorTotalGeral: totalValorCompras,
+                totalValorCompras: formatSpedFloat(totalValorCompras),
+                totalLinhasBloco0: linhasBloco0.length,
+                totalLinhasBlocoC: linhasBlocoC.length
+            }
+        },
         relatorio: {
             totalNotas,
+            totalPuladas,
             totalValorCompras: formatSpedFloat(totalValorCompras)
         }
     };
+}
+
+/**
+ * Busca sugestão de código interno no SPED da empresa
+ */
+async function sugerirCodInterno(dbClient, idEmpresa, ncm, descricao) {
+    if (!dbClient || !idEmpresa || !ncm) return null;
+
+    try {
+        // Tenta buscar por NCM exato e descrição similar
+        // Se o banco tiver pg_trgm, o operador <-> ajuda muito. 
+        // Caso contrário, usamos um LIKE básico.
+        const query = `
+            SELECT p.cod_item
+            FROM sped_produtos p
+            JOIN sped_arquivos a ON p.id_sped_arquivo = a.id
+            WHERE a.id_empresa = $1
+              AND p.cod_ncm = $2
+            ORDER BY similarity(p.descr_item, $3) DESC
+            LIMIT 1
+        `;
+        const res = await dbClient.query(query, [idEmpresa, ncm, descricao]);
+        if (res.rows.length > 0) return res.rows[0].cod_item;
+        
+        // Segunda tentativa: Apenas NCM
+        const queryNcm = `
+            SELECT p.cod_item
+            FROM sped_produtos p
+            JOIN sped_arquivos a ON p.id_sped_arquivo = a.id
+            WHERE a.id_empresa = $1
+              AND p.cod_ncm = $2
+            LIMIT 1
+        `;
+        const resNcm = await dbClient.query(queryNcm, [idEmpresa, ncm]);
+        return resNcm.rows.length > 0 ? resNcm.rows[0].cod_item : null;
+
+    } catch (err) {
+        // Se similarity falhar (falta pg_trgm), tenta busca simples
+        try {
+            const queryFallback = `
+                SELECT p.cod_item
+                FROM sped_produtos p
+                JOIN sped_arquivos a ON p.id_sped_arquivo = a.id
+                WHERE a.id_empresa = $1
+                  AND p.cod_ncm = $2
+                  AND p.descr_item ILIKE $3
+                LIMIT 1
+            `;
+            const firstWord = (descricao || '').split(' ')[0];
+            const resFallback = await dbClient.query(queryFallback, [idEmpresa, ncm, `%${firstWord}%`]);
+            return resFallback.rows.length > 0 ? resFallback.rows[0].cod_item : null;
+        } catch (e) {
+            return null;
+        }
+    }
 }
 
 module.exports = {

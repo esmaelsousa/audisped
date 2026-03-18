@@ -44,6 +44,18 @@ export const auditResumoEstoque = ref([]);
 export function setArquivoInfo(info) {
     arquivoInfo.value = info;
     setStorageItem('arquivoInfo', info);
+    if (info && info.id) {
+        setIdArquivoSped(info.id);
+    }
+}
+
+export function setIdArquivoSped(id) {
+    idArquivoSped.value = id;
+    if (id) {
+        if (typeof localStorage !== 'undefined') localStorage.setItem('idArquivoSped', id);
+    } else {
+        if (typeof localStorage !== 'undefined') localStorage.removeItem('idArquivoSped');
+    }
 }
 
 export function setEmpresaSelecionada(empresa) {
@@ -55,6 +67,11 @@ export function setAuth(newToken, newUsuario) {
     token.value = newToken;
     usuario.value = newUsuario;
     setStorageItem('token', newToken);
+    setStorageItem('usuario', newUsuario);
+}
+
+export function setUsuario(newUsuario) {
+    usuario.value = newUsuario;
     setStorageItem('usuario', newUsuario);
 }
 

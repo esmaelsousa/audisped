@@ -50,6 +50,36 @@ const router = createRouter({
       name: 'lmc',
       component: () => import('../views/LmcView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/rentabilidade/:id',
+      name: 'rentabilidade',
+      component: () => import('../views/RentabilidadeView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/de-para',
+      name: 'de-para-xml',
+      component: () => import('../views/DeParaXmlView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/xml-tributacao/:id?',
+      name: 'xml-tributacao',
+      component: () => import('../views/XmlTributacaoView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/mde',
+      name: 'mde',
+      component: () => import('../views/MdeView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/perfil',
+      name: 'perfil',
+      component: () => import('../views/ProfileView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })
