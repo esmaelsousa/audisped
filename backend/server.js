@@ -5004,6 +5004,124 @@ app.post('/api/mde/sync-missing', authMiddleware, async (req, res) => {
     }
 });
 
+// ─── CT-e INJECTOR ────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/cte-injector/analyze
+ * Recebe XMLs de CT-e, faz parse e retorna preview sem gravar nada.
+ * Body (multipart): xmlFiles[] + id_empresa (opcional)
+ */
+app.post('/api/cte-injector/analyze', authMiddleware, uploadXml.array('xmlFiles', 500), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: 'Nenhum arquivo XML enviado.' });
+    }
+    const limparTemps = () => req.files.forEach(f => { try { fs.unlinkSync(f.path); } catch (_) {} });
+    try {
+        const { parseCteXml, transformarCtesEmSped } = require('./services/cteInjectorService');
+
+        const parsedCtes = req.files.map(f => {
+            try {
+                const xml = fs.readFileSync(f.path, 'utf-8');
+                logger.info(`[DIAG] arquivo=${f.originalname} tamanho=${xml.length} inicio=${JSON.stringify(xml.substring(0, 120))}`);
+                const parsed = parseCteXml(xml);
+                if (!parsed.ok) logger.warn(`CT-e parse falhou [${f.originalname}]: ${parsed.erro}`);
+                return parsed;
+            } catch (err) {
+                logger.warn(`CT-e parse exception [${f.originalname}]: ${err.message}`);
+                return { ok: false, erro: err.message };
+            }
+        });
+
+        const erros = parsedCtes
+            .filter(p => !p.ok)
+            .slice(0, 5)
+            .map(p => p.erro || 'erro desconhecido');
+
+        const resultado = await transformarCtesEmSped(pool, parsedCtes, { analyzeOnly: true });
+        limparTemps();
+        return res.json({
+            ctes: resultado.ctesProcessados,
+            relatorio: resultado.relatorio,
+            erros,
+        });
+    } catch (err) {
+        limparTemps();
+        logger.error('Erro em /api/cte-injector/analyze:', err);
+        return res.status(500).json({ message: 'Erro ao analisar CT-e.', error: err.message });
+    }
+});
+
+/**
+ * POST /api/cte-injector/inject
+ * Injeta CT-es em um arquivo SPED existente (Bloco D: D100 + D190)
+ * Body (multipart): xmlFiles[] + id_arquivo (ID do SPED base)
+ */
+app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles', 500), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: 'Nenhum arquivo XML enviado.' });
+    }
+    const limparTemps = () => req.files.forEach(f => { try { fs.unlinkSync(f.path); } catch (_) {} });
+    try {
+        const idArquivo = parseInt(req.body.id_arquivo);
+        if (isNaN(idArquivo)) {
+            limparTemps();
+            return res.status(400).json({ message: 'id_arquivo inválido.' });
+        }
+
+        // Busca o arquivo SPED base
+        const arqRes = await pool.query('SELECT caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
+        if (arqRes.rows.length === 0) {
+            limparTemps();
+            return res.status(404).json({ message: 'Arquivo SPED não encontrado.' });
+        }
+        const { caminho_arquivo: spedPath, cnpj_empresa, periodo_apuracao } = arqRes.rows[0];
+
+        // Monta nome: CNPJ_DDMMAAAA_DDMMAAAA.txt  (ex: 23294731000192_01122020_31122020.txt)
+        // periodo_apuracao está no formato "01/12/2020 a 31/12/2020"
+        const cnpjLimpo = String(cnpj_empresa || '').replace(/\D/g, '');
+        const partes    = String(periodo_apuracao || '').split(' a ');
+        const periodoIni = (partes[0] || '').replace(/\D/g, ''); // "01122020"
+        const periodoFim = (partes[1] || partes[0] || '').replace(/\D/g, ''); // "31122020"
+        const nomeArquivo = `${cnpjLimpo}_${periodoIni}_${periodoFim}.txt`;
+
+        const { parseCteXml, transformarCtesEmSped } = require('./services/cteInjectorService');
+        const { costurarEAssinar } = require('./services/spedCostureiraService');
+
+        const parsedCtes = req.files.map(f => {
+            try {
+                const xml = fs.readFileSync(f.path, 'utf-8');
+                return parseCteXml(xml);
+            } catch (err) {
+                return { ok: false, erro: err.message };
+            }
+        });
+
+        const resultado = await transformarCtesEmSped(pool, parsedCtes, { analyzeOnly: false });
+
+        // Converte map0150 em array de linhas
+        const novos0150 = [...resultado.map0150.values()].map(l => l.startsWith('|') ? l : `|${l}`);
+
+        const linhasFinais = await costurarEAssinar(
+            spedPath,
+            novos0150,   // Bloco 0: participantes transportadoras
+            [],          // Bloco C: sem NF-e nesta injeção
+            [],          // sem substituição de chaves
+            resultado.blocoD,
+        );
+
+        limparTemps();
+        const spedContent = linhasFinais.join('\r\n') + '\r\n';
+        res.setHeader('Content-Type', 'text/plain; charset=latin1');
+        res.setHeader('Content-Disposition', `attachment; filename=${nomeArquivo}`);
+        return res.status(200).send(Buffer.from(spedContent, 'latin1'));
+
+    } catch (err) {
+        limparTemps();
+        logger.error('Erro em /api/cte-injector/inject:', err);
+        return res.status(500).json({ message: 'Erro ao injetar CT-e no SPED.', error: err.message });
+    }
+});
+
 // Inicia o servidor
 app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Servidor AudiSped online em http://0.0.0.0:${PORT} (acessível na rede local)`);

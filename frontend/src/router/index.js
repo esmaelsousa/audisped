@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/injetor-cte',
+      name: 'injetor-cte',
+      component: () => import('../views/InjetorCteView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/analisador/:id?',
       name: 'analisador',
       component: AnalisadorView,

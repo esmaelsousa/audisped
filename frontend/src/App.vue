@@ -13,7 +13,8 @@ import {
   TrendingUp,
   User,
   Search,
-  Tag
+  Tag,
+  Truck
 } from 'lucide-vue-next'
 
 const router = useRouter();
@@ -91,6 +92,14 @@ const handleLogout = () => {
         >
           <HardDriveUpload class="w-4 h-4" />
           Injetor de XMLs
+        </RouterLink>
+
+        <RouterLink to="/injetor-cte"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all group mt-1 text-slate-400 hover:bg-white/5 hover:text-white"
+          active-class="bg-brand-accent/10 text-brand-accent"
+        >
+          <Truck class="w-4 h-4" />
+          Injetor CT-e
         </RouterLink>
 
         <RouterLink to="/de-para"

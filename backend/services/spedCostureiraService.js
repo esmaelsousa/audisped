@@ -170,8 +170,8 @@ function injetar0220ParaUnidadesDivergentes(linhas) {
         const novos0220 = [];
         for (const unidAlt of alternativas.get(codItem)) {
             if (!existing0220.has(unidAlt)) {
-                // |0220|UNID_CONV|FAT_CONV|COD_BARRA|
-                novos0220.push(`|0220|${unidAlt}|1,0000||`);
+                // |0220|UNID_CONV|FAT_CONV|
+                novos0220.push(`|0220|${unidAlt}|1,0000|`);
                 logger.info(`0220 injetado: 0200[${codItem}] UNID_INV=${unidade0200.get(codItem)} ≠ C170 UNID=${unidAlt}`);
             }
         }
@@ -186,7 +186,7 @@ function injetar0220ParaUnidadesDivergentes(linhas) {
  * Lógica central de processamento e injeção de registros no SPED.
  * Pode ser chamada tanto com linhas lidas do disco quanto com linhas já em memória.
  */
-function processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chavesParaSubstituir = []) {
+function processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chavesParaSubstituir = [], registrosBlocoD = []) {
     // Normaliza o arquivo removendo linhas em branco (alguns softwares contábeis
     // geram SPED com \r\n\r\n entre linhas, o que causaria CRLF duplo na saída)
     linhasOriginal = linhasOriginal.filter(l => l.trim() !== '');
@@ -335,6 +335,24 @@ function processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chave
         }
     }
 
+    // --- INJEÇÃO BLOCO D ---
+    if (registrosBlocoD.length > 0) {
+        const idxD990 = linhasOriginal.findIndex(l => l.startsWith('|D990|'));
+        if (idxD990 !== -1) {
+            // Bloco D já existe — injeta antes do fechamento D990
+            linhasOriginal.splice(idxD990, 0, ...registrosBlocoD);
+            // Garante que D001 indique movimento (IND_MOV=0)
+            const idxD001 = linhasOriginal.findIndex(l => l.startsWith('|D001|'));
+            if (idxD001 !== -1) linhasOriginal[idxD001] = '|D001|0|';
+        } else {
+            // Bloco D não existe — cria após C990
+            const idxC990 = linhasOriginal.findIndex(l => l.startsWith('|C990|'));
+            const blocoD = ['|D001|0|', ...registrosBlocoD, '|D990|0|'];
+            const posInsercao = idxC990 !== -1 ? idxC990 + 1 : linhasOriginal.length;
+            linhasOriginal.splice(posInsercao, 0, ...blocoD);
+        }
+    }
+
     recalcularE110(linhasOriginal);
     recalcularE210(linhasOriginal);
     injetar0220ParaUnidadesDivergentes(linhasOriginal);
@@ -435,10 +453,11 @@ function recalcularE110(linhas) {
  *  f[6]  VL_OUT_CRED_ST   ← soma VL_ICMS_ST de C190 CFOP 1xx/2xx + E220 créditos
  *  f[8]  VL_RETENCAO_ST   ← calculado: soma VL_ICMS_ST de C190/C590/C690/D590/D690 CFOP 5xx/6xx + C791
  *                            (campo 8 per PVA — NÃO é VL_TOTAL_CRED_ST)
- *  f[14] VL_TOTAL_DEB_ST  ← f[8]+f[9]+f[10]+f[11]+f[12]+f[13]
- *  f[15] VL_SLD_DEV_ST    ← max(0, f[14] - VL_TOTAL_CRED_ST)
+ *  f[13] VL_TOTAL_DEB_ST        ← f[8]+f[9]+f[10]+f[11]+f[12]
+ *  f[14] VL_SLD_CRED_ST_TRANSPORTAR ← max(0, VL_TOTAL_CRED_ST - f[13])
+ *  f[15] VL_SLD_DEV_ST          ← max(0, f[13] - VL_TOTAL_CRED_ST)
  *                            onde VL_TOTAL_CRED_ST = f[3]+f[4]+f[5]+f[6]+f[7]
- * Campos f[3],f[4],f[5],f[7],f[9],f[10],f[11],f[12],f[13] são preservados do original.
+ * Campos f[3],f[4],f[5],f[7],f[9],f[10],f[11],f[12] são preservados do original.
  */
 function recalcularE210(linhas) {
     const idxE210 = linhas.findIndex(l => l.startsWith('|E210|'));
@@ -453,9 +472,9 @@ function recalcularE210(linhas) {
 
     // Layout E210 (per PVA validado):
     // f[3]=VL_SLD_CRED_ANT_ST  f[4]=VL_DEVOL_ST      f[5]=VL_RESSARC_ST
-    // f[6]=VL_OUT_CRED_ST      f[7]=VL_AJ_CRED_ST    f[8]=VL_RETENCAO_ST   ← CALCULAR (campo 8 per PVA)
+    // f[6]=VL_OUT_CRED_ST      f[7]=VL_AJ_CRED_ST    f[8]=VL_RETENCAO_ST       ← CALCULAR
     // f[9]=VL_SLD_DEV_ANT_ST   f[10]=VL_DEB_ST        f[11]=VL_OUT_DEB_ST
-    // f[12]=VL_AJ_DEB_ST       f[13]=(preservado)     f[14]=VL_TOTAL_DEB_ST f[15]=VL_SLD_DEV_ST
+    // f[12]=VL_AJ_DEB_ST       f[13]=VL_TOTAL_DEB_ST  f[14]=VL_SLD_CRED_ST_TRANSPORTAR  f[15]=VL_SLD_DEV_ST
 
     // VL_OUT_CRED_ST: soma VL_ICMS_ST de C190 CFOP 1xx/2xx (compras com ST no crédito)
     let somaEntrada = 0;
@@ -531,18 +550,22 @@ function recalcularE210(linhas) {
     // VL_TOTAL_CRED_ST: calculado internamente para VL_SLD_DEV_ST, não ocupa campo próprio nesta versão do layout
     const vlTotalCredST = vlSldCredAnt + vlDevol + vlRessarc + parseSped(f[6]) + vlAjCred;
 
-    // VL_TOTAL_DEB_ST inclui VL_RETENCAO_ST (f[8]) + demais débitos
-    f[14] = fmtSped(parseSped(f[8]) + parseSped(f[9]) + parseSped(f[10]) + parseSped(f[11]) + parseSped(f[12]) + parseSped(f[13]));
-    f[15] = fmtSped(Math.max(0, parseSped(f[14]) - vlTotalCredST));
+    // VL_TOTAL_DEB_ST = f[8..12] (f[13] no layout correto)
+    const vlTotalDebST = parseSped(f[8]) + parseSped(f[9]) + parseSped(f[10]) + parseSped(f[11]) + parseSped(f[12]);
+    f[13] = fmtSped(vlTotalDebST);
+    // VL_SLD_CRED_ST_TRANSPORTAR: quando créditos superam débitos, transporta para mês seguinte
+    f[14] = fmtSped(Math.max(0, vlTotalCredST - vlTotalDebST));
+    // VL_SLD_DEV_ST: quando débitos superam créditos, valor a recolher
+    f[15] = fmtSped(Math.max(0, vlTotalDebST - vlTotalCredST));
 
     linhas[idxE210] = f.join('|');
-    logger.info(`E210 recalculado: VL_OUT_CRED_ST=${f[6]}, VL_RETENCAO_ST(f8)=${f[8]}, VL_TOTAL_DEB_ST=${f[14]}, VL_SLD_DEV_ST=${f[15]}`);
+    logger.info(`E210 recalculado: VL_OUT_CRED_ST=${f[6]}, VL_RETENCAO_ST(f8)=${f[8]}, VL_TOTAL_DEB_ST=${f[13]}, VL_SLD_CRED_TRANSP=${f[14]}, VL_SLD_DEV_ST=${f[15]}`);
 }
 
 /**
  * Injeta os novos registros calculados da Fase 2 dentro de um arquivo SPED txt (lê do disco).
  */
-function costurarEAssinar(arquivoSpedPath, registrosBloco0, registrosBlocoC, chavesParaSubstituir = []) {
+function costurarEAssinar(arquivoSpedPath, registrosBloco0, registrosBlocoC, chavesParaSubstituir = [], registrosBlocoD = []) {
     return new Promise((resolve, reject) => {
         const inputStream = fs.createReadStream(arquivoSpedPath, { encoding: 'latin1' });
         const rl = readline.createInterface({ input: inputStream, crlfDelay: Infinity });
@@ -559,7 +582,7 @@ function costurarEAssinar(arquivoSpedPath, registrosBloco0, registrosBlocoC, cha
 
         rl.on('close', () => {
             try {
-                resolve(processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chavesParaSubstituir));
+                resolve(processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chavesParaSubstituir, registrosBlocoD));
             } catch (err) {
                 reject(err);
             }
@@ -571,9 +594,9 @@ function costurarEAssinar(arquivoSpedPath, registrosBloco0, registrosBlocoC, cha
  * Versão in-memory de costurarEAssinar — recebe linhas já carregadas em memória.
  * Usada para encadear múltiplos grupos de injeção sem acessos adicionais ao disco.
  */
-function costurarEAssinarLinhas(linhasJaLidas, registrosBloco0, registrosBlocoC, chavesParaSubstituir = []) {
+function costurarEAssinarLinhas(linhasJaLidas, registrosBloco0, registrosBlocoC, chavesParaSubstituir = [], registrosBlocoD = []) {
     try {
-        return Promise.resolve(processarLinhas([...linhasJaLidas], registrosBloco0, registrosBlocoC, chavesParaSubstituir));
+        return Promise.resolve(processarLinhas([...linhasJaLidas], registrosBloco0, registrosBlocoC, chavesParaSubstituir, registrosBlocoD));
     } catch (err) {
         return Promise.reject(err);
     }
@@ -625,7 +648,7 @@ function gerarSpedFragmentado(registrosBloco0, registrosBlocoC) {
  * Wrapper de exportação da injeção que pode ser chamado diretamente na Rota REST
  */
 async function injetarXmlEPersistir(fullSpedPath, dataPayloadFase2, chavesParaSubstituir = []) {
-    const linhasProcessadas = await costurarEAssinar(fullSpedPath, dataPayloadFase2.bloco0, dataPayloadFase2.blocoC, chavesParaSubstituir);
+    const linhasProcessadas = await costurarEAssinar(fullSpedPath, dataPayloadFase2.bloco0, dataPayloadFase2.blocoC, chavesParaSubstituir, dataPayloadFase2.blocoD || []);
 
     // Gerar um ArrayBuffer/String ou Salvar temporário
     const joinedSped = linhasProcessadas.join('\r\n') + '\r\n'; // EOF Break no fim
