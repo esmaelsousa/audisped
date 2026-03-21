@@ -1,15 +1,16 @@
 const { Pool } = require('pg');
-const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'audisped_db',
-    password: '@820439',
-    port: 5432,
-});
+require('dotenv').config();
 
-async function run() {
-    const res = await pool.query("SELECT id_sped_arquivo, num_tanque, cod_item, cap_tanque FROM lmc_movimentacao WHERE id_sped_arquivo = 9 AND cap_tanque > 0 LIMIT 10;");
-    console.table(res.rows);
-    pool.end();
+const pool = new Pool({
+    user: (process.env.DB_USER || '').trim(),
+    host: (process.env.DB_HOST || '').trim(),
+    database: (process.env.DB_DATABASE || '').trim(),
+    password: (process.env.DB_PASSWORD || '').trim(),
+    port: parseInt((process.env.DB_PORT || '5432').trim()),
+});
+async function main() {
+    const res = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'documentos_c100'");
+    console.log(res.rows.map(r => r.column_name).join(', '));
+    process.exit(0);
 }
-run();
+main();

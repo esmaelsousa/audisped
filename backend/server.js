@@ -189,6 +189,25 @@ app.post('/api/cfops', authMiddleware, async (req, res) => {
     }
 });
 
+app.put('/api/cfops/:id', authMiddleware, async (req, res) => {
+    const { codigo, descricao, tipo } = req.body;
+    if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
+    const dbClient = await pool.connect();
+    try {
+        const result = await dbClient.query(
+            'UPDATE cad_cfops SET codigo=$1, descricao=$2, tipo=$3 WHERE id=$4 RETURNING *',
+            [codigo, descricao, tipo || 'entrada', req.params.id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ message: 'CFOP não encontrado.' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') return res.status(400).json({ message: 'Código já existe em outro CFOP.' });
+        res.status(500).json({ message: 'Erro ao atualizar CFOP.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
     const dbClient = await pool.connect();
     try {
@@ -940,19 +959,27 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
             ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS ncm VARCHAR(20);
             ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cod_interno VARCHAR(60);
             ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS conta_contabil VARCHAR(60);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS aliq_icms NUMERIC(10,4);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS bc_icms_override NUMERIC(15,2);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cst_pis TEXT;
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cst_cofins TEXT;
         `);
 
         const query = `
-            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, ncm, cod_interno, conta_contabil)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml) 
-            DO UPDATE SET 
+            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, ncm, cod_interno, conta_contabil, aliq_icms, bc_icms_override, cst_pis, cst_cofins)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml)
+            DO UPDATE SET
                 novo_cfop = EXCLUDED.novo_cfop,
                 novo_cst = EXCLUDED.novo_cst,
                 descricao_produto = EXCLUDED.descricao_produto,
                 ncm = EXCLUDED.ncm,
                 cod_interno = EXCLUDED.cod_interno,
                 conta_contabil = EXCLUDED.conta_contabil,
+                aliq_icms = EXCLUDED.aliq_icms,
+                bc_icms_override = EXCLUDED.bc_icms_override,
+                cst_pis = EXCLUDED.cst_pis,
+                cst_cofins = EXCLUDED.cst_cofins,
                 updated_at = CURRENT_TIMESTAMP
         `;
 
@@ -966,7 +993,11 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
                 m.descricao_produto,
                 m.ncm,
                 m.cod_interno,
-                m.conta_contabil
+                m.conta_contabil,
+                m.aliq_icms || null,
+                m.bc_icms_override || null,
+                m.cst_pis || null,
+                m.cst_cofins || null
             ]);
         }
 
@@ -1154,6 +1185,172 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
     } catch (err) {
         console.error('Erro ao processar SPED:', err);
         res.status(500).json({ message: 'Erro no processamento SPED Fiscal.' });
+    }
+});
+
+// --- INJEÇÃO EM GRUPOS (múltiplos CFOPs em uma única requisição, sem loop frontend) ---
+app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res) => {
+    let gruposConfig;
+    try {
+        gruposConfig = JSON.parse(req.body.grupos_config || '[]');
+    } catch (e) {
+        return res.status(400).json({ message: 'grupos_config inválido.' });
+    }
+
+    const idSpedBase = req.body.id_sped_arquivo;
+    if (!idSpedBase) return res.status(400).json({ message: 'id_sped_arquivo é obrigatório.' });
+    if (gruposConfig.length === 0) return res.status(400).json({ message: 'Nenhum grupo configurado.' });
+
+    const allTempFiles = req.files || [];
+    const limparTemps = () => {
+        allTempFiles.forEach(f => { try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch (e) {} });
+    };
+
+    try {
+        const dbClient = await pool.connect();
+        const fileQuery = await dbClient.query(
+            'SELECT nome_arquivo, caminho_arquivo FROM sped_arquivos WHERE id = $1',
+            [idSpedBase]
+        );
+        dbClient.release();
+
+        if (fileQuery.rows.length === 0) { limparTemps(); return res.status(404).json({ message: 'Arquivo SPED não encontrado.' }); }
+
+        const spedBaseObj = fileQuery.rows[0];
+        let fullSpedPath = spedBaseObj.caminho_arquivo;
+        try {
+            const parsed = JSON.parse(spedBaseObj.caminho_arquivo);
+            if (parsed && typeof parsed === 'object') fullSpedPath = Object.values(parsed)[0];
+        } catch (e) {}
+
+        if (!fs.existsSync(fullSpedPath)) {
+            limparTemps();
+            return res.status(404).json({ message: 'Arquivo SPED físico não encontrado no disco.' });
+        }
+
+        const { transformarNotasEmSped } = require('./services/xmlInjectorService');
+        const { costurarEAssinar, costurarEAssinarLinhas } = require('./services/spedCostureiraService');
+        const parser = new xml2js.Parser({ explicitArray: false });
+
+        // Carrega chaves já existentes no SPED para controle de duplicatas entre grupos
+        const chavesExistentes = new Set();
+        for (const line of fs.readFileSync(fullSpedPath, 'latin1').split(/\r?\n/)) {
+            if (line.startsWith('|C100|')) {
+                const chave = line.split('|')[9];
+                if (chave) chavesExistentes.add(chave);
+            }
+        }
+
+        const resultadosGrupos = [];
+        let totalInjetados = 0;
+        let linhasAtuais = null; // array de linhas em memória, atualizado a cada grupo
+
+        for (let i = 0; i < gruposConfig.length; i++) {
+            const config = gruposConfig[i];
+            const grupoFiles = allTempFiles.filter(f => f.fieldname === `grupo_${i}_xmlFiles`);
+
+            if (grupoFiles.length === 0) {
+                resultadosGrupos.push({ grupo: i + 1, status: 'sem_arquivos', injetados: 0 });
+                continue;
+            }
+
+            const parsedNotes = [];
+            const errosParseGrupo = [];
+            for (const file of grupoFiles) {
+                try {
+                    const xmlData = fs.readFileSync(file.path, 'utf-8');
+                    const result = await parser.parseStringPromise(xmlData);
+                    const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
+                    const notaData = extractNfeData(nfeNode);
+                    if (notaData) { notaData.arquivo = file.originalname; parsedNotes.push(notaData); }
+                    else { errosParseGrupo.push(`${file.originalname}: estrutura de NF-e não reconhecida`); }
+                } catch (e) {
+                    errosParseGrupo.push(`${file.originalname}: ${e.message}`);
+                    logger.warn(`[injetar-grupos] Falha ao parsear XML do grupo ${i + 1}: ${e.message}`);
+                }
+            }
+
+            if (parsedNotes.length === 0) {
+                resultadosGrupos.push({ grupo: i + 1, status: 'nenhuma_nota_valida', injetados: 0, erros: errosParseGrupo, arquivos_enviados: grupoFiles.length });
+                continue;
+            }
+
+            // Identifica duplicatas para este grupo
+            const duplicatasDoGrupo = parsedNotes.filter(n => chavesExistentes.has(n.c100?.chv_nfe));
+            const duplicadasGrupo = duplicatasDoGrupo.length;
+
+            // forceReplace: substitui as NFs duplicadas (remove do SPED e reinjecta com novo CFOP)
+            const forceReplace = config.forceReplace === true || config.forceReplace === 'true';
+            const chavesParaSubstituirGrupo = forceReplace
+                ? duplicatasDoGrupo.map(n => n.c100?.chv_nfe).filter(Boolean)
+                : [];
+
+            const notasParaInjetar = config.pularDuplicados && !forceReplace
+                ? parsedNotes.filter(n => !chavesExistentes.has(n.c100?.chv_nfe))
+                : parsedNotes;
+
+            if (notasParaInjetar.length === 0) {
+                resultadosGrupos.push({ grupo: i + 1, status: 'todas_duplicadas', injetados: 0, duplicadas: duplicadasGrupo, dica: 'Ative "Substituir Existentes" no grupo para reinjetar com o novo CFOP.' });
+                continue;
+            }
+
+            const options = {
+                userCfop: config.cfop || '1102',
+                forceUserCfop: true, // CFOP do grupo tem prioridade sobre qualquer mapeamento De-Para
+                forcarUsoConsumo: config.forcarUsoConsumo === true,
+                ajusteIpi: config.ajusteIpi === true,
+                ajusteIcms: config.ajusteIcms === true,
+                itemMapping: [],
+                pularDuplicados: false,
+                chavesExistentes: Array.from(chavesExistentes),
+                idEmpresa: req.body.id_empresa
+            };
+
+            const spedDataPayload = await transformarNotasEmSped(pool, notasParaInjetar, options);
+
+            if (linhasAtuais === null) {
+                // Primeiro grupo: lê do disco
+                linhasAtuais = await costurarEAssinar(fullSpedPath, spedDataPayload.bloco0, spedDataPayload.blocoC, chavesParaSubstituirGrupo);
+            } else {
+                // Grupos seguintes: opera em memória
+                linhasAtuais = await costurarEAssinarLinhas(linhasAtuais, spedDataPayload.bloco0, spedDataPayload.blocoC, chavesParaSubstituirGrupo);
+            }
+
+            // Registra chaves injetadas para controle de duplicatas nos próximos grupos
+            notasParaInjetar.forEach(n => { if (n.c100?.chv_nfe) chavesExistentes.add(n.c100.chv_nfe); });
+            totalInjetados += notasParaInjetar.length;
+            resultadosGrupos.push({ grupo: i + 1, status: 'ok', injetados: notasParaInjetar.length });
+        }
+
+        if (linhasAtuais === null) {
+            limparTemps();
+            const todasDuplicadas = resultadosGrupos.every(g => g.status === 'todas_duplicadas');
+            const mensagem = todasDuplicadas
+                ? 'Todos os XMLs já existem no SPED. Desative "Pular Duplicadas" no grupo ou use "Forçar Substituição" no modo de injeção normal.'
+                : 'Nenhum grupo com XMLs válidos foi processado.';
+            return res.status(400).json({ message: mensagem, grupos: resultadosGrupos });
+        }
+
+        // Grava resultado final no disco — única escrita, independente do número de grupos
+        const finalStr = linhasAtuais.join('\r\n') + '\r\n';
+        fs.writeFileSync(fullSpedPath, finalStr, { encoding: 'latin1' });
+
+        limparTemps();
+        return res.json({
+            message: 'Grupos injetados com sucesso.',
+            detalhes: {
+                sped_id: idSpedBase,
+                nome_arquivo: spedBaseObj.nome_arquivo,
+                total_xml_injetados: totalInjetados,
+                total_linhas_sped: linhasAtuais.length,
+                grupos: resultadosGrupos
+            }
+        });
+
+    } catch (err) {
+        limparTemps();
+        console.error('Erro em /api/injetar-grupos:', err);
+        res.status(500).json({ message: 'Erro ao processar grupos de injeção.', error: err.message });
     }
 });
 
@@ -3449,6 +3646,70 @@ app.get('/api/lmc/tanques-config/:cnpj', authMiddleware, async (req, res) => {
     }
 });
 
+// Sugerir capacidades de tanques a partir dos registros 1310 do arquivo SPED original
+app.get('/api/lmc/tanques-sugeridos/:id_arquivo', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+
+    const dbClient = await pool.connect();
+    try {
+        const arqInfo = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id = $1', [arquivoId]);
+        if (!arqInfo.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+
+        let pathFile = arqInfo.rows[0].caminho_arquivo;
+        try {
+            const parsed = JSON.parse(pathFile);
+            if (parsed && typeof parsed === 'object') pathFile = Object.values(parsed)[0];
+        } catch (e) { /* string simples */ }
+
+        if (!pathFile || !fs.existsSync(pathFile)) return res.json([]);
+
+        const fileContent = fs.readFileSync(pathFile, 'latin1');
+        const lines = fileContent.split(/\r?\n/);
+
+        let layoutVersion = '019';
+        let currentCodItem = null;
+        const capsPorItem = {}; // { cod_item: { num_tanque: maxCap } }
+
+        for (const line of lines) {
+            if (!line || !line.startsWith('|')) continue;
+            const f = line.split('|');
+            const reg = f[1];
+
+            if (reg === '0000') {
+                layoutVersion = f[2] || '019';
+            } else if (reg === '1300') {
+                currentCodItem = f[2] || null;
+            } else if (reg === '1310' && currentCodItem) {
+                const numTanque = f[2];
+                // CAP_TANQUE existe apenas no layout 020 (campo f[11])
+                const cap = layoutVersion >= '020' ? (parseFloat(f[11]) || 0) : 0;
+                if (cap > 0) {
+                    if (!capsPorItem[currentCodItem]) capsPorItem[currentCodItem] = {};
+                    // Guarda a maior capacidade vista para esse tanque (mesmo tanque aparece todos os dias)
+                    capsPorItem[currentCodItem][numTanque] = Math.max(
+                        capsPorItem[currentCodItem][numTanque] || 0,
+                        cap
+                    );
+                }
+            }
+        }
+
+        // Soma as capacidades de cada tanque para obter a capacidade total por combustível
+        const result = Object.entries(capsPorItem).map(([cod_item, tanques]) => ({
+            cod_item,
+            capacidade: Object.values(tanques).reduce((sum, c) => sum + c, 0)
+        }));
+
+        res.json(result);
+    } catch (err) {
+        logger.error('Erro ao sugerir capacidades de tanques:', err);
+        res.status(500).json({ message: 'Erro ao ler capacidades do SPED.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // Salvar/Atualizar configurações de tanques
 app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
     const { cnpj, configs } = req.body; // configs: [{ cod_item: '...', capacidade: 123 }, ...]
@@ -3936,6 +4197,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let pending1320s = {}; // Dicionário de Bicos { "idxAfericao": [array of fields...], ... }
         let layoutVersion = '019'; // Default para 2025 e anteriores
 
+        // ── Recálculo de E210 VL_RETENCAO_ST durante exportação ─────────────
+        // Bloco C sempre precede Bloco E. Acumulamos somaRetST ao ler os
+        // registros analíticos, com o mesmo filtro de COD_SIT do PVA.
+        // E110 NÃO é recalculado aqui — o arquivo já tem E110 correto pós-injeção
+        // e a recalculação quebraria a validação E111 "outros débitos".
+        let somaRetST = 0;       // E210: VL_RETENCAO_ST acumulado
+        let sitExportST = '00';  // COD_SIT do pai atual (para filtro, igual ao PVA)
+        let c790CfopExport = ''; // CFOP do C790 pai (para C791)
+        const parseSp = s => parseFloat((s || '0').replace(',', '.')) || 0;
+        const fmtSp   = v => v.toFixed(2).replace('.', ',');
+        // ─────────────────────────────────────────────────────────────────────
+
         const flush1300Group = () => {
             if (!pending1300) return;
 
@@ -4049,7 +4322,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 tk[10] = curated.nFisico.toFixed(3).replace('.', ',');
 
                 if (layoutVersion === '020') {
-                    tk[11] = capTanque > 0 ? Math.round(capTanque).toString() : '';
+                    const capOrigTk = tk[11] || ''; // Preserva o valor original do arquivo como fallback
+                    tk[11] = capTanque > 0 ? Math.round(capTanque).toString() : capOrigTk;
                     tk.length = 13;
                     tk[12] = '';
                 } else {
@@ -4229,7 +4503,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 }
                 // Garante que o array tem exatamente 13 posições
                 while (fields.length < 12) fields.push('');
-                fields[11] = capTanqueDirect > 0 ? Math.round(capTanqueDirect).toString() : '';
+                const capOrigDirect = fields[11] || ''; // Preserva o valor original do arquivo como fallback
+                fields[11] = capTanqueDirect > 0 ? Math.round(capTanqueDirect).toString() : capOrigDirect;
                 fields.length = 13;
                 fields[12] = '';
                 res.write(fields.join('|') + '\r\n');
@@ -4250,6 +4525,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             // Qualquer outro bloco (ou bloco que não esteja vinculado à modificação no 1300), libera buffer primeiro
             flush1300Group();
+            // Rastreia COD_SIT do documento pai (C100/D100/etc.) para filtro E210
+            if (fields.length >= 2 &&
+                (fields[1] === 'C100' || fields[1] === 'C500' || fields[1] === 'C600' ||
+                 fields[1] === 'D100' || fields[1] === 'D500' || fields[1] === 'D600')) {
+                sitExportST = fields[6] || '00'; // COD_SIT está em c[6] para todos esses
+            }
+
             // Ajuste C100
             if (fields.length >= 2 && fields[1] === 'C100') {
                 const numDoc = fields[8];
@@ -4300,7 +4582,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 }
             }
 
-            // Ajuste C190
+            // Ajuste C190 + acúmulo VL_ICMS_ST para E210 (com filtro COD_SIT)
             if (fields.length >= 2 && fields[1] === 'C190') {
                 const cst = fields[2];
                 const cfop = fields[3];
@@ -4312,11 +4594,56 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     if (aj.vl_opr_ajustado !== null) fields[5] = parseFloat(aj.vl_opr_ajustado).toFixed(2).replace('.', ',');
                     if (aj.vl_bc_icms_ajustado !== null) fields[6] = parseFloat(aj.vl_bc_icms_ajustado).toFixed(2).replace('.', ',');
                     if (aj.vl_icms_ajustado !== null) fields[7] = parseFloat(aj.vl_icms_ajustado).toFixed(2).replace('.', ',');
-
                     changesApplied++;
-                    res.write(fields.join('|') + '\r\n');
-                    continue;
                 }
+                // Acumula VL_ICMS_ST para E210 VL_RETENCAO_ST (filtro COD_SIT = igual ao PVA)
+                if (!['02', '03', '04', '05'].includes(sitExportST)) {
+                    const cfopC190 = fields[3] || '';
+                    if (cfopC190.startsWith('5') || cfopC190.startsWith('6')) {
+                        somaRetST += parseSp(fields[9]);
+                    }
+                }
+                res.write(fields.join('|') + '\r\n');
+                continue;
+            }
+
+            // Acúmulo VL_ICMS_ST de C590/C690/D590/D690 para E210 (com filtro COD_SIT)
+            if (fields.length >= 2 &&
+                (fields[1] === 'C590' || fields[1] === 'C690' ||
+                 fields[1] === 'D590' || fields[1] === 'D690')) {
+                if (!['02', '03', '04', '05'].includes(sitExportST)) {
+                    const cfopAn = fields[3] || '';
+                    if (cfopAn.startsWith('5') || cfopAn.startsWith('6')) {
+                        somaRetST += parseSp(fields[9]);
+                    }
+                }
+                // Falls through to default write
+            }
+
+            // Rastreamento C790/C791 para E210 VL_RETENCAO_ST
+            if (fields.length >= 2 && fields[1] === 'C790') {
+                c790CfopExport = fields[3] || '';
+                // Falls through to default write
+            }
+            if (fields.length >= 2 && fields[1] === 'C791') {
+                if (!['02', '03', '04', '05'].includes(sitExportST) &&
+                    (c790CfopExport.startsWith('5') || c790CfopExport.startsWith('6'))) {
+                    somaRetST += parseSp(fields[3]);
+                }
+                // Falls through to default write
+            }
+
+            // E210: recalcula VL_RETENCAO_ST (f[8] per PVA) e campos derivados in-place.
+            // VL_TOTAL_CRED_ST = f[3]+f[4]+f[5]+f[6]+f[7] — calculado mas não ocupa campo próprio.
+            // E110 não é recalculado aqui — arquivo já correto pós-injeção.
+            if (fields.length >= 2 && fields[1] === 'E210') {
+                const f = fields;
+                f[8]  = fmtSp(somaRetST); // VL_RETENCAO_ST = soma C190/C590/etc CFOP 5xx/6xx VL_ICMS_ST
+                const vlTotalCredST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
+                f[14] = fmtSp(parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]) + parseSp(f[12]) + parseSp(f[13]));
+                f[15] = fmtSp(Math.max(0, parseSp(f[14]) - vlTotalCredST));
+                res.write(f.join('|') + '\r\n');
+                continue;
             }
 
             res.write(line + '\r\n');
@@ -4571,28 +4898,44 @@ app.get('/api/de-para', async (req, res) => {
 
 app.post('/api/de-para', async (req, res) => {
     try {
-        const { id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno } = req.body;
-        
+        const { id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno,
+                aliq_icms, bc_icms_override, cst_pis, cst_cofins } = req.body;
+
         if (!id_empresa || !cnpj_emissor || !cod_produto_xml) {
             return res.status(400).json({ error: 'Empresa, CNPJ e Código do Produto são obrigatórios' });
         }
 
-        await pool.query('ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cod_interno VARCHAR(60)');
+        await pool.query(`
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS ncm VARCHAR(20);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cod_interno VARCHAR(60);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS conta_contabil VARCHAR(60);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS aliq_icms NUMERIC(10,4);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS bc_icms_override NUMERIC(15,2);
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cst_pis TEXT;
+            ALTER TABLE de_para_xml ADD COLUMN IF NOT EXISTS cst_cofins TEXT;
+        `);
 
         const query = `
-            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml) 
-            DO UPDATE SET 
+            INSERT INTO de_para_xml (id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno, aliq_icms, bc_icms_override, cst_pis, cst_cofins)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (id_empresa, cnpj_emissor, cod_produto_xml)
+            DO UPDATE SET
                 novo_cfop = EXCLUDED.novo_cfop,
                 novo_cst = EXCLUDED.novo_cst,
                 descricao_produto = EXCLUDED.descricao_produto,
                 cod_interno = EXCLUDED.cod_interno,
+                aliq_icms = EXCLUDED.aliq_icms,
+                bc_icms_override = EXCLUDED.bc_icms_override,
+                cst_pis = EXCLUDED.cst_pis,
+                cst_cofins = EXCLUDED.cst_cofins,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
         `;
-        
-        const result = await pool.query(query, [id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno]);
+
+        const result = await pool.query(query, [
+            id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno,
+            aliq_icms || null, bc_icms_override || null, cst_pis || null, cst_cofins || null
+        ]);
         res.json(result.rows[0]);
     } catch (err) {
         console.error('Erro ao salvar de-para:', err);

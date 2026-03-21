@@ -41,6 +41,25 @@ const isDashboardView = ref(false);
 const showPreview = ref(false);
 const previewData = ref(null);
 
+// CFOPs do banco
+const cfopsDisponiveis = ref([]);
+async function loadCfops() {
+    try {
+        const res = await axios.get(`${API_BASE_URL}/api/cfops`, {
+            headers: { Authorization: `Bearer ${token.value}` }
+        });
+        cfopsDisponiveis.value = res.data;
+    } catch (e) {
+        // fallback com os 4 padrão se a API falhar
+        cfopsDisponiveis.value = [
+            { codigo: '1102', descricao: 'Compra para Comercialização' },
+            { codigo: '1556', descricao: 'Compra para Uso e Consumo' },
+            { codigo: '1652', descricao: 'Compra de Combustível' },
+            { codigo: '1551', descricao: 'Compra de Ativo Imobilizado' }
+        ];
+    }
+}
+
 // Filtros do Usuário
 const cfopPadrao = ref('1102');
 const forcarUsoConsumo = ref(true); 
@@ -48,6 +67,127 @@ const idSpedBase = ref('');
 const ajusteIpi = ref(false);
 const ajusteIcms = ref(false);
 const pularDuplicados = ref(true);
+
+// Modo Grupos
+const modoGrupos = ref(false);
+const grupos = ref([]);
+let _grupoSeq = 0;
+
+function criarGrupo() {
+    return { id: ++_grupoSeq, xmlFiles: [], cfop: '1102', forcarUsoConsumo: true, ajusteIpi: false, ajusteIcms: false, pularDuplicados: true, forceReplace: false, status: null, logMsg: '' };
+}
+
+function toggleModoGrupos() {
+    modoGrupos.value = !modoGrupos.value;
+    if (modoGrupos.value && grupos.value.length === 0) grupos.value.push(criarGrupo());
+}
+
+function triggerGrupoInput(grupoId) {
+    const el = document.getElementById(`xml-grupo-${grupoId}`);
+    if (el) el.click();
+}
+
+function adicionarGrupo() {
+    grupos.value.push(criarGrupo());
+}
+
+function removerGrupo(idx) {
+    grupos.value.splice(idx, 1);
+}
+
+function handleGrupoFiles(e, grupo) {
+    const files = Array.from(e.target?.files || e.dataTransfer?.files || []).filter(f => f.name.endsWith('.xml'));
+    grupo.xmlFiles = [...grupo.xmlFiles, ...files];
+    if (e.target) e.target.value = '';
+}
+
+function removerArquivoGrupo(grupo, idx) {
+    grupo.xmlFiles.splice(idx, 1);
+}
+
+async function ejetarTodosGrupos() {
+    if (!idSpedBase.value) return alert("Selecione um SPED base!");
+    const gruposAtivos = grupos.value.filter(g => g.xmlFiles.length > 0);
+    if (gruposAtivos.length === 0) return alert("Adicione XMLs em pelo menos um grupo!");
+
+    isLoading.value = true;
+    successInjectedId.value = null;
+    logs.value = [`Enviando ${gruposAtivos.length} grupo(s) para processamento unificado...`];
+    grupos.value.forEach(g => { g.status = null; g.logMsg = ''; });
+    gruposAtivos.forEach(g => { g.status = 'processando'; });
+
+    // Monta um único FormData com todos os grupos
+    const fd = new FormData();
+    fd.append('id_sped_arquivo', idSpedBase.value);
+
+    const gruposConfig = gruposAtivos.map((g, i) => {
+        g.xmlFiles.forEach(f => fd.append(`grupo_${i}_xmlFiles`, f));
+        return {
+            cfop: g.cfop,
+            forcarUsoConsumo: g.forcarUsoConsumo,
+            ajusteIpi: g.ajusteIpi,
+            ajusteIcms: g.ajusteIcms,
+            pularDuplicados: g.pularDuplicados,
+            forceReplace: g.forceReplace
+        };
+    });
+    fd.append('grupos_config', JSON.stringify(gruposConfig));
+
+    try {
+        const res = await axios.post(`${API_BASE_URL}/api/injetar-grupos`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token.value}` }
+        });
+
+        const det = res.data.detalhes;
+        logs.value.push('[SUCCESS] ' + res.data.message);
+        logs.value.push(`→ SPED: ${det.nome_arquivo}`);
+        logs.value.push(`→ XMLs injetados: ${det.total_xml_injetados}`);
+        logs.value.push(`→ Total linhas no SPED: ${det.total_linhas_sped}`);
+
+        det.grupos.forEach(g => {
+            const icon = g.status === 'ok' ? '[OK]' : '[AVISO]';
+            const statusLabel = {
+                ok: `${g.injetados} XML(s) injetado(s)`,
+                todas_duplicadas: `Pulado — ${g.duplicadas || 0} duplicata(s)`,
+                nenhuma_nota_valida: 'Pulado — XMLs inválidos',
+                sem_arquivos: 'Pulado — nenhum arquivo recebido',
+            };
+            logs.value.push(`${icon} Grupo ${g.grupo}: ${statusLabel[g.status] || g.status}`);
+            if (g.dica) logs.value.push(`   💡 ${g.dica}`);
+            const grupoUI = gruposAtivos[g.grupo - 1];
+            if (grupoUI) {
+                grupoUI.status = g.status === 'ok' ? 'ok' : 'erro';
+                grupoUI.logMsg = statusLabel[g.status] || g.status;
+            }
+        });
+
+        successInjectedId.value = idSpedBase.value;
+    } catch (e) {
+        const data = e.response?.data;
+        logs.value.push(`[ERRO] ${data?.message || e.message}`);
+
+        // Exibe diagnóstico detalhado por grupo se disponível
+        if (data?.grupos && Array.isArray(data.grupos)) {
+            const statusLabel = {
+                sem_arquivos: 'Nenhum arquivo recebido pelo servidor',
+                nenhuma_nota_valida: 'XMLs inválidos ou não reconhecidos',
+                todas_duplicadas: 'Todos os XMLs já existem no SPED (duplicatas)',
+            };
+            data.grupos.forEach(g => {
+                const label = statusLabel[g.status] || g.status;
+                logs.value.push(`  → Grupo ${g.grupo}: ${label}`);
+                if (g.arquivos_enviados != null) logs.value.push(`     Arquivos recebidos: ${g.arquivos_enviados}`);
+                if (g.duplicadas) logs.value.push(`     Duplicadas detectadas: ${g.duplicadas}`);
+                if (g.dica) logs.value.push(`     💡 ${g.dica}`);
+                if (g.erros?.length) g.erros.forEach(err => logs.value.push(`     ⚠ ${err}`));
+            });
+        }
+
+        gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = 'erro'; });
+    } finally {
+        isLoading.value = false;
+    }
+}
 
 // De-Para e Análise
 const detectedItems = ref([]);
@@ -72,6 +212,7 @@ onMounted(async () => {
     } catch(e) {
         console.error('Erro ao carregar SPEDs', e);
     }
+    await loadCfops();
 });
 
 function handleFileDrop(e) {
@@ -284,14 +425,22 @@ async function analyzeItems() {
             codigo: it.cod_produto_xml,
             descricao: it.descricao_produto,
             ncm: it.ncm,
-            cfop_alvo: it.cfop_atual, // O backend já utiliza o cfop_padrao enviado como userCfop
+            cfop_alvo: it.cfop_atual,
             cst_alvo: it.cst_atual || '000',
             conta_contabil: it.conta_contabil || '',
             isMapped: it.isMapped,
             cod_interno: it.cod_interno || it.cod_item_sugerido || '',
             cod_item_sugerido: it.cod_item_sugerido,
             numero_nota: it.numero_nota,
-            data_nota: it.data_nota
+            data_nota: it.data_nota,
+            // Tributação - pré-preenchida do XML; se há override salvo, usa o override
+            aliq_icms: it.aliq_icms_override != null ? it.aliq_icms_override : (it.aliq_icms || 0),
+            bc_icms_override: it.bc_icms_override != null ? it.bc_icms_override : null,
+            cst_pis: it.cst_pis_override || it.cst_pis || '07',
+            cst_cofins: it.cst_cofins_override || it.cst_cofins || '07',
+            // Referência do XML (somente leitura)
+            _aliq_icms_xml: it.aliq_icms || 0,
+            _bc_icms_xml: it.bc_icms || 0
         }));
         showItemsModal.value = true;
     } catch (e) {
@@ -315,14 +464,18 @@ async function saveBatchDePara(silent = false) {
     try {
         const mapeamentos = detectedItems.value.map(it => ({
             id_empresa: empresaSelecionada.value.id,
-            cnpj_emissor: it.cnpj_emissor, 
+            cnpj_emissor: it.cnpj_emissor,
             cod_produto_xml: it.codigo,
             novo_cfop: it.cfop_alvo,
             novo_cst: it.cst_alvo || '000',
             descricao_produto: it.descricao,
             ncm: it.ncm,
             cod_interno: it.cod_interno,
-            conta_contabil: it.conta_contabil
+            conta_contabil: it.conta_contabil,
+            aliq_icms: it.aliq_icms != null && it.aliq_icms !== '' ? parseFloat(it.aliq_icms) : null,
+            bc_icms_override: it.bc_icms_override != null && it.bc_icms_override !== '' ? parseFloat(it.bc_icms_override) : null,
+            cst_pis: it.cst_pis || null,
+            cst_cofins: it.cst_cofins || null
         }));
 
         await axios.post(`${API_BASE_URL}/api/xml-injector/save-de-para-batch`, { mapeamentos }, {
@@ -369,10 +522,20 @@ async function prepararPainel() {
 
         <!-- Regras Fiscais Corporativas -->
         <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-5 shadow-sm">
-            <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <Settings2 class="w-4 h-4 text-slate-400" />
-                Parâmetros Fiscais da Injeção
-            </h2>
+            <div class="flex items-center justify-between">
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Settings2 class="w-4 h-4 text-slate-400" />
+                    Parâmetros Fiscais da Injeção
+                </h2>
+                <button
+                    @click="toggleModoGrupos"
+                    :class="modoGrupos ? 'bg-brand-accent text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                    class="text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                    <Sparkles class="w-3.5 h-3.5" />
+                    {{ modoGrupos ? 'Modo Grupos Ativo' : 'Ativar Modo Grupos' }}
+                </button>
+            </div>
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- SPED Alvo -->
@@ -394,10 +557,9 @@ async function prepararPainel() {
                     <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CFOP Padrão de Entrada</label>
                     <div class="relative">
                         <select v-model="cfopPadrao" class="w-full bg-slate-50 border border-slate-200 text-sm text-slate-700 font-medium px-3 py-2.5 rounded-lg outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent appearance-none cursor-pointer">
-                            <option value="1102">1.102 - Compra p/ Comercialização</option>
-                            <option value="1556">1.556 - Compra p/ Uso e Consumo</option>
-                            <option value="1652">1.652 - Compra de Combustível</option>
-                            <option value="1551">1.551 - Compra de Ativo Imobilizado</option>
+                            <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">
+                                {{ c.codigo }} — {{ c.descricao }}
+                            </option>
                         </select>
                         <ChevronRight class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
                     </div>
@@ -477,9 +639,9 @@ async function prepararPainel() {
         </div>
 
         <!-- Área de Upload e Console -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[500px]">
-            <!-- Coluna 1: Upload de XML -->
-            <div class="bg-white rounded-xl border border-slate-200 p-5 flex flex-col flex-1 shadow-sm">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" :class="modoGrupos ? 'min-h-[500px]' : 'h-[500px]'">
+            <!-- Coluna 1: Upload de XML (modo simples) -->
+            <div v-if="!modoGrupos" class="bg-white rounded-xl border border-slate-200 p-5 flex flex-col flex-1 shadow-sm">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                         <UploadCloud class="w-4 h-4 text-slate-400" />
@@ -578,6 +740,117 @@ async function prepararPainel() {
                 </div>
             </div>
 
+            <!-- Coluna 1: Modo Grupos -->
+            <div v-else class="bg-white rounded-xl border border-slate-200 p-5 flex flex-col shadow-sm">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <Sparkles class="w-4 h-4 text-brand-accent" />
+                        Grupos de Injeção
+                    </h2>
+                    <button @click="adicionarGrupo" class="text-[11px] uppercase font-bold tracking-wider text-brand-accent hover:text-blue-700 transition-colors">
+                        + Adicionar Grupo
+                    </button>
+                </div>
+
+                <!-- Lista de Grupos -->
+                <div class="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar-term">
+                    <div v-for="(grupo, idx) in grupos" :key="grupo.id" class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                        <!-- Header do Grupo -->
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs font-bold text-slate-700">Grupo {{ idx + 1 }}</span>
+                                <span v-if="grupo.status === 'processando'" class="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold">PROCESSANDO</span>
+                                <span v-else-if="grupo.status === 'ok'" class="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">OK</span>
+                                <span v-else-if="grupo.status === 'erro'" class="text-[9px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">ERRO</span>
+                                <span v-if="grupo.logMsg" class="text-[9px] text-slate-500">{{ grupo.logMsg }}</span>
+                            </div>
+                            <button v-if="grupos.length > 1" @click="removerGrupo(idx)" class="text-slate-300 hover:text-red-500 transition-colors">
+                                <X class="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+
+                        <!-- Config: CFOP + Flags -->
+                        <div class="flex gap-3 mb-2 flex-wrap items-end">
+                            <div class="flex flex-col gap-1">
+                                <label class="text-[9px] font-bold text-slate-400 uppercase tracking-wide">CFOP</label>
+                                <select v-model="grupo.cfop" class="bg-white border border-slate-200 text-xs text-slate-700 font-medium px-2 py-1.5 rounded-md outline-none focus:border-brand-accent appearance-none cursor-pointer">
+                                    <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">
+                                        {{ c.codigo }} — {{ c.descricao }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" v-model="grupo.forcarUsoConsumo" class="w-3.5 h-3.5 accent-blue-600" />
+                                    <span class="text-[10px] text-slate-600">Zerar ICMS</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" v-model="grupo.ajusteIpi" class="w-3.5 h-3.5 accent-blue-600" />
+                                    <span class="text-[10px] text-slate-600">Ajustar IPI</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" v-model="grupo.ajusteIcms" class="w-3.5 h-3.5 accent-blue-600" />
+                                    <span class="text-[10px] text-slate-600">Ajustar ICMS</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" v-model="grupo.pularDuplicados" :disabled="grupo.forceReplace" class="w-3.5 h-3.5 accent-blue-600" />
+                                    <span class="text-[10px]" :class="grupo.forceReplace ? 'text-slate-300' : 'text-slate-600'">Pular Duplicados</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" v-model="grupo.forceReplace" @change="() => { if (grupo.forceReplace) grupo.pularDuplicados = false }" class="w-3.5 h-3.5 accent-orange-500" />
+                                    <span class="text-[10px] text-slate-600">Substituir Existentes</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Upload do Grupo -->
+                        <input :id="`xml-grupo-${grupo.id}`" type="file" class="hidden" multiple accept=".xml" @change="e => handleGrupoFiles(e, grupo)" />
+                        <div
+                            @click="triggerGrupoInput(grupo.id)"
+                            @dragover.prevent
+                            @drop.prevent="e => handleGrupoFiles(e, grupo)"
+                            class="border border-dashed border-slate-300 rounded-md bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2 py-2 cursor-pointer mb-2"
+                        >
+                            <UploadCloud class="w-3.5 h-3.5 text-slate-400" />
+                            <span class="text-[10px] text-slate-500 font-medium">Arraste XMLs ou clique para selecionar</span>
+                        </div>
+
+                        <!-- Arquivos do Grupo -->
+                        <div v-if="grupo.xmlFiles.length > 0" class="space-y-0.5 max-h-20 overflow-y-auto">
+                            <div v-for="(file, fidx) in grupo.xmlFiles" :key="fidx" class="flex items-center justify-between px-2 py-1 bg-white rounded text-[10px]">
+                                <span class="text-slate-600 font-mono truncate mr-2">{{ file.name }}</span>
+                                <button @click="removerArquivoGrupo(grupo, fidx)" class="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0">
+                                    <X class="w-3 h-3" />
+                                </button>
+                            </div>
+                        </div>
+                        <div v-else class="text-[10px] text-slate-400 text-center py-1">Nenhum XML neste grupo</div>
+                    </div>
+                </div>
+
+                <!-- Botões de Ação dos Grupos -->
+                <div class="flex flex-col gap-2 mt-3">
+                    <button
+                        @click="ejetarTodosGrupos"
+                        :disabled="isLoading || !idSpedBase"
+                        class="w-full bg-brand-accent hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
+                    >
+                        <Activity v-if="isLoading" class="w-4 h-4 animate-spin" />
+                        <Sparkles v-else class="w-4 h-4" />
+                        <span>{{ isLoading ? 'Processando grupos...' : 'Ejetar Todos os Grupos' }}</span>
+                    </button>
+
+                    <button
+                        v-if="successInjectedId"
+                        @click="downloadResultSped"
+                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 text-sm shadow-lg animate-bounce"
+                    >
+                        <Download class="w-5 h-5" />
+                        <span>BAIXAR SPED RETIFICADO AGORA</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Coluna 2: Terminal -->
             <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col shadow-inner">
                 <div class="flex items-center justify-between mb-4">
@@ -657,6 +930,11 @@ async function prepararPainel() {
                                 <th class="pb-3 px-2 w-32">NCM</th>
                                 <th class="pb-3 px-2 w-32">Cód. Interno</th>
                                 <th class="pb-3 px-2 w-40">CFOP Alvo</th>
+                                <th class="pb-3 px-2 w-20">CST ICMS</th>
+                                <th class="pb-3 px-2 w-20">Alíq. %</th>
+                                <th class="pb-3 px-2 w-28">BC ICMS</th>
+                                <th class="pb-3 px-2 w-20">CST PIS</th>
+                                <th class="pb-3 px-2 w-20">CST COF.</th>
                                 <th class="pb-3 px-2">Conta Contábil</th>
                             </tr>
                         </thead>
@@ -706,11 +984,29 @@ async function prepararPainel() {
                                 </td>
                                 <td class="py-3 px-2">
                                     <select v-model="item.cfop_alvo" class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none">
-                                        <option value="1102">1.102 (Comercializ.)</option>
-                                        <option value="1556">1.556 (Consumo)</option>
-                                        <option value="1652">1.652 (Combustível)</option>
-                                        <option value="1551">1.551 (Ativo)</option>
+                                        <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">{{ c.codigo }} {{ c.descricao ? '- ' + c.descricao.substring(0, 18) : '' }}</option>
                                     </select>
+                                </td>
+                                <td class="py-3 px-2">
+                                    <input v-model="item.cst_alvo" type="text" maxlength="3" placeholder="000" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
+                                </td>
+                                <td class="py-3 px-2">
+                                    <div class="flex flex-col gap-0.5">
+                                        <input v-model="item.aliq_icms" type="number" step="0.01" min="0" placeholder="0,00" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none text-right" />
+                                        <span class="text-[9px] text-slate-400 text-right">XML: {{ item._aliq_icms_xml }}%</span>
+                                    </div>
+                                </td>
+                                <td class="py-3 px-2">
+                                    <div class="flex flex-col gap-0.5">
+                                        <input v-model="item.bc_icms_override" type="number" step="0.01" min="0" placeholder="Calc. auto" class="w-24 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none text-right" />
+                                        <span class="text-[9px] text-slate-400 text-right">Ref: {{ item._bc_icms_xml > 0 ? item._bc_icms_xml.toFixed(2) : 'calculado' }}</span>
+                                    </div>
+                                </td>
+                                <td class="py-3 px-2">
+                                    <input v-model="item.cst_pis" type="text" maxlength="3" placeholder="07" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
+                                </td>
+                                <td class="py-3 px-2">
+                                    <input v-model="item.cst_cofins" type="text" maxlength="3" placeholder="07" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
                                 </td>
                                 <td class="py-3 px-2">
                                     <input v-model="item.conta_contabil" type="text" placeholder="Ex: 1.01.01..." class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none" />

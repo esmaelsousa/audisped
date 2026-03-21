@@ -1,5 +1,59 @@
 const logger = require('../logger');
 
+// Últimos 2 dígitos de CST válidos no EFD ICMS/IPI
+const SITUACOES_CST_VALIDAS = new Set(['00', '10', '20', '30', '40', '41', '50', '51', '60', '70', '90']);
+
+// CSOSN (Simples Nacional) → CST equivalente para o destinatário regular
+const CSOSN_PARA_CST = {
+    '101': '020', // com crédito de ICMS
+    '102': '040', // sem permissão de crédito → isenta
+    '103': '040',
+    '201': '030', // ST + sem crédito
+    '202': '030',
+    '203': '030',
+    '300': '040', // imune
+    '400': '041', // não tributada / não contribuinte Simples
+    '500': '060', // ICMS ST cobrado anteriormente
+    '900': '090'  // outras
+};
+
+/**
+ * Normaliza o CST/CSOSN para um código válido no EFD ICMS/IPI.
+ * - Converte CSOSN (Simples Nacional) para CST equivalente
+ * - Corrige situações inválidas (ex: '61' → '60')
+ * - Preserva o dígito de origem (1º dígito) quando presente
+ */
+function normalizarCst(cst) {
+    const cstStr = String(cst || '000').padStart(3, '0');
+
+    // CSOSN do Simples Nacional (3 dígitos específicos como 101, 400, 500...)
+    if (CSOSN_PARA_CST[cstStr]) {
+        return CSOSN_PARA_CST[cstStr].padStart(3, '0');
+    }
+
+    // Verifica se os 2 últimos dígitos formam situação válida
+    const situacao = cstStr.slice(-2);
+    if (SITUACOES_CST_VALIDAS.has(situacao)) {
+        return cstStr; // Válido
+    }
+
+    // Correções de situações próximas (comuns em XMLs com CST fora do padrão)
+    const CORRECOES_SITUACAO = {
+        '61': '60', // ICMS monofásico não standard → ST cobrada anteriormente
+        '11': '10',
+        '21': '20',
+        '31': '30',
+    };
+    const correcao = CORRECOES_SITUACAO[situacao];
+    if (correcao) {
+        logger.warn(`CST '${cstStr}' inválido no EFD — corrigido para '${cstStr.slice(0, -2) + correcao}'`);
+        return cstStr.slice(0, -2) + correcao;
+    }
+
+    logger.warn(`CST '${cstStr}' inválido no EFD — substituído por '000'`);
+    return '000';
+}
+
 // Extrai e converte float do XML ou retorna zero seguro
 function parseValor(v) {
     if (!v) return 0.0;
@@ -28,6 +82,7 @@ function formatDate(isoDateStr) {
 async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
     const {
         userCfop = '1102',
+        forceUserCfop = false, // quando true, o CFOP do grupo tem prioridade sobre o De-Para
         forcarUsoConsumo = false, 
         ajusteIpi = false,
         ajusteIcms = false,
@@ -64,7 +119,11 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                 conta_contabil: item.conta_contabil,
                 descricao_produto: item.descricao,
                 ncm: item.ncm,
-                cod_interno: item.cod_interno
+                cod_interno: item.cod_interno,
+                aliq_icms: item.aliq_icms != null ? item.aliq_icms : null,
+                bc_icms_override: item.bc_icms_override != null ? item.bc_icms_override : null,
+                cst_pis: item.cst_pis || null,
+                cst_cofins: item.cst_cofins || null
             });
         }
     }
@@ -75,7 +134,8 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             const cnpjs = [...new Set(parsedNotes.map(n => (n.emitente.cnpj || '').replace(/\D/g, '')))];
             if (cnpjs.length > 0) {
                 const query = `
-                    SELECT cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, conta_contabil, descricao_produto, ncm, cod_interno
+                    SELECT cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, conta_contabil, descricao_produto, ncm, cod_interno,
+                           aliq_icms, bc_icms_override, cst_pis, cst_cofins
                     FROM de_para_xml
                     WHERE cnpj_emissor = ANY($1)
                 `;
@@ -88,7 +148,12 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                             novo_cst: row.novo_cst,
                             conta_contabil: row.conta_contabil,
                             descricao_produto: row.descricao_produto,
-                            ncm: row.ncm
+                            ncm: row.ncm,
+                            cod_interno: row.cod_interno,
+                            aliq_icms: row.aliq_icms != null ? parseFloat(row.aliq_icms) : null,
+                            bc_icms_override: row.bc_icms_override != null ? parseFloat(row.bc_icms_override) : null,
+                            cst_pis: row.cst_pis || null,
+                            cst_cofins: row.cst_cofins || null
                         });
                     }
                 }
@@ -239,9 +304,9 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             const mKey = `${cnpjLimpo}_${item.cod_item}`;
             const m = mapeamentos.get(mKey);
 
-            let finalCfop = m ? m.novo_cfop : (userCfop || item.cfop || item.cfop_original || '1102');
+            let finalCfop = (m && !forceUserCfop) ? m.novo_cfop : (userCfop || item.cfop || item.cfop_original || '1102');
             let finalCst = m ? m.novo_cst : (item.cst_icms || item.cst_icms_original || '000');
-            finalCst = String(finalCst).padStart(3, '0');
+            finalCst = normalizarCst(finalCst);
             let contaContabil = m ? m.conta_contabil : '';
 
             // Importante: usar os campos reais que o extractNfeData produz (vprod, vdesc, etc)
@@ -249,7 +314,7 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             let descItem = parseValor(item.vdesc);
             let vlIpi = parseValor(item.vipi);
             let vlIcms = parseValor(item.vicms);
-            let aliqIcms = parseValor(item.picms);
+            let aliqIcms = (m && m.aliq_icms != null) ? m.aliq_icms : parseValor(item.picms);
 
             let vlCofins = parseValor(item.vcofins);
             let vIpiDevol = parseValor(item.vipidevol);
@@ -259,11 +324,11 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             let aliqIpi = parseValor(item.pipi);
             let bcIcmsSt = parseValor(item.vbc_icms_st);
             let vlIcmsSt = parseValor(item.vicms_st);
-            let cstPis = item.cst_pis || '07';
+            let cstPis = (m && m.cst_pis) ? m.cst_pis : (item.cst_pis || '07');
             let bcPis = parseValor(item.vbc_pis);
             let aliqPis = parseValor(item.ppis);
             let vlPis = parseValor(item.vpis);
-            let cstCofins = item.cst_cofins || '07';
+            let cstCofins = (m && m.cst_cofins) ? m.cst_cofins : (item.cst_cofins || '07');
             let bcCofins = parseValor(item.vbc_cofins);
             let aliqCofins = parseValor(item.pcofins);
 
@@ -306,8 +371,9 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                 vIpiDevol = 0;
             }
 
-            // Base de ICMS: (Valor Produto - Desconto + Frete + Seguro + Outros)
-            const bcIcms = (finalCst === '000' || finalCst === '020') ? (vlItem - descItem + vFrete + vSeg + vOutro) : 0;
+            // Base de ICMS: (Valor Produto - Desconto + Frete + Seguro + Outros), com override do De-Para
+            const bcIcmsCalculado = (finalCst === '000' || finalCst === '020') ? (vlItem - descItem + vFrete + vSeg + vOutro) : 0;
+            const bcIcms = (m && m.bc_icms_override != null) ? m.bc_icms_override : bcIcmsCalculado;
             const vIcmsCalc = (bcIcms * aliqIcms) / 100;
 
             const codUnit = item.ucom || 'UN';
@@ -539,14 +605,22 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                     valor_total: item.vprod,
                     desconto: item.vdesc,
                     frete: item.vfrete,
-                    // Novos campos de tributação para conferência
+                    // Campos de tributação do XML (para pré-preencher o De-Para)
+                    aliq_icms: item.picms != null ? parseValor(item.picms) : 0,
+                    cst_pis: item.cst_pis || '07',
+                    cst_cofins: item.cst_cofins || '07',
                     vl_ipi: item.vipi || 0,
                     vl_pis: item.vpis || 0,
                     vl_cofins: item.vcofins || 0,
                     vl_icms: item.vicms || 0,
-                    bc_icms: item.vbc || 0,
+                    bc_icms: item.vbc_icms != null ? parseValor(item.vbc_icms) : 0,
                     vl_icms_st: item.vicms_st || 0,
-                    bc_icms_st: item.vbc_st || 0
+                    bc_icms_st: item.vbc_icms_st != null ? parseValor(item.vbc_icms_st) : 0,
+                    // Valores do mapeamento salvo (se houver override)
+                    aliq_icms_override: mapping ? mapping.aliq_icms : null,
+                    bc_icms_override: mapping ? mapping.bc_icms_override : null,
+                    cst_pis_override: mapping ? mapping.cst_pis : null,
+                    cst_cofins_override: mapping ? mapping.cst_cofins : null
                 });
             }
         }

@@ -80,6 +80,12 @@ const router = createRouter({
       name: 'perfil',
       component: () => import('../views/ProfileView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/cfops',
+      name: 'cfops',
+      component: () => import('../views/CfopView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

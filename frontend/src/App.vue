@@ -1,18 +1,19 @@
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { empresaSelecionada, arquivoInfo, token, usuario, logout } from './store'
-import { 
-  Building2, 
-  LogOut, 
-  LayoutDashboard, 
-  HardDriveUpload, 
-  Settings2, 
-  FileText, 
+import {
+  Building2,
+  LogOut,
+  LayoutDashboard,
+  HardDriveUpload,
+  Settings2,
+  FileText,
   DatabaseZap,
   ArrowLeft,
   TrendingUp,
   User,
-  Search
+  Search,
+  Tag
 } from 'lucide-vue-next'
 
 const router = useRouter();
@@ -92,12 +93,20 @@ const handleLogout = () => {
           Injetor de XMLs
         </RouterLink>
 
-        <RouterLink to="/de-para" 
+        <RouterLink to="/de-para"
           class="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all group mt-1 text-slate-400 hover:bg-white/5 hover:text-white"
           active-class="bg-brand-accent/10 text-brand-accent"
         >
           <DatabaseZap class="w-4 h-4" />
           De-Para (XML)
+        </RouterLink>
+
+        <RouterLink to="/cfops"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all group mt-1 text-slate-400 hover:bg-white/5 hover:text-white"
+          active-class="bg-brand-accent/10 text-brand-accent"
+        >
+          <Tag class="w-4 h-4" />
+          Cadastro de CFOPs
         </RouterLink>
 
         <RouterLink to="/mde" 

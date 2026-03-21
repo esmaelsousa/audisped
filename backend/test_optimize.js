@@ -138,8 +138,7 @@ async function runOptimization(arquivoId, codItem, targetVolume) {
             runningAbertura = F_linha;
         }
 
-        // Se quiser persistir no banco (por enquanto só visual)
-        /*
+        // Persistir no banco
         await client.query('BEGIN');
         for (const u of updates) {
             await client.query(
@@ -148,17 +147,19 @@ async function runOptimization(arquivoId, codItem, targetVolume) {
             );
         }
         await client.query('COMMIT');
-        */
+
+        console.log('Otimização concluída com sucesso!');
+        return { success: true, message: 'Otimização concluída e salva no banco de dados', updates: updates.length };
 
     } catch (err) {
         if (client) await client.query('ROLLBACK');
-        console.error('Erro:', err);
+        console.error('Erro na otimização do LMC:', err);
+        throw err;
     } finally {
         if (client) client.release();
-        await pool.end();
     }
 }
 
-// Supondo Arquivo ID 297, Combustível '1' (Gasolina Comum)
-// A soma base de vendas deve ser próxima a 100k, vamos ver:
-runOptimization(297, '1', 80000); 
+module.exports = {
+    runOptimization
+};

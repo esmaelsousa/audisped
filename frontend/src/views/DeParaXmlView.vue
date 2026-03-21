@@ -35,7 +35,11 @@ const form = ref({
   cod_produto_xml: '',
   descricao_produto: '',
   novo_cfop: '',
-  novo_cst: ''
+  novo_cst: '',
+  aliq_icms: '',
+  bc_icms_override: '',
+  cst_pis: '',
+  cst_cofins: ''
 });
 
 // Computed
@@ -79,7 +83,11 @@ function openAddModal() {
     cod_produto_xml: '',
     descricao_produto: '',
     novo_cfop: '',
-    novo_cst: ''
+    novo_cst: '',
+    aliq_icms: '',
+    bc_icms_override: '',
+    cst_pis: '',
+    cst_cofins: ''
   };
   showModal.value = true;
 }
@@ -186,20 +194,23 @@ function showNotify(msg, type = 'success') {
               <th class="px-6 py-4">CNPJ Fornecedor</th>
               <th class="px-6 py-4">Cód. XML</th>
               <th class="px-6 py-4">Descrição</th>
-              <th class="px-6 py-4">Novo CFOP</th>
-              <th class="px-6 py-4">Novo CST</th>
+              <th class="px-6 py-4">CFOP</th>
+              <th class="px-6 py-4">CST</th>
+              <th class="px-6 py-4">Alíq. %</th>
+              <th class="px-6 py-4">CST PIS</th>
+              <th class="px-6 py-4">CST COF.</th>
               <th class="px-6 py-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
             <tr v-if="isLoading" v-for="i in 3" :key="i" class="animate-pulse">
-              <td v-for="j in 6" :key="j" class="px-6 py-4">
+              <td v-for="j in 9" :key="j" class="px-6 py-4">
                 <div class="h-4 bg-white/5 rounded w-full"></div>
               </td>
             </tr>
-            
+
             <tr v-else-if="filteredRules.length === 0">
-              <td colspan="6" class="px-6 py-12 text-center text-slate-500 italic">
+              <td colspan="9" class="px-6 py-12 text-center text-slate-500 italic">
                 Nenhuma regra encontrada. Clique em "Nova Regra" para começar.
               </td>
             </tr>
@@ -223,6 +234,9 @@ function showNotify(msg, type = 'success') {
                 <span class="text-emerald-400 font-bold font-mono">{{ rule.novo_cfop || '-' }}</span>
               </td>
               <td class="px-6 py-4 text-amber-400 font-bold font-mono">{{ rule.novo_cst || '-' }}</td>
+              <td class="px-6 py-4 text-slate-300 font-mono text-xs">{{ rule.aliq_icms != null ? rule.aliq_icms + '%' : '-' }}</td>
+              <td class="px-6 py-4 text-slate-300 font-mono text-xs">{{ rule.cst_pis || '-' }}</td>
+              <td class="px-6 py-4 text-slate-300 font-mono text-xs">{{ rule.cst_cofins || '-' }}</td>
               <td class="px-6 py-4 text-right">
                 <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
@@ -294,21 +308,54 @@ function showNotify(msg, type = 'success') {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="space-y-1.5">
               <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Novo CFOP</label>
-              <input 
+              <input
                 v-model="form.novo_cfop"
-                type="text" 
+                type="text"
                 placeholder="Ex: 1102"
                 class="w-full bg-[#0f172a] border border-white/10 rounded-lg px-4 py-2.5 text-emerald-400 font-mono focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
               />
             </div>
             <div class="space-y-1.5">
-              <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Novo CST</label>
-              <input 
+              <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Novo CST ICMS</label>
+              <input
                 v-model="form.novo_cst"
-                type="text" 
+                type="text"
                 placeholder="Ex: 060"
                 class="w-full bg-[#0f172a] border border-white/10 rounded-lg px-4 py-2.5 text-amber-400 font-mono focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
               />
+            </div>
+          </div>
+
+          <div class="border-t border-white/5 pt-4">
+            <p class="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-3">Tributação (Opcional — sobrescreve o XML)</p>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Alíq. ICMS %</label>
+                <input
+                  v-model="form.aliq_icms"
+                  type="number" step="0.01" min="0"
+                  placeholder="Ex: 12.00"
+                  class="w-full bg-[#0f172a] border border-white/10 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">CST PIS</label>
+                <input
+                  v-model="form.cst_pis"
+                  type="text" maxlength="3"
+                  placeholder="Ex: 07"
+                  class="w-full bg-[#0f172a] border border-white/10 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">CST COFINS</label>
+                <input
+                  v-model="form.cst_cofins"
+                  type="text" maxlength="3"
+                  placeholder="Ex: 07"
+                  class="w-full bg-[#0f172a] border border-white/10 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:ring-2 focus:ring-brand-accent/50"
+                />
+              </div>
             </div>
           </div>
         </div>

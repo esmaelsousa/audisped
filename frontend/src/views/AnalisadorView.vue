@@ -392,16 +392,36 @@ const lmcKpis = computed(() => {
 });
 
 async function openLmcConfig() {
-    // Garante que temos todos os produtos do LMC na lista de configs
     const produtosNoLmc = [...new Set(lmcData.value.map(d => d.cod_item))];
+
+    // Buscar sugestões de capacidade extraídas dos registros 1310 do SPED original
+    let sugestoes = [];
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/lmc/tanques-sugeridos/${idArquivoSped.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        sugestoes = res.data;
+    } catch (e) {
+        console.warn('Não foi possível buscar sugestões de capacidade do SPED:', e);
+    }
+
     const newConfigs = produtosNoLmc.map(cod => {
         const existing = tankConfigs.value.find(c => c.cod_item === cod);
         const descr = lmcData.value.find(d => d.cod_item === cod)?.nome_combustivel || 'Produto';
-        return { 
-            cod_item: cod, 
-            descr_item: descr,
-            capacidade: existing ? existing.capacidade : 0 
-        };
+        const sugerido = sugestoes.find(s => s.cod_item === cod);
+
+        let capacidade = 0;
+        let fromSped = false;
+
+        if (existing && Number(existing.capacidade) > 0) {
+            capacidade = existing.capacidade;
+        } else if (sugerido && sugerido.capacidade > 0) {
+            capacidade = sugerido.capacidade;
+            fromSped = true;
+        }
+
+        return { cod_item: cod, descr_item: descr, capacidade, fromSped };
     });
     tankConfigs.value = newConfigs;
     showLmcConfigModal.value = true;
@@ -1822,13 +1842,16 @@ const getStatusColor = (score) => {
             </div>
 
             <div class="max-h-[400px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-                <div v-for="conf in tankConfigs" :key="conf.cod_item" class="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between gap-4">
+                <div v-for="conf in tankConfigs" :key="conf.cod_item" class="bg-slate-50 p-4 rounded-2xl border flex items-center justify-between gap-4" :class="conf.fromSped ? 'border-brand-accent/30 bg-brand-accent/5' : 'border-slate-100'">
                     <div class="flex flex-col">
-                        <span class="text-xs font-black text-slate-700">{{ conf.descr_item }}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black text-slate-700">{{ conf.descr_item }}</span>
+                            <span v-if="conf.fromSped" title="Capacidade detectada automaticamente do arquivo SPED" class="text-[8px] font-black text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">SPED</span>
+                        </div>
                         <span class="text-[9px] font-mono text-slate-400">COD: {{ conf.cod_item }}</span>
                     </div>
                     <div class="relative w-40">
-                        <input v-model.number="conf.capacidade" type="number" step="0" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-4 py-2 text-right font-black tabular-nums transition-all outline-none text-sm">
+                        <input v-model.number="conf.capacidade" type="number" step="0" @input="conf.fromSped = false" class="w-full bg-white border focus:border-brand-accent rounded-xl px-4 py-2 text-right font-black tabular-nums transition-all outline-none text-sm" :class="conf.fromSped ? 'border-brand-accent/40' : 'border-slate-200'">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-300 uppercase">Litros</span>
                     </div>
                 </div>
