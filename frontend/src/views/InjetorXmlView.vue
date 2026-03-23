@@ -164,28 +164,63 @@ async function ejetarTodosGrupos() {
         successInjectedId.value = idSpedBase.value;
     } catch (e) {
         const data = e.response?.data;
-        logs.value.push(`[ERRO] ${data?.message || e.message}`);
 
-        // Exibe diagnóstico detalhado por grupo se disponível
-        if (data?.grupos && Array.isArray(data.grupos)) {
-            const statusLabel = {
-                sem_arquivos: 'Nenhum arquivo recebido pelo servidor',
-                nenhuma_nota_valida: 'XMLs inválidos ou não reconhecidos',
-                todas_duplicadas: 'Todos os XMLs já existem no SPED (duplicatas)',
-            };
-            data.grupos.forEach(g => {
-                const label = statusLabel[g.status] || g.status;
-                logs.value.push(`  → Grupo ${g.grupo}: ${label}`);
-                if (g.arquivos_enviados != null) logs.value.push(`     Arquivos recebidos: ${g.arquivos_enviados}`);
-                if (g.duplicadas) logs.value.push(`     Duplicadas detectadas: ${g.duplicadas}`);
-                if (g.dica) logs.value.push(`     💡 ${g.dica}`);
-                if (g.erros?.length) g.erros.forEach(err => logs.value.push(`     ⚠ ${err}`));
-            });
+        if (data?.tipo === 'cnpj_invalido') {
+            logs.value.push(`[BLOQUEADO] ${data.message}`);
+            data.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → CNPJ XML: ${b.cnpj_xml} | CNPJ SPED: ${b.cnpj_sped}`));
+            gruposAtivos.forEach(g => { g.status = 'erro'; });
+        } else if (data?.tipo === 'periodo_divergente') {
+            // Salva FormData para reenvio com force_periodo
+            _pendingFdNfe = fd;
+            _pendingGruposAtivos = gruposAtivos;
+            modalPeriodoData.value = { periodo_sped: data.periodo_sped, avisos: data.avisos };
+            modalPeriodo.value = true;
+            gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = null; });
+        } else {
+            logs.value.push(`[ERRO] ${data?.message || e.message}`);
+            if (data?.grupos && Array.isArray(data.grupos)) {
+                const statusLabel = {
+                    sem_arquivos: 'Nenhum arquivo recebido pelo servidor',
+                    nenhuma_nota_valida: 'XMLs inválidos ou não reconhecidos',
+                    todas_duplicadas: 'Todos os XMLs já existem no SPED (duplicatas)',
+                };
+                data.grupos.forEach(g => {
+                    logs.value.push(`  → Grupo ${g.grupo}: ${statusLabel[g.status] || g.status}`);
+                    if (g.erros?.length) g.erros.forEach(err => logs.value.push(`     ⚠ ${err}`));
+                });
+            }
+            gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = 'erro'; });
         }
-
-        gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = 'erro'; });
     } finally {
         isLoading.value = false;
+    }
+}
+
+// --- Modal de confirmação de período ---
+const modalPeriodo = ref(false);
+const modalPeriodoData = ref({ periodo_sped: '', avisos: [] });
+let _pendingFdNfe = null;
+let _pendingGruposAtivos = null;
+
+async function confirmarForcePeriodo() {
+    modalPeriodo.value = false;
+    if (!_pendingFdNfe) return;
+    _pendingFdNfe.set('force_periodo', 'true');
+    isLoading.value = true;
+    try {
+        const res = await axios.post(`${API_BASE_URL}/api/injetar-grupos`, _pendingFdNfe, {
+            headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token.value}` }
+        });
+        const det = res.data.detalhes;
+        logs.value.push('[SUCCESS] ' + res.data.message);
+        logs.value.push(`→ XMLs injetados: ${det.total_xml_injetados}`);
+        successInjectedId.value = idSpedBase.value;
+    } catch (e) {
+        logs.value.push(`[ERRO] ${e.response?.data?.message || e.message}`);
+    } finally {
+        isLoading.value = false;
+        _pendingFdNfe = null;
+        _pendingGruposAtivos = null;
     }
 }
 
@@ -1037,12 +1072,44 @@ async function prepararPainel() {
         </div>
 
         <!-- Modal de Preview -->
-        <SpedPreview 
+        <SpedPreview
             v-if="showPreview && (jsonResult || previewData)"
             :show="true"
             :data="jsonResult || previewData"
             @close="showPreview = false; jsonResult = null; previewData = null"
         />
+
+        <!-- Modal: Período Divergente -->
+        <Teleport to="body">
+            <div v-if="modalPeriodo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                    <div class="bg-amber-500 px-6 py-4 flex items-center gap-3">
+                        <svg class="w-6 h-6 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                        <h2 class="text-white font-black text-sm uppercase tracking-wide">Atenção — Período Divergente</h2>
+                    </div>
+                    <div class="px-6 py-4 space-y-3">
+                        <p class="text-sm text-slate-600">Os XMLs abaixo possuem data fora do período auditado. Deseja injetá-los mesmo assim?</p>
+                        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs font-mono text-amber-800 font-bold">
+                            Período do SPED: {{ modalPeriodoData.periodo_sped }}
+                        </div>
+                        <ul class="space-y-1 max-h-48 overflow-y-auto">
+                            <li v-for="a in modalPeriodoData.avisos" :key="a.arquivo" class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-1.5 text-xs">
+                                <span class="text-slate-700 font-medium truncate max-w-[260px]">{{ a.arquivo }}</span>
+                                <span class="text-amber-600 font-bold font-mono shrink-0 ml-2">{{ a.data_xml }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-slate-100">
+                        <button @click="modalPeriodo = false; logs.push('[CANCELADO] Injeção cancelada pelo usuário.')" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors">
+                            Cancelar
+                        </button>
+                        <button @click="confirmarForcePeriodo" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition-colors">
+                            Confirmar Injeção
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </div>
 </template>
 

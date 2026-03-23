@@ -82,6 +82,17 @@ const productToOtimizar = ref(null);
 const targetVolume = ref(0);
 const savingOtimizacao = ref(false);
 
+// --- Accordion LMC por Combustível ---
+const expandedFuels = ref(new Set());
+function toggleFuel(cod) {
+    const s = new Set(expandedFuels.value);
+    s.has(cod) ? s.delete(cod) : s.add(cod);
+    expandedFuels.value = s;
+}
+function lmcDoCombustivel(cod) {
+    return filteredLmc.value.filter(item => item.cod_item === cod);
+}
+
 // --- Estado Auditoria Sintática Flash (Fase 1) ---
 const infractions = ref({
     c100_valores_divergentes: [],
@@ -286,6 +297,7 @@ async function loadLmcDetailed() {
         ]);
         lmcData.value = resLmc.data;
         tankConfigs.value = resConfigs.data;
+        await checkContinuidade();
     } catch (e) {
         console.error("Erro ao carregar detalhes LMC:", e);
     } finally {
@@ -293,8 +305,10 @@ async function loadLmcDetailed() {
     }
 }
 
+const COMBUSTIVEIS_LMC = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESEL', 'GNV', 'GLP', 'QUEROSENE', 'BIODIESEL'];
+
 const filteredLmc = computed(() => {
-    let data = lmcData.value;
+    let data = lmcData.value.filter(d => COMBUSTIVEIS_LMC.some(k => (d.nome_combustivel || '').toUpperCase().includes(k)));
     if (lmcFilters.value.search) {
         const s = lmcFilters.value.search.toLowerCase();
         data = data.filter(d => d.nome_combustivel.toLowerCase().includes(s) || d.cod_item.toLowerCase().includes(s));
@@ -387,8 +401,10 @@ const lmcKpis = computed(() => {
         };
     });
 
-    // Retorna array ordenado por nome
-    return resultado.sort((a, b) => a.nome.localeCompare(b.nome));
+    const COMBUSTIVEIS = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESEL', 'GNV', 'GLP', 'QUEROSENE', 'BIODIESEL'];
+    return resultado
+        .filter(c => COMBUSTIVEIS.some(k => c.nome?.toUpperCase().includes(k)))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
 });
 
 async function openLmcConfig() {
@@ -448,7 +464,7 @@ async function saveLmcConfig() {
 
 function openOtimizador(comb) {
     productToOtimizar.value = comb;
-    targetVolume.value = comb.totalSaidas; // Sugestão inicial: manter as mesmas vendas
+    targetVolume.value = Math.round(comb.totalSaidas * 1000) / 1000;
     showOtimizadorModal.value = true;
 }
 
@@ -483,6 +499,49 @@ async function startOtimizacao() {
 // --- Edição Manual de Estoque Inicial (Fase 20) ---
 const editingStock = ref({}); // Ex: { "01": 5000 }
 const savingStock = ref(false);
+
+// --- Continuidade de Estoque entre Meses ---
+const continuidade = ref({ tem_mes_anterior: false, divergencias: [] });
+const sincronizando = ref({});
+
+async function checkContinuidade() {
+    if (!idArquivoSped.value) return;
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/lmc/continuidade/${idArquivoSped.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        continuidade.value = res.data;
+    } catch (e) {
+        console.error('Erro ao verificar continuidade:', e);
+    }
+}
+
+async function sincronizarEstoque(cod, fechamentoAnterior) {
+    if (!idArquivoSped.value) return;
+    sincronizando.value[cod] = true;
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/lmc/update-estoque-inicial`, {
+            id_arquivo: idArquivoSped.value,
+            cod_item: cod,
+            novo_estoque: parseFloat(fechamentoAnterior)
+        }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await runAnalysis(false);
+        await loadLmcDetailed();
+        await checkContinuidade();
+    } catch (e) {
+        alert('Erro ao sincronizar estoque: ' + (e.response?.data?.error || e.message));
+    } finally {
+        delete sincronizando.value[cod];
+    }
+}
+
+async function sincronizarTodos() {
+    for (const div of continuidade.value.divergencias) {
+        await sincronizarEstoque(div.cod_item, div.fechamento_anterior);
+    }
+}
 
 function toggleEditStock(cod, atual) {
     if (editingStock.value[cod] !== undefined) {
@@ -794,110 +853,105 @@ const getStatusColor = (score) => {
 </script>
 
 <template>
-  <div class="space-y-8 animate-fade-in relative">
+  <div class="space-y-4 animate-fade-in relative">
     <!-- TOAST DE SUCESSO -->
-    <Transition 
-      enter-active-class="transform transition ease-out duration-300" 
-      enter-from-class="translate-y-2 opacity-0 sm:translate-y-0 sm:translate-x-2" 
-      enter-to-class="translate-y-0 opacity-100 sm:translate-x-0" 
-      leave-active-class="transition ease-in duration-100" 
-      leave-from-class="opacity-100" 
+    <Transition
+      enter-active-class="transform transition ease-out duration-300"
+      enter-from-class="translate-y-2 opacity-0 sm:translate-y-0 sm:translate-x-2"
+      enter-to-class="translate-y-0 opacity-100 sm:translate-x-0"
+      leave-active-class="transition ease-in duration-100"
+      leave-from-class="opacity-100"
       leave-to-class="opacity-0"
     >
-      <div v-if="showSuccessToast" class="fixed top-6 right-6 z-[100] w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-emerald-100 p-6 flex items-start gap-4 ring-1 ring-black/5">
-        <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 text-xl shrink-0 shadow-inner">
-          ✨
-        </div>
-        <div class="space-y-1">
+      <div v-if="showSuccessToast" class="fixed top-4 right-4 z-[100] w-full max-w-xs bg-white rounded-2xl shadow-xl border border-emerald-100 p-4 flex items-center gap-3 ring-1 ring-black/5">
+        <div class="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">✨</div>
+        <div>
           <h4 class="text-xs font-black text-slate-900 uppercase tracking-tight">Auditoria Concluída!</h4>
-          <p class="text-[10px] text-slate-500 font-medium leading-relaxed">Cruzamentos processados. Você foi levado automaticamente aos resultados.</p>
+          <p class="text-[10px] text-slate-400 font-medium">Cruzamentos processados com sucesso.</p>
         </div>
-        <button @click="showSuccessToast = false" class="text-slate-300 hover:text-slate-500 transition-colors ml-auto">&times;</button>
+        <button @click="showSuccessToast = false" class="text-slate-300 hover:text-slate-500 transition-colors ml-auto text-lg leading-none">&times;</button>
       </div>
     </Transition>
 
     <!-- Header de Contexto -->
-    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-3">
       <div>
-        <h2 class="text-3xl font-extrabold text-slate-800 tracking-tight">
+        <h2 class="text-xl font-extrabold text-slate-800 tracking-tight">
           Motor de <span class="text-brand-accent">Auditoria</span>
         </h2>
-        <p class="text-slate-500 mt-1">Validação de conformidade e integridade fiscal (Blocos C e 1300)</p>
       </div>
-      
-      <div v-if="arquivoInfo" class="flex items-center gap-3">
-        <div class="flex gap-2 mr-4">
-           <button @click="downloadDossie" class="px-4 py-2 bg-white text-brand-accent border border-brand-accent/20 rounded-xl text-xs font-bold hover:bg-brand-accent/5 transition-all flex items-center gap-2 shadow-sm">
-             📥 DOSSIÊ PDF
-           </button>
-           <button @click="downloadExcel" class="px-4 py-2 bg-emerald-600/10 text-emerald-600 border border-emerald-600/20 rounded-xl text-xs font-bold hover:bg-emerald-600/20 transition-all flex items-center gap-2 shadow-sm">
-             📊 EXCEL (.XLSX)
-           </button>
-           <button @click="downloadSpedRetificado" class="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-all flex items-center gap-2 shadow-lg shadow-slate-200">
-             🛠️ EXPORTAR SPED
-           </button>
+
+      <div v-if="arquivoInfo" class="flex items-center gap-2">
+        <div class="flex gap-1.5">
+          <button @click="downloadDossie" class="px-3 py-1.5 bg-white text-brand-accent border border-brand-accent/20 rounded-lg text-xs font-bold hover:bg-brand-accent/5 transition-all flex items-center gap-1.5 shadow-sm">
+            📥 Dossiê PDF
+          </button>
+          <button @click="downloadExcel" class="px-3 py-1.5 bg-emerald-600/10 text-emerald-600 border border-emerald-600/20 rounded-lg text-xs font-bold hover:bg-emerald-600/20 transition-all flex items-center gap-1.5 shadow-sm">
+            📊 Excel
+          </button>
+          <button @click="downloadSpedRetificado" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all flex items-center gap-1.5 shadow-sm">
+            🛠️ Exportar SPED
+          </button>
         </div>
-        <div class="flex items-center gap-3 bg-white p-2 pr-4 rounded-full shadow-sm border border-slate-100 italic">
-          <div class="w-10 h-10 rounded-full bg-brand-accent/10 flex items-center justify-center text-brand-accent">
-            📄
-          </div>
-          <div class="text-sm">
-            <p class="font-bold leading-none">{{ arquivoInfo.periodo }}</p>
-            <p class="text-[10px] text-slate-400 font-mono mt-1">{{ arquivoInfo.nome }}</p>
+        <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-slate-100">
+          <div class="w-7 h-7 rounded-lg bg-brand-accent/10 flex items-center justify-center text-brand-accent text-sm shrink-0">📄</div>
+          <div>
+            <p class="text-xs font-bold leading-none">{{ arquivoInfo.periodo }}</p>
+            <p class="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-[160px]">{{ arquivoInfo.nome }}</p>
           </div>
         </div>
       </div>
     </header>
 
     <!-- Tabs Estilizadas -->
-    <div class="flex gap-2 p-1 bg-slate-200/50 rounded-xl w-fit">
-      <button 
+    <div class="flex flex-wrap gap-1 p-1 bg-slate-200/50 rounded-xl w-fit">
+      <button
         @click="activeTab = 'novo'"
-        :class="activeTab === 'novo' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all">
-        📂 Upload de Arquivo
+        :class="activeTab === 'novo' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Upload
       </button>
-      <button 
+      <button
         @click="activeTab = 'dashboard'"
-        :class="activeTab === 'dashboard' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all">
-        📊 Dashboard Analítico
+        :class="activeTab === 'dashboard' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Dashboard
       </button>
-      <button 
+      <button
         @click="activeTab = 'lmc'"
-        :class="activeTab === 'lmc' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all">
-        ⛽ Auditoria LMC
+        :class="activeTab === 'lmc' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Auditoria LMC
       </button>
-      <button 
+      <button
         @click="activeTab = 'erros'"
-        :class="activeTab === 'erros' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
-        ⚠️ Alertas de Auditoria
-        <span v-if="auditErros.length" class="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-slate-100">
+        :class="activeTab === 'erros' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        Alertas
+        <span v-if="auditErros.length" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
           {{ auditErros.length }}
         </span>
       </button>
-      <button 
+      <button
         @click="activeTab = 'sintaxe'"
-        :class="activeTab === 'sintaxe' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
-        🔍 Malha Fina Sintática
-        <span v-if="totalInfractions" class="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-white text-[10px] flex items-center justify-center rounded-full border-2 border-slate-100">
+        :class="activeTab === 'sintaxe' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        Malha Fina
+        <span v-if="totalInfractions" class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
           {{ totalInfractions }}
         </span>
       </button>
-      <button 
+      <button
         @click="activeTab = 'notas'"
-        :class="activeTab === 'notas' ? 'bg-white shadow-md text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
-        📑 Consulta de Notas
+        :class="activeTab === 'notas' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Notas
       </button>
-      <button 
+      <button
         @click="activeTab = 'saidas'"
-        :class="activeTab === 'saidas' ? 'bg-white shadow-md text-emerald-600' : 'text-slate-500 hover:text-slate-700'"
-        class="px-6 py-2.5 rounded-lg text-sm font-bold transition-all relative">
-        🧾 Saídas NF
+        :class="activeTab === 'saidas' ? 'bg-white shadow text-emerald-600' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Saídas NF
       </button>
     </div>
 
@@ -1305,23 +1359,23 @@ const getStatusColor = (score) => {
     </div>
 
     <!-- Conteúdo: Upload (CENTRALIZADO E AUTOMÁTICO) -->
-    <div v-if="activeTab === 'novo'" class="flex justify-center items-center py-10 animate-fade-in">
-      <div class="bg-white rounded-[40px] p-16 border-2 border-dashed border-slate-200 hover:border-brand-accent/50 transition-all group text-center space-y-8 max-w-2xl w-full shadow-2xl shadow-slate-200/50">
-        <div class="w-24 h-24 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto text-5xl group-hover:scale-110 transition-transform shadow-inner">
+    <div v-if="activeTab === 'novo'" class="flex justify-center items-center py-6 animate-fade-in">
+      <div class="bg-white rounded-2xl p-8 border-2 border-dashed border-slate-200 hover:border-brand-accent/50 transition-all group text-center space-y-5 max-w-lg w-full shadow-lg shadow-slate-100/50">
+        <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-2xl group-hover:scale-110 transition-transform shadow-inner">
           {{ isUploading ? '⚙️' : '📥' }}
         </div>
-        <div class="space-y-3">
-          <h3 class="text-3xl font-black text-slate-800 tracking-tight">
+        <div class="space-y-1.5">
+          <h3 class="text-xl font-black text-slate-800 tracking-tight">
             {{ isUploading ? 'Processando Auditoria' : 'Seleção de Arquivo SPED' }}
           </h3>
-          <p class="text-slate-400 text-base font-medium">
-            {{ isUploading ? 'Por favor, não feche a página. Nosso motor está validando os dados.' : 'Arraste seu arquivo .txt ou clique para iniciar o fluxo automático' }}
+          <p class="text-slate-400 text-sm font-medium">
+            {{ isUploading ? 'Por favor, não feche a página.' : 'Clique para selecionar o arquivo .txt do SPED' }}
           </p>
         </div>
 
         <div v-if="!isUploading">
-          <label class="inline-block px-12 py-5 bg-brand-accent hover:bg-opacity-90 text-white rounded-2xl font-black cursor-pointer transition-all shadow-xl shadow-brand-accent/30 active:scale-95 text-lg uppercase tracking-widest">
-            ESCOLHER ARQUIVO
+          <label class="inline-block px-8 py-3 bg-brand-accent hover:bg-opacity-90 text-white rounded-xl font-black cursor-pointer transition-all shadow-md shadow-brand-accent/20 active:scale-95 text-sm uppercase tracking-widest">
+            Escolher Arquivo
             <input type="file" @change="handleSpedFile" class="hidden" accept=".txt" />
           </label>
         </div>
@@ -1483,166 +1537,211 @@ const getStatusColor = (score) => {
 
     <!-- Conteúdo: Auditoria LMC Especializada -->
     <!-- Conteúdo: Auditoria LMC Especializada -->
-    <div v-if="activeTab === 'lmc'" class="space-y-6 animate-fade-in">
-        
-        <!-- Dashboard de KPIs LMC por Combustível -->
-        <div v-if="lmcKpis?.length" class="space-y-4">
-            <div v-for="comb in lmcKpis" :key="comb.cod" class="space-y-1.5">
-                <div class="flex items-center justify-between px-1">
-                    <div class="flex items-center gap-3">
-                       <div class="w-1.5 h-6 bg-brand-accent rounded-full shadow-[0_0_8px_rgba(37,99,235,0.4)]"></div>
-                       <h3 class="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-                          {{ comb.nome }}
-                          <span class="text-[9px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">COD: {{ comb.cod }}</span>
-                       </h3>
-                    </div>
-                    <button @click="openOtimizador(comb)" class="px-3 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-indigo-100">
-                        🚀 Distribuição Inteligente
-                    </button>
-                </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
-                    <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-slate-200 flex flex-col justify-center relative group">
-                        <div class="flex justify-between items-center mb-1">
-                            <span class="text-[8px] font-black uppercase text-slate-400 tracking-widest leading-none">Estoque Inicial</span>
-                            <button @click="toggleEditStock(comb.cod, comb.estoqueInicial)" title="Ajustar Estoque de Abertura do Mês (Ancoragem)" class="text-slate-300 hover:text-brand-accent transition-colors opacity-0 group-hover:opacity-100">
-                                ✏️
-                            </button>
-                        </div>
-                        <p v-if="editingStock[comb.cod] === undefined" class="text-lg font-black text-slate-800 tabular-nums leading-tight">
-                            {{ formatNumber(comb.estoqueInicial) }}
-                        </p>
-                        <div v-else class="flex items-center gap-1 mt-1">
-                            <input v-model="editingStock[comb.cod]" type="number" step="0.001" class="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-sm font-black focus:ring-1 focus:ring-brand-accent outline-none">
-                            <button @click="saveInitialStock(comb.cod)" :disabled="savingStock" class="bg-emerald-500 text-white rounded p-1 hover:bg-emerald-600 disabled:opacity-50 transition-colors">
-                                <Loader2 v-if="savingStock" class="w-3 h-3 animate-spin"/>
-                                <span v-else>✅</span>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-slate-200 flex flex-col justify-center">
-                        <span class="text-[8px] font-black uppercase text-slate-400 tracking-widest text-emerald-500 leading-none mb-1">Entradas</span>
-                        <p class="text-lg font-black text-slate-800 tabular-nums leading-tight">+{{ formatNumber(comb.totalEntradas) }}</p>
-                    </div>
-                    
-                    <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-slate-200 flex flex-col justify-center">
-                        <span class="text-[8px] font-black uppercase text-slate-400 tracking-widest text-amber-500 leading-none mb-1">Saídas</span>
-                        <p class="text-lg font-black text-slate-800 tabular-nums leading-tight">-{{ formatNumber(comb.totalSaidas) }}</p>
-                    </div>
-                    
-                    <div class="bg-slate-900 p-3 rounded-2xl border border-slate-800 shadow-xl flex flex-col justify-center relative overflow-hidden group">
-                        <span class="text-[8px] font-black uppercase text-slate-500 tracking-widest leading-none mb-1">Quebra Líquida</span>
-                        <p class="text-lg font-black tabular-nums leading-tight z-10" :class="comb.quebraLiquida >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-                            {{ comb.quebraLiquida > 0 ? '+' : '' }}{{ formatNumber(comb.quebraLiquida) }} L
-                        </p>
-                        <span class="text-[9px] font-mono font-bold z-10 mt-1" :class="comb.variacaoMensalPerc > 0.6 ? 'text-rose-400 animate-pulse' : 'text-slate-400'">
-                            VAR: {{ comb.variacaoMensalPerc.toFixed(3) }}%
-                        </span>
-                        <div class="absolute -right-2 -bottom-2 text-2xl opacity-10 group-hover:scale-110 transition-transform">⚖️</div>
-                    </div>
-                    
-                    <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:border-slate-200 flex flex-col justify-center relative group">
-                        <span class="text-[8px] font-black uppercase text-slate-400 tracking-widest leading-none mb-1">Saldo Transportado (M+1)</span>
-                        <p class="text-lg font-black text-slate-800 tabular-nums leading-tight">{{ formatNumber(comb.estoqueFinal) }}</p>
-                    </div>
-                    
-                    <div class="p-3 rounded-2xl border flex flex-col justify-center transition-all" 
-                         :class="comb.irregularidades > 0 ? 'bg-rose-50/50 border-rose-100 shadow-sm' : 'bg-emerald-50/30 border-emerald-100 shadow-sm'">
-                        <span class="text-[8px] font-black uppercase tracking-widest leading-none mb-1"
-                              :class="comb.irregularidades > 0 ? 'text-rose-500' : 'text-emerald-500'">
-                              Status Operacional
-                        </span>
-                        <p class="text-xs font-black uppercase tracking-tighter" :class="comb.irregularidades > 0 ? 'text-rose-600' : 'text-emerald-600'">
-                            {{ comb.irregularidades > 0 ? comb.irregularidades + ' Irregularidade(s)' : '✅ Em Conformidade' }}
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div v-if="activeTab === 'lmc'" class="space-y-4 animate-fade-in">
 
-        <!-- Barra de Filtros e Configurações -->
-        <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-4 justify-between">
-            <div class="flex items-center gap-4">
+        <!-- Barra de Filtros + Configurar Tanques -->
+        <div class="bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-3 justify-between">
+            <div class="flex items-center gap-3">
                 <div class="relative">
-                    <input v-model="lmcFilters.search" type="text" placeholder="Filtrar combustível..." class="pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-xs focus:ring-1 focus:ring-brand-accent w-48">
-                    <span class="absolute left-3 top-2.5 opacity-30 text-sm">🔍</span>
+                    <input v-model="lmcFilters.search" type="text" placeholder="Filtrar combustível..." class="pl-8 pr-3 py-1.5 bg-slate-50 border-none rounded-lg text-xs focus:ring-1 focus:ring-brand-accent w-44">
+                    <span class="absolute left-2.5 top-1.5 opacity-30 text-xs">🔍</span>
                 </div>
-                <input v-model="lmcFilters.date" type="date" class="px-4 py-2 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-500">
-                <label class="flex items-center gap-2 cursor-pointer group">
+                <input v-model="lmcFilters.date" type="date" class="px-3 py-1.5 bg-slate-50 border-none rounded-lg text-xs font-bold text-slate-500">
+                <label class="flex items-center gap-1.5 cursor-pointer group">
                     <input v-model="lmcFilters.onlyErrors" type="checkbox" class="w-3.5 h-3.5 rounded border-slate-300 text-brand-accent focus:ring-brand-accent focus:ring-1">
-                    <span class="text-[10px] font-bold text-slate-400 group-hover:text-slate-600 uppercase tracking-widest">Ver apenas falhas</span>
+                    <span class="text-[10px] font-bold text-slate-400 group-hover:text-slate-600 uppercase tracking-widest">Só falhas</span>
                 </label>
             </div>
-            <button @click="openLmcConfig" class="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg">
-                ⚙️ CONFIGURAR TANQUES
+            <button @click="openLmcConfig" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5">
+                ⚙️ Configurar Tanques
             </button>
         </div>
 
-        <!-- Tabela LMC Expandida -->
-        <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-             <div class="overflow-x-auto">
-                 <table class="w-full text-left">
-                    <thead class="bg-slate-50/50">
-                       <tr class="text-[9px] text-slate-400 uppercase font-black tracking-widest border-b border-slate-100">
-                          <th class="px-6 py-4">Data Mov.</th>
-                          <th class="px-6 py-4">Combustível</th>
-                          <th class="px-6 py-4 text-center">Capacidade</th>
-                          <th class="px-6 py-4 text-right">Est. Inicial</th>
-                          <th class="px-6 py-4 text-right">Entradas</th>
-                          <th class="px-6 py-4 text-right">Escritural</th>
-                          <th class="px-6 py-4 text-right">Físico</th>
-                          <th class="px-6 py-4 text-right border-l border-slate-50">Diferença (L)</th>
-                          <th class="px-6 py-4 text-right">Variação %</th>
-                          <th class="px-6 py-4 text-right text-rose-500">Excesso</th>
-                          <th class="px-6 py-4 text-center">Status ANP</th>
-                       </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50">
-                       <tr v-for="item in filteredLmc" :key="item.id_movimento" class="hover:bg-slate-50/30 transition-colors group">
-                          <td class="px-6 py-4 font-mono text-[11px] text-slate-500">{{ new Date(item.data_movimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) }}</td>
-                          <td class="px-6 py-4">
-                             <div class="flex flex-col">
-                                <span class="text-xs font-bold text-slate-700">{{ item.nome_combustivel }}</span>
-                                <span class="text-[9px] text-slate-400 font-mono">{{ item.cod_item }}</span>
-                             </div>
-                          </td>
-                          <td class="px-6 py-4 text-center font-mono text-[11px] font-bold text-slate-400">
-                            {{ item.capacidade_tanque > 0 ? formatNumber(item.capacidade_tanque) + ' L' : 'Não Definido' }}
-                          </td>
+        <!-- Banner de Continuidade de Estoque -->
+        <div v-if="continuidade.divergencias.length > 0"
+             class="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">⚠️</span>
+                    <div>
+                        <p class="text-sm font-black text-amber-800">Continuidade de Estoque — Divergência Detectada</p>
+                        <p class="text-xs text-amber-600">
+                            O estoque de abertura deste mês difere do fechamento físico do mês anterior
+                            <span v-if="continuidade.divergencias[0]?.periodo_anterior" class="font-bold">
+                                ({{ continuidade.divergencias[0].periodo_anterior.substring(5,7) }}/{{ continuidade.divergencias[0].periodo_anterior.substring(0,4) }})
+                            </span>.
+                            Sincronize para corrigir a base de cálculo.
+                        </p>
+                    </div>
+                </div>
+                <button @click="sincronizarTodos"
+                        class="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-1.5 shrink-0">
+                    <Loader2 v-if="Object.keys(sincronizando).length > 0" class="w-3 h-3 animate-spin"/>
+                    <span>Sincronizar Todos</span>
+                </button>
+            </div>
+            <div class="space-y-2">
+                <div v-for="div in continuidade.divergencias" :key="div.cod_item"
+                     class="bg-white rounded-xl border border-amber-100 px-4 py-2.5 flex items-center justify-between gap-4">
+                    <div class="min-w-0">
+                        <p class="text-xs font-black text-slate-700 truncate">{{ div.nome || div.cod_item }}</p>
+                        <p class="text-[10px] text-slate-400 font-mono">Cód: {{ div.cod_item }}</p>
+                    </div>
+                    <div class="flex items-center gap-4 text-xs font-mono shrink-0">
+                        <div class="text-center">
+                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Fechamento ant.</p>
+                            <p class="font-black text-emerald-600">{{ Number(div.fechamento_anterior).toFixed(3) }} L</p>
+                        </div>
+                        <div class="text-slate-300 font-bold">→</div>
+                        <div class="text-center">
+                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Abertura atual</p>
+                            <p class="font-black text-slate-700">{{ Number(div.abertura_atual).toFixed(3) }} L</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Diferença</p>
+                            <p class="font-black" :class="div.diferenca > 0 ? 'text-blue-500' : 'text-rose-500'">
+                                {{ div.diferenca > 0 ? '+' : '' }}{{ Number(div.diferenca).toFixed(3) }} L
+                            </p>
+                        </div>
+                    </div>
+                    <button @click="sincronizarEstoque(div.cod_item, div.fechamento_anterior)"
+                            :disabled="sincronizando[div.cod_item]"
+                            class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-[10px] font-black rounded-lg transition-all flex items-center gap-1 shrink-0">
+                        <Loader2 v-if="sincronizando[div.cod_item]" class="w-3 h-3 animate-spin"/>
+                        <span v-else>Sincronizar</span>
+                    </button>
+                </div>
+            </div>
+        </div>
 
-                          <td class="px-6 py-4 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_abert_final || item.estq_abert) }}</td>
-                          <td class="px-6 py-4 text-right font-mono text-xs text-emerald-600">{{ formatNumber(item.vol_entr_lmc) }}</td>
-                          <td class="px-6 py-4 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_escr_final) }}</td>
-                          <td class="px-6 py-4 text-right font-mono text-xs font-black text-slate-800">{{ formatNumber(item.fech_fisico_final) }}</td>
-                          <td class="px-6 py-4 text-right border-l border-slate-50">
-                             <span :class="item.variacao_litros >= 0 ? 'text-emerald-600' : 'text-rose-600'" class="text-xs font-mono font-bold">
-                                {{ item.variacao_litros > 0 ? '+' : '' }}{{ formatNumber(item.variacao_litros) }}
-                             </span>
-                          </td>
-                          <td class="px-6 py-4 text-right">
-                             <span :class="item.variacao_percentual > 0.6 ? 'text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded' : 'text-slate-500'" class="text-[11px] font-mono">
-                                {{ item.variacao_percentual.toFixed(3) }}%
-                             </span>
-                          </td>
-                          <td class="px-6 py-4 text-right font-mono text-[11px] font-black" :class="item.excesso > 0 ? 'text-rose-600 underline decoration-rose-200' : 'text-slate-300'">
-                            {{ item.excesso > 0 ? formatNumber(item.excesso) + ' L' : '0,000' }}
-                          </td>
-                          <td class="px-6 py-4 text-center">
-                             <div class="flex justify-center">
-                                <span v-if="item.status_anp === 'CONFORME'" class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100">DENTRO LIMITE</span>
-                                <span v-else-if="item.status_anp === 'FORA LIMITE'" class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100 animate-pulse">FORA LIMITE</span>
-                                <span v-else-if="item.status_anp === 'EXCESSO'" class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">EXCESSO TANQUE</span>
-                                <span v-else class="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded border border-slate-800">NEGATIVO</span>
-                             </div>
-                          </td>
-                       </tr>
-                       <tr v-if="filteredLmc.length === 0">
-                           <td colspan="11" class="py-12 text-center text-slate-400 italic text-sm">Nenhum registro encontrado para os filtros selecionados.</td>
-                       </tr>
-                    </tbody>
-                 </table>
-             </div>
+        <!-- Accordion por Combustível -->
+        <div v-if="lmcKpis?.length" class="space-y-2">
+            <div v-for="comb in lmcKpis" :key="comb.cod" class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+
+                <!-- Cabeçalho clicável -->
+                <div @click="toggleFuel(comb.cod)"
+                     class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50/60 transition-colors select-none">
+                    <div class="flex items-center gap-3">
+                        <!-- Seta expand/collapse -->
+                        <span class="text-slate-400 transition-transform duration-200 text-xs"
+                              :class="expandedFuels.has(comb.cod) ? 'rotate-90' : ''">▶</span>
+                        <div class="w-1 h-5 bg-brand-accent rounded-full"></div>
+                        <span class="text-sm font-black text-slate-800 uppercase tracking-tight">{{ comb.nome }}</span>
+                        <span class="text-[9px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">{{ comb.cod }}</span>
+                    </div>
+
+                    <!-- KPIs inline -->
+                    <div class="flex items-center gap-2 ml-4 flex-wrap justify-end">
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Est. Inicial</span>
+                            <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueInicial) }}</span>
+                        </div>
+                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase text-emerald-500 font-black tracking-widest">Entradas</span>
+                            <span class="text-xs font-black text-slate-700 tabular-nums">+{{ formatNumber(comb.totalEntradas) }}</span>
+                        </div>
+                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase text-amber-500 font-black tracking-widest">Saídas</span>
+                            <span class="text-xs font-black text-slate-700 tabular-nums">-{{ formatNumber(comb.totalSaidas) }}</span>
+                        </div>
+                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Quebra</span>
+                            <span class="text-xs font-black tabular-nums" :class="comb.quebraLiquida >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                                {{ comb.quebraLiquida > 0 ? '+' : '' }}{{ formatNumber(comb.quebraLiquida) }} L
+                            </span>
+                        </div>
+                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Saldo M+1</span>
+                            <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueFinal) }}</span>
+                        </div>
+                        <div class="w-px h-6 bg-slate-100"></div>
+                        <span class="px-2 py-1 rounded-lg text-[9px] font-black uppercase"
+                              :class="comb.irregularidades > 0 ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'">
+                            {{ comb.irregularidades > 0 ? comb.irregularidades + ' Irreg.' : '✅ Conforme' }}
+                        </span>
+                        <button @click.stop="openOtimizador(comb)" class="px-2.5 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[9px] font-black transition-all border border-indigo-100">
+                            🚀
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabela expandível -->
+                <div v-if="expandedFuels.has(comb.cod)" class="border-t border-slate-100">
+                    <!-- Edição estoque inicial -->
+                    <div class="px-4 py-2 bg-slate-50/50 flex items-center gap-3 border-b border-slate-100">
+                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Est. Inicial do Mês:</span>
+                        <div v-if="editingStock[comb.cod] === undefined" class="flex items-center gap-2">
+                            <span class="text-xs font-black text-slate-700 font-mono">{{ formatNumber(comb.estoqueInicial) }}</span>
+                            <button @click="toggleEditStock(comb.cod, comb.estoqueInicial)" class="text-[10px] text-slate-400 hover:text-brand-accent transition-colors">✏️ Ajustar</button>
+                        </div>
+                        <div v-else class="flex items-center gap-1">
+                            <input v-model="editingStock[comb.cod]" type="number" step="0.001" class="bg-white border border-slate-200 rounded px-2 py-0.5 text-xs font-black focus:ring-1 focus:ring-brand-accent outline-none w-32">
+                            <button @click="saveInitialStock(comb.cod)" :disabled="savingStock" class="bg-emerald-500 text-white rounded px-2 py-0.5 text-xs hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                                <Loader2 v-if="savingStock" class="w-3 h-3 animate-spin inline"/>
+                                <span v-else>Salvar</span>
+                            </button>
+                            <button @click="delete editingStock[comb.cod]" class="text-xs text-slate-400 hover:text-slate-600 px-1">✕</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto custom-scrollbar-light">
+                        <table class="min-w-full text-left">
+                            <thead class="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
+                                <tr class="text-[9px] text-slate-400 uppercase font-black tracking-widest">
+                                    <th class="px-4 py-2.5 whitespace-nowrap">Data</th>
+                                    <th class="px-4 py-2.5 text-center whitespace-nowrap">Capacidade</th>
+                                    <th class="px-4 py-2.5 text-right whitespace-nowrap">Est. Inicial</th>
+                                    <th class="px-4 py-2.5 text-right whitespace-nowrap">Entradas</th>
+                                    <th class="px-4 py-2.5 text-right whitespace-nowrap">Escritural</th>
+                                    <th class="px-4 py-2.5 text-right whitespace-nowrap">Físico</th>
+                                    <th class="px-4 py-2.5 text-right border-l border-slate-100 whitespace-nowrap">Diferença (L)</th>
+                                    <th class="px-4 py-2.5 text-right whitespace-nowrap">Var %</th>
+                                    <th class="px-4 py-2.5 text-right text-rose-400 whitespace-nowrap">Excesso</th>
+                                    <th class="px-4 py-2.5 text-center whitespace-nowrap">Status ANP</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-50">
+                                <tr v-for="item in lmcDoCombustivel(comb.cod)" :key="item.id_movimento" class="hover:bg-slate-50/40 transition-colors">
+                                    <td class="px-4 py-2 font-mono text-[11px] text-slate-500">{{ new Date(item.data_movimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) }}</td>
+                                    <td class="px-4 py-2 text-center font-mono text-[11px] font-bold text-slate-400">
+                                        {{ item.capacidade_tanque > 0 ? formatNumber(item.capacidade_tanque) + ' L' : '—' }}
+                                    </td>
+                                    <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_abert_final || item.estq_abert) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-xs text-emerald-600">{{ formatNumber(item.vol_entr_lmc) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_escr_final) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-xs font-black text-slate-800">{{ formatNumber(item.fech_fisico_final) }}</td>
+                                    <td class="px-4 py-2 text-right border-l border-slate-50">
+                                        <span :class="item.variacao_litros >= 0 ? 'text-emerald-600' : 'text-rose-600'" class="text-xs font-mono font-bold">
+                                            {{ item.variacao_litros > 0 ? '+' : '' }}{{ formatNumber(item.variacao_litros) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-2 text-right">
+                                        <span :class="item.variacao_percentual > 0.6 ? 'text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded' : 'text-slate-500'" class="text-[11px] font-mono">
+                                            {{ item.variacao_percentual.toFixed(3) }}%
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-2 text-right font-mono text-[11px] font-black" :class="item.excesso > 0 ? 'text-rose-600' : 'text-slate-300'">
+                                        {{ item.excesso > 0 ? formatNumber(item.excesso) + ' L' : '—' }}
+                                    </td>
+                                    <td class="px-4 py-2 text-center">
+                                        <span v-if="item.status_anp === 'CONFORME'" class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100">OK</span>
+                                        <span v-else-if="item.status_anp === 'FORA LIMITE'" class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100 animate-pulse">FORA LIMITE</span>
+                                        <span v-else-if="item.status_anp === 'EXCESSO'" class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">EXCESSO</span>
+                                        <span v-else class="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded">NEGATIVO</span>
+                                    </td>
+                                </tr>
+                                <tr v-if="lmcDoCombustivel(comb.cod).length === 0">
+                                    <td colspan="10" class="py-8 text-center text-slate-400 italic text-sm">Nenhum registro encontrado para este combustível.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

@@ -729,6 +729,42 @@ const parseValorNFe = (val) => {
     return isNaN(parsed) ? 0 : parsed;
 };
 
+// --- HELPERS DE VALIDAÇÃO DE CNPJ/PERÍODO ---
+function limparCnpjStr(s) { return String(s || '').replace(/\D/g, '').padStart(14, '0'); }
+
+function parsePeriodoSped(periodoStr) {
+    // "01/01/2022 a 31/01/2022" → { inicio: Date, fim: Date }
+    const partes = String(periodoStr || '').split(' a ');
+    const parseData = (s) => {
+        const p = s.trim().split('/');
+        if (p.length === 3) return new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
+        return null;
+    };
+    return { inicio: parseData(partes[0] || ''), fim: parseData(partes[1] || partes[0] || '') };
+}
+
+function dataForaPeriodo(dtStr, periodo) {
+    if (!dtStr || !periodo.inicio || !periodo.fim) return false;
+    const dt = new Date(dtStr); // YYYY-MM-DD
+    return dt < periodo.inicio || dt > periodo.fim;
+}
+
+function validarXmls(itens, cnpjSped, periodoSped, forcePeriodo) {
+    // itens: [{ arquivo, cnpjDest, dtDoc }]
+    const bloqueados = [];
+    const avisos = [];
+    const periodo = parsePeriodoSped(periodoSped);
+    for (const item of itens) {
+        const cnpjXml = limparCnpjStr(item.cnpjDest);
+        const cnpjBase = limparCnpjStr(cnpjSped);
+        if (cnpjXml && cnpjBase && cnpjXml !== cnpjBase) {
+            bloqueados.push({ arquivo: item.arquivo, cnpj_xml: cnpjXml, cnpj_sped: cnpjBase });
+        } else if (!forcePeriodo && dataForaPeriodo(item.dtDoc, periodo)) {
+            avisos.push({ arquivo: item.arquivo, data_xml: item.dtDoc, periodo_sped: periodoSped });
+        }
+    }
+    return { bloqueados, avisos };
+}
 // --- HELPER PARA EXTRAIR DADOS DO XML DA NF-e ---
 const extractNfeData = (nfeNode) => {
     if (!nfeNode || !nfeNode.infNFe) return null;
@@ -1209,7 +1245,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
     try {
         const dbClient = await pool.connect();
         const fileQuery = await dbClient.query(
-            'SELECT nome_arquivo, caminho_arquivo FROM sped_arquivos WHERE id = $1',
+            'SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1',
             [idSpedBase]
         );
         dbClient.release();
@@ -1240,6 +1276,46 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
                 if (chave) chavesExistentes.add(chave);
             }
         }
+
+        // --- VALIDAÇÃO DE CNPJ E PERÍODO ---
+        const forcePeriodo = req.body.force_periodo === 'true';
+        const { cnpj_empresa, periodo_apuracao } = spedBaseObj;
+        const itensValidacao = [];
+        const parser2 = new xml2js.Parser({ explicitArray: false });
+        for (const f of allTempFiles) {
+            try {
+                const xmlData = fs.readFileSync(f.path, 'utf-8');
+                const result = await parser2.parseStringPromise(xmlData);
+                const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
+                const nota = extractNfeData(nfeNode);
+                if (nota) {
+                    itensValidacao.push({
+                        arquivo: f.originalname,
+                        cnpjDest: nota.destinatario?.cnpj,
+                        dtDoc: nota.c100?.dt_doc
+                    });
+                }
+            } catch (_) {}
+        }
+        const { bloqueados, avisos } = validarXmls(itensValidacao, cnpj_empresa, periodo_apuracao, forcePeriodo);
+        if (bloqueados.length > 0) {
+            limparTemps();
+            return res.status(422).json({
+                tipo: 'cnpj_invalido',
+                message: `${bloqueados.length} XML(s) rejeitado(s): CNPJ do destinatário não corresponde ao CNPJ do SPED (${limparCnpjStr(cnpj_empresa)}).`,
+                bloqueados
+            });
+        }
+        if (avisos.length > 0) {
+            limparTemps();
+            return res.status(422).json({
+                tipo: 'periodo_divergente',
+                message: `${avisos.length} XML(s) com data fora do período auditado.`,
+                periodo_sped: periodo_apuracao,
+                avisos
+            });
+        }
+        // --- FIM VALIDAÇÃO ---
 
         const resultadosGrupos = [];
         let totalInjetados = 0;
@@ -1753,7 +1829,10 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
             WHERE ABS(COALESCE(n.volume_nota, 0)::numeric - COALESCE(l.volume_lmc, 0)::numeric) > 0.1;
         `;
         const resNotasVsLmc = await dbClient.query(notasVsLmcQuery, [arquivoId]);
+        const PALAVRAS_COMBUSTIVEL = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESEL', 'GNV', 'GLP', 'QUEROSENE', 'BIODIESEL'];
         for (const row of resNotasVsLmc.rows) {
+            const nomeProduto = (row.nome_combustivel || '').toUpperCase();
+            if (!PALAVRAS_COMBUSTIVEL.some(k => nomeProduto.includes(k))) continue;
             const volNota = parseFloat(row.volume_nota);
             const volLmc = parseFloat(row.volume_lmc);
             const diff = Math.abs(volNota - volLmc);
@@ -2120,9 +2199,9 @@ app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
     const dbClient = await pool.connect();
     try {
         const query = `
-            SELECT id, nome_arquivo, periodo_apuracao, data_upload 
-            FROM sped_arquivos 
-            WHERE id_empresa = $1 
+            SELECT id, nome_arquivo, periodo_apuracao, data_upload
+            FROM sped_arquivos
+            WHERE id_empresa = $1
             ORDER BY data_upload DESC
         `;
         const { rows } = await dbClient.query(query, [idEmpresa]);
@@ -2162,6 +2241,99 @@ app.get('/api/arquivo/info/:id', authMiddleware, async (req, res) => {
     } catch (error) {
         logger.error('Erro ao carregar info do arquivo:', error);
         res.status(500).send("Erro ao carregar dados do arquivo.");
+    }
+});
+
+// --- CONTINUIDADE DE ESTOQUE ENTRE MESES ---
+// Compara o fechamento físico ajustado do mês anterior com a abertura do mês atual.
+// Retorna divergências por combustível para exibição na UI.
+app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_sped);
+    if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
+    const dbClient = await pool.connect();
+    try {
+        // Arquivo anterior = mesmo CNPJ (normalizado, sem máscara), período mais recente antes deste
+        const query = `
+            WITH
+            atual AS (
+                SELECT id, cnpj_empresa, periodo_apuracao,
+                       REGEXP_REPLACE(cnpj_empresa, '[^0-9]', '', 'g') AS cnpj_num
+                FROM sped_arquivos WHERE id = $1
+            ),
+            arquivo_anterior AS (
+                SELECT sa.id, sa.periodo_apuracao
+                FROM sped_arquivos sa, atual
+                WHERE REGEXP_REPLACE(sa.cnpj_empresa, '[^0-9]', '', 'g') = atual.cnpj_num
+                  AND sa.id != $1
+                  AND sa.periodo_apuracao ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND atual.periodo_apuracao ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  AND LEFT(sa.periodo_apuracao, 7) < LEFT(atual.periodo_apuracao, 7)
+                ORDER BY LEFT(sa.periodo_apuracao, 7) DESC
+                LIMIT 1
+            ),
+            -- Fechamento fisico do mes anterior (ajustado pelo laboratorio, ou original do SPED).
+            -- Usa COALESCE(fech_fisico_ajustado, fech_fisico): o que o laboratorio exibe como
+            -- fechamento final apos otimizacao. Se nao houve otimizacao, usa o valor bruto do SPED.
+            -- Filtra pela data de fechamento do periodo para suportar arquivos anuais com
+            -- multiplos registros 1300 por produto.
+            fechamento_ant AS (
+                SELECT DISTINCT ON (m.cod_item)
+                    m.cod_item,
+                    COALESCE(m.fech_fisico_ajustado::numeric, m.fech_fisico::numeric) AS fechamento
+                FROM lmc_movimentacao m
+                CROSS JOIN arquivo_anterior aa
+                WHERE m.id_sped_arquivo = aa.id
+                  AND m.data_mov::date <= SPLIT_PART(aa.periodo_apuracao, ' a ', 2)::date
+                ORDER BY m.cod_item, m.data_mov DESC
+            ),
+            -- Abertura do mes atual: primeiro registro dentro do periodo do arquivo atual.
+            abertura_atual AS (
+                SELECT DISTINCT ON (sub.cod_item)
+                    sub.cod_item,
+                    COALESCE(sub.estq_abert_ajustado::numeric, sub.estq_abert::numeric, 0) AS abertura
+                FROM lmc_movimentacao sub
+                CROSS JOIN atual
+                WHERE sub.id_sped_arquivo = $1
+                  AND sub.data_mov::date >= SPLIT_PART(atual.periodo_apuracao, ' ', 1)::date
+                ORDER BY sub.cod_item, sub.data_mov ASC
+            )
+            SELECT
+                a.cod_item,
+                p.descr_item AS nome,
+                ROUND(f.fechamento::numeric, 3) AS fechamento_anterior,
+                ROUND(a.abertura::numeric, 3) AS abertura_atual,
+                ROUND((a.abertura - f.fechamento)::numeric, 3) AS diferenca,
+                (SELECT periodo_apuracao FROM arquivo_anterior) AS periodo_anterior
+            FROM abertura_atual a
+            JOIN fechamento_ant f ON a.cod_item = f.cod_item
+            LEFT JOIN sped_produtos p ON p.cod_item = a.cod_item AND p.id_sped_arquivo = $1
+            WHERE f.fechamento IS NOT NULL
+              AND ABS(a.abertura - f.fechamento) > 0.1
+            ORDER BY ABS(a.abertura - f.fechamento) DESC
+        `;
+
+        // Verifica se existe arquivo anterior (mesmo que sem divergência)
+        const prevCheck = await dbClient.query(`
+            SELECT sa.id FROM sped_arquivos sa
+            JOIN sped_arquivos aa ON aa.id = $1
+            WHERE REGEXP_REPLACE(sa.cnpj_empresa, '[^0-9]', '', 'g') = REGEXP_REPLACE(aa.cnpj_empresa, '[^0-9]', '', 'g')
+              AND sa.id != $1
+              AND sa.periodo_apuracao ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND aa.periodo_apuracao ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              AND LEFT(sa.periodo_apuracao, 7) < LEFT(aa.periodo_apuracao, 7)
+            LIMIT 1
+        `, [arquivoId]);
+
+        const result = await dbClient.query(query, [arquivoId]);
+        res.json({
+            tem_mes_anterior: prevCheck.rows.length > 0,
+            divergencias: result.rows
+        });
+    } catch (e) {
+        logger.error('Erro ao verificar continuidade LMC:', e);
+        res.status(500).json({ error: e.message });
+    } finally {
+        dbClient.release();
     }
 });
 
@@ -2293,8 +2465,8 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
 
                 let status = 'CONFORME';
                 if (varPerc > 0.60) status = 'FORA LIMITE';
-                if (escrFinal < -0.01 || fisico < -0.01) status = 'NEGATIVO';
                 if (cap > 0 && fisico > cap) status = 'EXCESSO';
+                if (escrFinal < -0.01 || fisico < -0.01) status = 'NEGATIVO'; // máxima prioridade
 
                 lmcFinal.push({
                     ...row,
@@ -2604,8 +2776,13 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
 
                 // CASCATA POR TANQUE: Abertura hoje = Fechamento físico ajustado de ontem
                 let aAjustada = lastClosingByTank.get(r.num_tanque);
-                // Se for o primeiro dia do arquivo, usamos a abertura original do tanque
-                if (aAjustada === undefined) aAjustada = parseFloat(r.estq_abert || 0);
+                if (aAjustada === undefined) {
+                    // Primeiro dia: distribui aberturaInicialConsolidada proporcionalmente
+                    // pelos tanques, respeitando ajustes do SINCRONIZAR (evita loop de divergência).
+                    const totalAbertDia = rowsDoDia.reduce((sum, x) => sum + parseFloat(x.estq_abert || 0), 0);
+                    const peso = totalAbertDia > 0 ? parseFloat(r.estq_abert || 0) / totalAbertDia : (1 / rowsDoDia.length);
+                    aAjustada = aberturaInicialConsolidada * peso;
+                }
 
                 let eAjustada = parseFloat(r.vol_entr || 0);
                 let escrTanque = Math.max(0, aAjustada + eAjustada - sAjustada);
@@ -4176,13 +4353,64 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         `, [arquivoId]);
         const mapC170 = new Map(c170Itens.rows.map(r => [`${r.num_doc}_${r.chv_nfe || ''}_${r.num_item}_${r.cod_item}`, r]));
 
+        // 1.3 Coletar COD_ITEMs referenciados em outros blocos (C170 e LMC 1300)
+        // O validador do SPED exige que todo 0200 tenha ao menos uma referência em outro bloco.
+        const itensC170 = await dbClient.query(
+            'SELECT DISTINCT cod_item FROM documentos_itens_c170 WHERE id_documento_c100 IN (SELECT id FROM documentos_c100 WHERE id_sped_arquivo = $1)',
+            [arquivoId]
+        );
+        const itensLmc = await dbClient.query(
+            'SELECT DISTINCT cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1',
+            [arquivoId]
+        );
+        // Pré-scan do arquivo: coleta COD_ITEMs referenciados em QUALQUER registro
+        // que não seja 0200/0206 — cobre H010 (inventário), D170, G110, K200, etc.
+        // Mapas de posição do COD_ITEM por tipo de registro:
+        //   posição 2 (pf[2]): H010, 1300, G110, K200, K210, K220, K230, K235, K250, K255
+        //   posição 3 (pf[3]): C170, C176, D170, D500, D201, D205
+        const REG_CODITEM_POS2 = new Set(['H010','1300','G110','K200','K210','K220','K230','K235','K250','K255']);
+        const REG_CODITEM_POS3 = new Set(['C170','C176','D170','D500','D201','D205']);
+        const codItensArquivoExtra = new Set();
+        {
+            const prescanStream = fs.createReadStream(pathOrig, { encoding: 'latin1' });
+            const prescanRl = readline.createInterface({ input: prescanStream, crlfDelay: Infinity });
+            for await (const pl of prescanRl) {
+                if (pl.trim() === '') continue;
+                const pf = pl.split('|');
+                if (pf.length < 3) continue;
+                const reg = pf[1];
+                if (REG_CODITEM_POS2.has(reg) && pf[2]) codItensArquivoExtra.add(String(pf[2]));
+                if (REG_CODITEM_POS3.has(reg) && pf[3]) codItensArquivoExtra.add(String(pf[3]));
+            }
+        }
+
+        const codItensReferenciados = new Set([
+            ...itensC170.rows.map(r => String(r.cod_item)),
+            ...itensLmc.rows.map(r => String(r.cod_item)),
+            ...codItensArquivoExtra
+        ]);
+        logger.info(`[Export 0200] ${codItensReferenciados.size} COD_ITEMs referenciados (DB+arquivo) para o arquivo ID ${arquivoId}.`);
+
         // 2. Processar o arquivo original e substituir pipes
         logger.info(`Iniciando exportação retificada: Arquivo ID ${arquivoId}, Path: ${pathOrig}`);
         const fileStream = fs.createReadStream(pathOrig, { encoding: 'latin1' }); // SPED é ISO-8859-1 (latin1)
         const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
-        const rawName = `${arqInfo.rows[0].cnpj_empresa}_${arqInfo.rows[0].periodo_apuracao}`;
-        const safeName = rawName.replace(/[\s\/\\:*?"<>|]+/g, '_') + '.txt';
+        const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
+        const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');
+        // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD" → converter para DDMMYYYY
+        let periodoIniArq = '';
+        let periodoFimArq = '';
+        const partesArq = periodoApuracao.split(' a ');
+        if (partesArq.length === 2) {
+            const [a0, m0, d0] = partesArq[0].trim().split('-');
+            const [a1, m1, d1] = partesArq[1].trim().split('-');
+            if (d0 && m0 && a0) periodoIniArq = `${d0}${m0}${a0}`;
+            if (d1 && m1 && a1) periodoFimArq = `${d1}${m1}${a1}`;
+        }
+        const safeName = periodoIniArq
+            ? `${cnpjArq}_${periodoIniArq}_${periodoFimArq}.txt`
+            : `${cnpjArq}_${periodoApuracao.replace(/[\s\/\\:*?"<>|]+/g, '_')}.txt`;
         res.setHeader('Content-disposition', `attachment; filename=${safeName}`);
         res.setHeader('Content-type', 'text/plain; charset=iso-8859-1');
 
@@ -4196,6 +4424,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let pending1310s = [];
         let pending1320s = {}; // Dicionário de Bicos { "idxAfericao": [array of fields...], ... }
         let layoutVersion = '019'; // Default para 2025 e anteriores
+
+        // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
+        const outputLines = [];
+        const pushLine = (l) => outputLines.push(l);
+        // Flag para pular o registro 0206 filho de um 0200 que foi omitido
+        let skipNext0206 = false;
 
         // ── Recálculo de E210 VL_RETENCAO_ST durante exportação ─────────────
         // Bloco C sempre precede Bloco E. Acumulamos somaRetST ao ler os
@@ -4214,7 +4448,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             if (pending1310s.length === 0) {
                 // Se não há tanques/filhos, escreve a global diretamente
-                res.write(pending1300.line + '\r\n');
+                pushLine(pending1300.line);
                 pending1300 = null;
                 return;
             }
@@ -4297,7 +4531,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             fields1300[10] = realGanho.toFixed(3).replace('.', ',');
             fields1300[11] = realFisico.toFixed(3).replace('.', ',');
 
-            res.write(fields1300.join('|') + '\r\n');
+            pushLine(fields1300.join('|'));
 
             // PASS 3: Imprime os tanques 1310 e a cascata de Bicos 1320 atrelados
             for (let i = 0; i < pending1310s.length; i++) {
@@ -4331,7 +4565,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     tk[11] = '';
                 }
 
-                res.write(tk.join('|') + '\r\n');
+                pushLine(tk.join('|'));
 
                 // Sincronização e gravação do 1320
                 let bicosDesteTanque = pending1320s[tanqueCod] || [];
@@ -4373,7 +4607,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                     encerrantesBombasMap[bicoNum] = encFinalNovo;
 
-                    res.write(bFields.join('|') + '\r\n');
+                    pushLine(bFields.join('|'));
                 }
             }
 
@@ -4390,6 +4624,30 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             linesProcessed++;
             const fields = line.split('|').map(v => v.replace(/\r$/, '')); // Sanear carriage return imediato
 
+            // --- BLOCO 0200 (FILTRAR ITENS SEM REFERÊNCIA) ---
+            if (fields.length >= 2 && fields[1] === '0200') {
+                const codItem = fields[2];
+                if (codItensReferenciados.size > 0 && !codItensReferenciados.has(String(codItem))) {
+                    // Item não referenciado em nenhum outro bloco — omitir para evitar erro PVA
+                    // Também marca para pular o filho 0206 imediatamente após
+                    skipNext0206 = true;
+                    continue;
+                }
+                skipNext0206 = false;
+                pushLine(line);
+                continue;
+            }
+
+            // --- BLOCO 0206 (FILHO DO 0200 — omitir se o pai foi omitido) ---
+            if (fields.length >= 2 && fields[1] === '0206') {
+                if (skipNext0206) {
+                    skipNext0206 = false;
+                    continue;
+                }
+                pushLine(line);
+                continue;
+            }
+
             // --- BLOCO 0000 (AUTOCORREÇÃO E DETECÇÃO DE LEIAUTE) ---
             if (fields.length >= 2 && fields[1] === '0000') {
                 let current_version = fields[2];
@@ -4403,7 +4661,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     }
                 }
                 layoutVersion = fields[2]; // Define a regra para o restante do arquivo
-                res.write(fields.join('|') + '\r\n');
+                pushLine(fields.join('|'));
                 continue;
             }
 
@@ -4507,7 +4765,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 fields[11] = capTanqueDirect > 0 ? Math.round(capTanqueDirect).toString() : capOrigDirect;
                 fields.length = 13;
                 fields[12] = '';
-                res.write(fields.join('|') + '\r\n');
+                pushLine(fields.join('|'));
                 changesApplied++;
                 continue;
             }
@@ -4542,7 +4800,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (mapC100.has(key)) {
                     fields[12] = parseFloat(mapC100.get(key)).toFixed(2).replace('.', ',');
                     changesApplied++;
-                    res.write(fields.join('|') + '\r\n');
+                    pushLine(fields.join('|'));
                     continue;
                 }
             }
@@ -4576,7 +4834,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                     if (changed) {
                         changesApplied++;
-                        res.write(fields.join('|') + '\r\n');
+                        pushLine(fields.join('|'));
                         continue;
                     }
                 }
@@ -4603,7 +4861,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         somaRetST += parseSp(fields[9]);
                     }
                 }
-                res.write(fields.join('|') + '\r\n');
+                pushLine(fields.join('|'));
                 continue;
             }
 
@@ -4642,17 +4900,54 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const vlTotalCredST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
                 f[14] = fmtSp(parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]) + parseSp(f[12]) + parseSp(f[13]));
                 f[15] = fmtSp(Math.max(0, parseSp(f[14]) - vlTotalCredST));
-                res.write(f.join('|') + '\r\n');
+                pushLine(f.join('|'));
                 continue;
             }
 
-            res.write(line + '\r\n');
+            pushLine(line);
         }
 
         // Descarregar buffer residual se o arquivo terminar em um bloco 1310 ajustado
         flush1300Group();
 
-        logger.info(`Exportação concluída: ${linesProcessed} linhas lidas, ${changesApplied} ajustes aplicados.`);
+        // ── Recalcular contadores 9900 / 0990 / 9999 ──────────────────────────
+        // Após filtrar 0200/0206 e outras modificações, as contagens originais do
+        // arquivo ficam incorretas. Aqui corrigimos antes de escrever na resposta.
+        const regCountMap = new Map();
+        let block0LineCount = 0;
+        for (const l of outputLines) {
+            const parts = l.split('|');
+            if (parts.length >= 2 && parts[1]) {
+                const reg = parts[1];
+                regCountMap.set(reg, (regCountMap.get(reg) || 0) + 1);
+                // Block 0: todos os registros 0000..0990 (inclusivo)
+                if (reg.startsWith('0')) block0LineCount++;
+            }
+        }
+        const totalLines = outputLines.length;
+
+        for (const l of outputLines) {
+            const parts = l.split('|');
+            if (parts.length >= 4 && parts[1] === '9900') {
+                // |9900|REGISTRO|QTD| — atualiza QTD com contagem real
+                const regName = parts[2];
+                parts[3] = String(regCountMap.get(regName) || 0);
+                res.write(parts.join('|') + '\r\n');
+            } else if (parts.length >= 3 && parts[1] === '0990') {
+                // |0990|QTD_LIN_0| — contagem de linhas do bloco 0 (0001..0990)
+                parts[2] = String(block0LineCount);
+                res.write(parts.join('|') + '\r\n');
+            } else if (parts.length >= 3 && parts[1] === '9999') {
+                // |9999|QTD_LIN| — total de linhas do arquivo
+                parts[2] = String(totalLines);
+                res.write(parts.join('|') + '\r\n');
+            } else {
+                res.write(l + '\r\n');
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────────
+
+        logger.info(`Exportação concluída: ${linesProcessed} linhas lidas, ${changesApplied} ajustes aplicados, ${outputLines.length} linhas escritas.`);
         res.end();
 
     } catch (error) {
@@ -5087,14 +5382,43 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
         const { parseCteXml, transformarCtesEmSped } = require('./services/cteInjectorService');
         const { costurarEAssinar } = require('./services/spedCostureiraService');
 
-        const parsedCtes = req.files.map(f => {
+        const parsedCtes = req.files.map((f, idx) => {
             try {
                 const xml = fs.readFileSync(f.path, 'utf-8');
-                return parseCteXml(xml);
+                const cte = parseCteXml(xml);
+                cte._arquivo = req.files[idx].originalname;
+                return cte;
             } catch (err) {
-                return { ok: false, erro: err.message };
+                return { ok: false, erro: err.message, _arquivo: req.files[idx].originalname };
             }
         });
+
+        // --- VALIDAÇÃO DE CNPJ E PERÍODO ---
+        const forcePeriodoCte = req.body.force_periodo === 'true';
+        const itensCteVal = parsedCtes.filter(c => c.ok).map(c => ({
+            arquivo: c._arquivo,
+            cnpjDest: c.cnpj_dest,
+            dtDoc: c.dt_doc
+        }));
+        const { bloqueados: bloqCte, avisos: avisosCte } = validarXmls(itensCteVal, cnpj_empresa, periodo_apuracao, forcePeriodoCte);
+        if (bloqCte.length > 0) {
+            limparTemps();
+            return res.status(422).json({
+                tipo: 'cnpj_invalido',
+                message: `${bloqCte.length} CT-e(s) rejeitado(s): CNPJ do destinatário não corresponde ao CNPJ do SPED (${limparCnpjStr(cnpj_empresa)}).`,
+                bloqueados: bloqCte
+            });
+        }
+        if (avisosCte.length > 0) {
+            limparTemps();
+            return res.status(422).json({
+                tipo: 'periodo_divergente',
+                message: `${avisosCte.length} CT-e(s) com data fora do período auditado.`,
+                periodo_sped: periodo_apuracao,
+                avisos: avisosCte
+            });
+        }
+        // --- FIM VALIDAÇÃO ---
 
         const resultado = await transformarCtesEmSped(pool, parsedCtes, { analyzeOnly: false });
 

@@ -22,9 +22,22 @@ onMounted(async () => {
     const emp = resEmpresas.data.find(e => e.id == empresaId);
     if (emp) empresa.value = emp;
 
-    // Buscar lista de arquivos
+    // Buscar lista de arquivos e ordenar por período de apuração (mais recente primeiro)
     const resArquivos = await axios.get(`${API_BASE_URL}/api/arquivos/${empresaId}`);
-    arquivos.value = resArquivos.data;
+    // periodo_apuracao = "MMAAAA" (ex: "012022") → ordena mais recente primeiro
+    arquivos.value = (resArquivos.data || []).sort((a, b) => {
+      // periodo_apuracao = "YYYY-MM-DD a YYYY-MM-DD" → extrai data inicial como número YYYYMM
+      const toNum = (p) => {
+        const s = String(p || '');
+        if (s.length >= 10) {
+          const yyyy = s.substring(0, 4);
+          const mm   = s.substring(5, 7);
+          return Number(yyyy) * 100 + Number(mm);
+        }
+        return 0;
+      };
+      return toNum(b.periodo_apuracao) - toNum(a.periodo_apuracao);
+    });
   } catch (error) {
     console.error('Erro ao carregar histórico:', error);
   } finally {
@@ -91,7 +104,11 @@ function abrirAnalise(id) {
   router.push(`/analisador/${id}`);
 }
 
-const formatData = (d) => new Date(d).toLocaleDateString('pt-BR');
+const formatData = (d) => {
+  if (!d) return '-';
+  const s = String(d).substring(0, 10);
+  return `${s.substring(8, 10)}/${s.substring(5, 7)}/${s.substring(0, 4)}`;
+};
 const formatPeriodo = (p) => {
   if (!p || p.length !== 6) return p;
   return `${p.substring(0, 2)}/${p.substring(2)}`;
@@ -152,55 +169,78 @@ const formatPeriodo = (p) => {
        <p class="text-slate-400 font-bold tracking-widest text-xs uppercase">Carregando Repositório...</p>
     </div>
 
-    <div v-else-if="arquivosFiltrados.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-       <div 
-         v-for="arq in arquivosFiltrados" 
-         :key="arq.id"
-         class="group bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer border-l-4 border-l-transparent hover:border-l-brand-accent relative"
-         :class="{'border-brand-accent bg-brand-accent/5': selecionados.has(arq.id)}"
-       >
-         <!-- Checkbox de Seleção -->
-         <div class="absolute top-6 left-6 z-10" @click.stop>
-            <input type="checkbox" :checked="selecionados.has(arq.id)" @change="toggleSelecao(arq.id)"
-                   class="w-5 h-5 rounded-lg border-slate-300 text-brand-accent focus:ring-brand-accent cursor-pointer shadow-sm" />
-         </div>
+    <div v-else-if="arquivosFiltrados.length > 0" class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-slate-50 border-b border-slate-100 text-left">
+            <th class="px-4 py-3 w-10"></th>
+            <th class="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-xs">Período</th>
+            <th class="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-xs">Arquivo</th>
+            <th class="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-xs">Importado em</th>
+            <th class="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-xs w-10 text-center">ID</th>
+            <th class="px-4 py-3 w-20"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="arq in arquivosFiltrados"
+            :key="arq.id"
+            class="group border-b border-slate-50 last:border-0 hover:bg-slate-50/70 transition-colors cursor-pointer"
+            :class="{'bg-brand-accent/5': selecionados.has(arq.id)}"
+          >
+            <!-- Checkbox -->
+            <td class="px-4 py-3" @click.stop>
+              <input type="checkbox" :checked="selecionados.has(arq.id)" @change="toggleSelecao(arq.id)"
+                     class="w-4 h-4 rounded border-slate-300 text-brand-accent focus:ring-brand-accent cursor-pointer" />
+            </td>
 
-         <div @click="abrirAnalise(arq.id)" class="pt-2">
-            <div class="flex justify-between items-start mb-4">
-                <div class="w-12 h-12 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-brand-accent/5 group-hover:text-brand-accent group-hover:border-brand-accent/20 transition-all ml-8">
-                  <FolderOpen class="w-6 h-6" />
-                </div>
-                <div class="flex gap-2">
-                  <button 
-                    @click.stop="deletarArquivo(arq.id, arq.periodo_apuracao)"
-                    class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center shadow-sm"
-                    title="Excluir Período"
-                  >
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                  <span class="text-[10px] font-black bg-slate-50 text-slate-400 px-2 py-1 h-8 flex items-center rounded-lg uppercase tracking-tighter self-center border border-slate-100">
-                    ID: #{{ arq.id }}
-                  </span>
-                </div>
-            </div>
-            
-            <div class="space-y-1">
-                <h3 class="text-2xl font-black text-slate-700 font-mono tracking-tighter">
-                  {{ formatPeriodo(arq.periodo_apuracao) }}
-                </h3>
-                <p class="text-xs text-slate-400 truncate font-medium">{{ arq.nome_arquivo }}</p>
-            </div>
+            <!-- Período -->
+            <td class="px-4 py-3" @click="abrirAnalise(arq.id)">
+              <span class="font-black text-slate-800 font-mono tracking-tight text-base">
+                {{ formatPeriodo(arq.periodo_apuracao) }}
+              </span>
+            </td>
 
-            <div class="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
-                <div class="text-[10px] text-slate-300 font-bold uppercase tracking-widest">
-                  Lido em: {{ formatData(arq.data_upload) }}
-                </div>
-                <div class="w-8 h-8 rounded-full bg-brand-accent/5 flex items-center justify-center text-brand-accent opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all">
+            <!-- Nome arquivo -->
+            <td class="px-4 py-3 max-w-xs" @click="abrirAnalise(arq.id)">
+              <div class="flex items-center gap-2">
+                <FolderOpen class="w-4 h-4 text-slate-300 group-hover:text-brand-accent transition-colors shrink-0" />
+                <span class="text-slate-500 truncate text-xs font-medium">{{ arq.nome_arquivo }}</span>
+              </div>
+            </td>
+
+            <!-- Data -->
+            <td class="px-4 py-3 text-slate-400 text-xs font-medium" @click="abrirAnalise(arq.id)">
+              {{ formatData(arq.data_upload) }}
+            </td>
+
+            <!-- ID -->
+            <td class="px-4 py-3 text-center" @click="abrirAnalise(arq.id)">
+              <span class="text-[10px] font-black text-slate-300 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md">#{{ arq.id }}</span>
+            </td>
+
+            <!-- Ações -->
+            <td class="px-4 py-3" @click.stop>
+              <div class="flex items-center gap-1 justify-end">
+                <button
+                  @click="abrirAnalise(arq.id)"
+                  class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-400 hover:border-brand-accent/30 hover:bg-brand-accent/5 hover:text-brand-accent transition-all flex items-center justify-center shadow-sm"
+                  title="Abrir análise"
+                >
                   <ArrowRight class="w-4 h-4" />
-                </div>
-            </div>
-         </div>
-       </div>
+                </button>
+                <button
+                  @click="deletarArquivo(arq.id, arq.periodo_apuracao)"
+                  class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center shadow-sm"
+                  title="Excluir Período"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div v-else class="bg-white rounded-[3rem] p-24 text-center border border-dashed border-slate-200 flex flex-col items-center shadow-sm">

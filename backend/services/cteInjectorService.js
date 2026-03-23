@@ -70,6 +70,7 @@ function parseCteXml(xmlContent) {
 
         const ide    = infCte.ide    || {};
         const emit   = infCte.emit   || {};
+        const dest   = infCte.dest   || {};
         const vPrest = infCte.vPrest || {};
         const imp    = infCte.imp    || {};
         const prot   = root.protCTe?.infProt || {};
@@ -94,6 +95,9 @@ function parseCteXml(xmlContent) {
             // Protocolo
             protocolo      : String(prot.nProt || ''),
             cod_sit        : String(prot.cStat || '100') === '100' ? '00' : '02',
+            // Destinatário (empresa que recebe a mercadoria transportada)
+            cnpj_dest      : limparCnpj(dest.CNPJ || dest.CPF || ''),
+            nome_dest      : String(dest.xNome || ''),
             // Emitente (transportadora)
             cnpj_emit      : limparCnpj(emit.CNPJ),
             nome_emit      : String(emit.xNome || ''),
@@ -215,13 +219,8 @@ async function transformarCtesEmSped(dbClient, parsedCtes, options = {}) {
         ].join('|');
 
         // ── D190: Analítico ─────────────────────────────────────────────────
-        // CFOP do CT-e está na perspectiva do emitente (transportadora = saída: 5xxx/6xxx).
-        // Como registramos como entrada (IND_OPER=0), convertemos: 5→1, 6→2, 7→3.
-        const cfopEntrada = (() => {
-            const c = String(cte.cfop);
-            if (/^[567]/.test(c)) return (parseInt(c[0]) - 4) + c.slice(1);
-            return c;
-        })();
+        // CFOP padrão de entrada para CT-e: 1353 (Aquisição de serviço de transporte).
+        const cfopEntrada = '1353';
 
         const d190 = [
             '',

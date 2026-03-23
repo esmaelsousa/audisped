@@ -80,24 +80,26 @@ async function analisar() {
     }
 }
 
-// ── Injetar ───────────────────────────────────────────────────────────────────
-async function injetar() {
-    if (!xmlFiles.value.length) return alert('Carregue os XMLs primeiro.');
-    if (!idSpedBase.value) return alert('Selecione um arquivo SPED base.');
-    isLoading.value = true;
-    logs.value = ['Injetando CT-es no SPED...'];
-    try {
-        const fd = new FormData();
-        xmlFiles.value.forEach(f => fd.append('xmlFiles', f));
-        fd.append('id_arquivo', idSpedBase.value);
-        fd.append('pularDuplicados', pularDuplicados.value ? '1' : '0');
+// ── Modal período divergente ──────────────────────────────────────────────────
+const modalPeriodo = ref(false);
+const modalPeriodoData = ref({ periodo_sped: '', avisos: [] });
+let _pendingFdCte = null;
 
+async function confirmarForcePeriodo() {
+    modalPeriodo.value = false;
+    if (!_pendingFdCte) return;
+    _pendingFdCte.set('force_periodo', 'true');
+    await _executarInjecao(_pendingFdCte);
+    _pendingFdCte = null;
+}
+
+async function _executarInjecao(fd) {
+    isLoading.value = true;
+    try {
         const res = await axios.post(`${API_BASE_URL}/api/cte-injector/inject`, fd, {
             headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token.value}` },
             responseType: 'blob',
         });
-
-        // Download automático — usa o nome definido pelo servidor
         const disposition = res.headers['content-disposition'] || '';
         const match = disposition.match(/filename=([^;]+)/);
         const nomeArquivo = match ? match[1].trim() : `sped_cte_${idSpedBase.value}.txt`;
@@ -107,17 +109,41 @@ async function injetar() {
         a.download = nomeArquivo;
         a.click();
         URL.revokeObjectURL(url);
-
         logs.value = ['[OK] CT-es injetados com sucesso! Download iniciado.'];
         fase.value = 'injetado';
     } catch (err) {
-        const msg = err.response?.data instanceof Blob
-            ? await err.response.data.text()
-            : (err.response?.data?.message || err.message);
-        logs.value = [`[ERRO] ${msg}`];
+        const data = err.response?.data;
+        // Tenta ler JSON mesmo quando responseType é blob
+        let jsonData = data;
+        if (data instanceof Blob) {
+            try { jsonData = JSON.parse(await data.text()); } catch (_) { jsonData = null; }
+        }
+        if (jsonData?.tipo === 'cnpj_invalido') {
+            logs.value = [`[BLOQUEADO] ${jsonData.message}`];
+            jsonData.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → CNPJ XML: ${b.cnpj_xml} | CNPJ SPED: ${b.cnpj_sped}`));
+        } else if (jsonData?.tipo === 'periodo_divergente') {
+            _pendingFdCte = fd;
+            modalPeriodoData.value = { periodo_sped: jsonData.periodo_sped, avisos: jsonData.avisos };
+            modalPeriodo.value = true;
+        } else {
+            const msg = jsonData?.message || err.message;
+            logs.value = [`[ERRO] ${msg}`];
+        }
     } finally {
         isLoading.value = false;
     }
+}
+
+// ── Injetar ───────────────────────────────────────────────────────────────────
+async function injetar() {
+    if (!xmlFiles.value.length) return alert('Carregue os XMLs primeiro.');
+    if (!idSpedBase.value) return alert('Selecione um arquivo SPED base.');
+    logs.value = ['Injetando CT-es no SPED...'];
+    const fd = new FormData();
+    xmlFiles.value.forEach(f => fd.append('xmlFiles', f));
+    fd.append('id_arquivo', idSpedBase.value);
+    fd.append('pularDuplicados', pularDuplicados.value ? '1' : '0');
+    await _executarInjecao(fd);
 }
 </script>
 
@@ -294,5 +320,37 @@ async function injetar() {
 
       </div>
     </div>
+
+    <!-- Modal: Período Divergente -->
+    <Teleport to="body">
+      <div v-if="modalPeriodo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+          <div class="bg-amber-500 px-6 py-4 flex items-center gap-3">
+            <svg class="w-6 h-6 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            <h2 class="text-white font-black text-sm uppercase tracking-wide">Atenção — Período Divergente</h2>
+          </div>
+          <div class="px-6 py-4 space-y-3">
+            <p class="text-sm text-slate-600">Os CT-es abaixo possuem data fora do período auditado. Deseja injetá-los mesmo assim?</p>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs font-mono text-amber-800 font-bold">
+              Período do SPED: {{ modalPeriodoData.periodo_sped }}
+            </div>
+            <ul class="space-y-1 max-h-48 overflow-y-auto">
+              <li v-for="a in modalPeriodoData.avisos" :key="a.arquivo" class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-1.5 text-xs">
+                <span class="text-slate-700 font-medium truncate max-w-[260px]">{{ a.arquivo }}</span>
+                <span class="text-amber-600 font-bold font-mono shrink-0 ml-2">{{ a.data_xml }}</span>
+              </li>
+            </ul>
+          </div>
+          <div class="px-6 py-4 flex justify-end gap-3 border-t border-slate-100">
+            <button @click="modalPeriodo = false; logs.push('[CANCELADO] Injeção cancelada pelo usuário.')" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors">
+              Cancelar
+            </button>
+            <button @click="confirmarForcePeriodo" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition-colors">
+              Confirmar Injeção
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

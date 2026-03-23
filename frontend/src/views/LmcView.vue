@@ -47,27 +47,71 @@ onMounted(async () => {
     await loadData(arquivoId);
 });
 
+const currentArquivoId = ref(null);
+const continuidade = ref({ tem_mes_anterior: false, divergencias: [] });
+const sincronizando = ref({});
+
+async function checkContinuidade() {
+    if (!currentArquivoId.value) return;
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/lmc/continuidade/${currentArquivoId.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        continuidade.value = res.data;
+    } catch (e) {
+        console.error('Erro ao verificar continuidade:', e);
+    }
+}
+
+async function sincronizarEstoque(codItem, fechamentoAnterior) {
+    if (!currentArquivoId.value) return;
+    sincronizando.value = { ...sincronizando.value, [codItem]: true };
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/lmc/update-estoque-inicial`, {
+            id_arquivo: currentArquivoId.value,
+            cod_item: codItem,
+            novo_estoque: parseFloat(fechamentoAnterior)
+        }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await loadData(currentArquivoId.value);
+    } catch (e) {
+        alert('Erro ao sincronizar estoque: ' + (e.response?.data?.error || e.message));
+        const s = { ...sincronizando.value };
+        delete s[codItem];
+        sincronizando.value = s;
+    }
+}
+
+async function sincronizarTodos() {
+    for (const div of continuidade.value.divergencias) {
+        await sincronizarEstoque(div.cod_item, div.fechamento_anterior);
+    }
+}
+
 async function loadData(arquivoId) {
     if (!arquivoId) return;
+    currentArquivoId.value = arquivoId;
     loading.value = true;
     lmcData.value = []; // Limpa para garantir reatividade total
     try {
         const response = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoId}`);
         lmcData.value = response.data.map(item => ({
             ...item,
-            nfs_detalhadas: typeof item.nfs_detalhadas === 'string' 
-                ? JSON.parse(item.nfs_detalhadas) 
+            nfs_detalhadas: typeof item.nfs_detalhadas === 'string'
+                ? JSON.parse(item.nfs_detalhadas)
                 : (item.nfs_detalhadas || []),
             edit_value: item.vol_saidas_ajustado !== null ? item.vol_saidas_ajustado : item.vol_saidas,
             fisico_edit_value: item.fech_fisico_ajustado !== null ? item.fech_fisico_ajustado : item.fech_fisico,
             raiox: {},
             lab: {}
         }));
-        
+
         if (combustiveis.value.length > 0 && !selectedFuel.value) {
             selectedFuel.value = combustiveis.value[0].cod_item;
         }
         recalcularTudo();
+        await checkContinuidade();
     } catch (error) {
         console.error("Erro ao carregar dados do LMC:", error);
     } finally {
@@ -75,16 +119,20 @@ async function loadData(arquivoId) {
     }
 }
 
+const COMBUSTIVEIS_KEYWORDS = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESEL', 'GNV', 'GLP', 'QUEROSENE', 'BIODIESEL'];
+
 // Extrair lista única de combustíveis disponíveis
 const combustiveis = computed(() => {
     const list = [];
     const map = new Set();
-    lmcData.value.forEach(item => {
-        if (!map.has(item.cod_item)) {
-            map.add(item.cod_item);
-            list.push({ cod_item: item.cod_item, nome: item.nome_combustivel });
-        }
-    });
+    lmcData.value
+        .filter(item => COMBUSTIVEIS_KEYWORDS.some(k => (item.nome_combustivel || '').toUpperCase().includes(k)))
+        .forEach(item => {
+            if (!map.has(item.cod_item)) {
+                map.add(item.cod_item);
+                list.push({ cod_item: item.cod_item, nome: item.nome_combustivel });
+            }
+        });
     return list;
 });
 
@@ -126,6 +174,7 @@ async function recalcularTudo() {
             const difTeoricaRaioX = fisicoSped - (aberturaSped + entradas - saidaSped);
             const percentualRaioX = volumeBase > 0 ? (Math.abs(difTeoricaRaioX) / volumeBase) * 100 : 0;
 
+            const escrRaioX = aberturaSped + entradas - saidaSped;
             row.raiox = {
                 estq_abert: aberturaSped,
                 vol_entr: entradas,
@@ -134,7 +183,8 @@ async function recalcularTudo() {
                 fech_fisico: fisicoSped,
                 dif: difTeoricaRaioX,
                 percentual: percentualRaioX,
-                ultrapassou_limite: percentualRaioX > 0.6
+                ultrapassou_limite: percentualRaioX > 0.6,
+                is_negativo: escrRaioX < -0.01 || fisicoSped < -0.01
             };
 
             // MOTOR 2: LABORATÓRIO (Cascata Dinâmica)
@@ -154,6 +204,7 @@ async function recalcularTudo() {
             const escrituralLab = fisicoLab; 
             const percentualLab = volumeBaseLab > 0 ? (Math.abs(difBruta) / volumeBaseLab) * 100 : 0;
             
+            const escrLab = aberturaLab + entrLab - saidaLab;
             row.lab = {
                 estq_abert: aberturaLab,
                 vol_entr: entrLab,
@@ -165,6 +216,7 @@ async function recalcularTudo() {
                 dif: difBruta,
                 percentual: percentualLab,
                 ultrapassou_limite: percentualLab > 0.6,
+                is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
                 is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
                 is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),
                 is_entr_edited: parseFloat(entrLab).toFixed(3) !== entradas.toFixed(3)
@@ -360,7 +412,14 @@ async function exportarSped() {
         reader.onloadend = () => {
             const link = document.createElement('a');
             link.href = reader.result; // Data URI gerado pelo FileReader (Bypassa bloqueios HTTP)
-            link.setAttribute('download', `RETIFICADO_${arquivoInfo.value?.nome_arquivo || 'SPED_FISCAL.txt'}`);
+            const cnpjLimpo = String(arquivoInfo.value?.cnpj || '').replace(/\D/g, '');
+            const partes = String(arquivoInfo.value?.periodo || '').split(' a ');
+            const periodoIni = (partes[0] || '').replace(/\D/g, '');
+            const periodoFim = (partes[1] || partes[0] || '').replace(/\D/g, '');
+            const nomeExport = cnpjLimpo && periodoIni
+                ? `${cnpjLimpo}_${periodoIni}_${periodoFim}.txt`
+                : `SPED_FISCAL_${arquivoInfo.value?.nome_arquivo || 'exportado'}.txt`;
+            link.setAttribute('download', nomeExport);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -436,6 +495,12 @@ async function exportarSped() {
                    <h3 class="font-black text-sm text-white uppercase tracking-wider">Distribuição Inteligente</h3>
                    <p class="text-[10px] text-slate-400 font-medium leading-tight">Rateio proporcional ANP (±0.35%) e camuflagem de quebras no Banco de Dados.</p>
                 </div>
+                <div class="h-8 w-px bg-slate-700 mx-2"></div>
+                <div class="flex flex-col leading-tight">
+                    <span class="text-xs font-black text-white truncate max-w-[220px]">{{ arquivoInfo?.empresa || empresaSelecionada?.nome_empresa || '—' }}</span>
+                    <span class="text-[10px] font-mono text-slate-400">{{ arquivoInfo?.cnpj || empresaSelecionada?.cnpj || '' }}</span>
+                    <span class="text-[10px] font-bold text-brand-accent">{{ arquivoInfo?.periodo || '' }}</span>
+                </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -465,36 +530,83 @@ async function exportarSped() {
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-blue-200 transition-colors">
                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Recebido LMC</p>
-                <p class="text-xl font-black text-blue-600 leading-none mt-1">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] font-bold">L</span></p>
+                <p class="text-lg font-black text-blue-600 mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] font-bold">L</span></p>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-red-200 transition-colors">
                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Perdas (SPED)</p>
-                <p class="text-xl font-black text-red-500 leading-none mt-1">-{{ fNum(totais.perdasTotal) }} <span class="text-[10px] font-bold">L</span></p>
+                <p class="text-lg font-black text-red-500 mt-1 break-all">-{{ fNum(totais.perdasTotal) }} <span class="text-[10px] font-bold">L</span></p>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-emerald-200 transition-colors">
                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Ganhos (SPED)</p>
-                <p class="text-xl font-black text-emerald-500 leading-none mt-1">+{{ fNum(totais.ganhosTotal) }} <span class="text-[10px] font-bold">L</span></p>
+                <p class="text-lg font-black text-emerald-500 mt-1 break-all">+{{ fNum(totais.ganhosTotal) }} <span class="text-[10px] font-bold">L</span></p>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-brand-accent transition-colors">
                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight text-brand-accent">XMLs (ANP)</p>
                 <div class="flex items-center gap-1.5 mt-1">
-                    <p class="text-xl font-black text-slate-700 leading-none">{{ fNum(totais.nfsTotal) }} <span class="text-[10px] font-bold text-slate-400">L</span></p>
+                    <p class="text-lg font-black text-slate-700 break-all">{{ fNum(totais.nfsTotal) }} <span class="text-[10px] font-bold text-slate-400">L</span></p>
                     <AlertTriangle v-if="totais.nfsTotal !== totais.comprasTotal" class="w-3.5 h-3.5 text-amber-500" />
                 </div>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-orange-200 transition-colors">
                 <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Vendas Brutas</p>
-                <p class="text-xl font-black text-orange-500 leading-none mt-1">{{ fNum(totais.vendasDeclaradas) }} <span class="text-[10px] font-bold">L</span></p>
+                <p class="text-lg font-black text-orange-500 mt-1 break-all">{{ fNum(totais.vendasDeclaradas) }} <span class="text-[10px] font-bold">L</span></p>
             </div>
             <div class="bg-slate-50 px-4 py-3 rounded-xl border-2 border-indigo-100 shadow-sm relative overflow-hidden group">
                 <div class="absolute top-0 right-0 p-1">
                     <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
                 </div>
                 <p class="text-[9px] font-black text-indigo-400 uppercase tracking-tight">Vendas Auditoria</p>
-                <p class="text-xl font-black text-indigo-600 leading-none mt-1">{{ fNum(totais.vendasAjustadas) }} <span class="text-[10px] font-bold">L</span></p>
+                <p class="text-lg font-black text-indigo-600 mt-1 break-all">{{ fNum(totais.vendasAjustadas) }} <span class="text-[10px] font-bold">L</span></p>
                 <p v-if="totais.vendasAjustadas !== totais.vendasDeclaradas" class="text-[8px] font-black text-indigo-400/70 mt-1 uppercase">
                     Δ: {{ fNum(totais.vendasAjustadas - totais.vendasDeclaradas) }} L
                 </p>
+            </div>
+        </div>
+
+        <!-- Banner de Continuidade de Estoque -->
+        <div v-if="continuidade.divergencias.length > 0" class="bg-amber-50 border border-amber-300 rounded-2xl p-4 shadow-sm">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex items-start gap-3 flex-1">
+                    <AlertTriangle class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                        <p class="text-sm font-black text-amber-800 uppercase tracking-wide">
+                            Divergência de Estoque Detectada
+                        </p>
+                        <p class="text-xs text-amber-700 mt-0.5">
+                            O estoque de abertura deste mês difere do fechamento do mês anterior
+                            <span class="font-bold">({{ continuidade.divergencias[0]?.periodo_anterior?.substring(5,7) }}/{{ continuidade.divergencias[0]?.periodo_anterior?.substring(0,4) }})</span>
+                            em {{ continuidade.divergencias.length }} produto(s).
+                        </p>
+                        <div class="mt-3 space-y-1.5">
+                            <div v-for="div in continuidade.divergencias" :key="div.cod_item"
+                                class="flex items-center gap-3 bg-white/70 rounded-xl px-3 py-2 border border-amber-200">
+                                <div class="flex-1 min-w-0">
+                                    <span class="text-xs font-black text-slate-700 truncate block">{{ div.nome || div.cod_item }}</span>
+                                    <div class="flex items-center gap-3 mt-0.5 text-[10px] font-mono">
+                                        <span class="text-slate-500">Fech. anterior: <span class="font-bold text-slate-700">{{ fNum(div.fechamento_anterior) }} L</span></span>
+                                        <span class="text-slate-400">→</span>
+                                        <span class="text-slate-500">Abert. atual: <span class="font-bold text-slate-700">{{ fNum(div.abertura_atual) }} L</span></span>
+                                        <span :class="div.diferenca > 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">
+                                            (Δ {{ div.diferenca > 0 ? '+' : '' }}{{ fNum(div.diferenca) }} L)
+                                        </span>
+                                    </div>
+                                </div>
+                                <button @click="sincronizarEstoque(div.cod_item, div.fechamento_anterior)"
+                                    :disabled="sincronizando[div.cod_item]"
+                                    class="shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black rounded-lg transition-all disabled:opacity-50 flex items-center gap-1.5">
+                                    <Loader2 v-if="sincronizando[div.cod_item]" class="w-3 h-3 animate-spin" />
+                                    SINCRONIZAR
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button v-if="continuidade.divergencias.length > 1" @click="sincronizarTodos"
+                    :disabled="Object.keys(sincronizando).length > 0"
+                    class="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-md shadow-amber-200">
+                    <Loader2 v-if="Object.keys(sincronizando).length > 0" class="w-3 h-3 animate-spin" />
+                    SINCRONIZAR TODOS
+                </button>
             </div>
         </div>
 
@@ -533,33 +645,35 @@ async function exportarSped() {
         <!-- Tabela Progressiva -->
         <div class="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse min-w-[1400px]">
+                <table class="w-full text-left border-collapse min-w-[900px]">
                     <thead>
                         <tr class="bg-slate-900 text-[8px] font-black uppercase text-slate-400 tracking-[0.15em]">
-                            <th class="py-2.5 px-3 sticky left-0 bg-slate-900 z-10 border-b border-slate-700 text-white">Data Mov.</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-right" title="Estoque propagado em cascata">Abertura (L)</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-center bg-blue-900/20">Rec. LMC</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-center bg-blue-900/20 text-brand-accent border-r border-slate-700">Audit. Notas</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 bg-orange-900/20 border-r border-slate-700 text-center text-orange-400">Saída (Edição)</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-right bg-slate-800 border-r border-slate-700">Estq. Escritural</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 bg-slate-900/50 border-r border-slate-700 text-center">ANP Perda/Ganho</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 bg-indigo-900/20 text-center text-indigo-400 border-r border-slate-700">Tanque Físico</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-right font-bold text-white">Diferença</th>
-                            <th class="py-2.5 px-3 border-b border-slate-700 text-center border-l border-slate-700">% Margem</th>
+                            <th class="py-2 px-2 sticky left-0 bg-slate-900 z-10 border-b border-slate-700 text-white">Data Mov.</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right" title="Estoque propagado em cascata">Abertura (L)</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-center bg-blue-900/20 text-brand-accent border-r border-slate-700">Audit. Notas</th>
+                            <th class="py-2 px-2 border-b border-slate-700 bg-orange-900/20 border-r border-slate-700 text-center text-orange-400">Saída (Edição)</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right bg-slate-800 border-r border-slate-700">Estq. Escritural</th>
+                            <th class="py-2 px-2 border-b border-slate-700 bg-slate-900/50 border-r border-slate-700 text-center">ANP Perda/Ganho</th>
+                            <th class="py-2 px-2 border-b border-slate-700 bg-indigo-900/20 text-center text-indigo-400 border-r border-slate-700">Tanque Físico</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right font-bold text-white">Diferença</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-center border-l border-slate-700">% Margem</th>
                         </tr>
                     </thead>
                     <tbody class="text-sm font-medium text-slate-600 divide-y divide-slate-100">
                         <template v-for="row in movimentacaoAtiva" :key="row.data_movimento">
                             <!-- Linha Principal -->
                             <tr class="hover:bg-slate-50/80 transition-colors" v-if="row.raiox && row.raiox.estq_abert !== undefined"
-                                :class="{'bg-red-50 hover:bg-red-100/80': row[viewMode].ultrapassou_limite}">
-                                
-                                <td class="py-3 px-3 sticky left-0 z-10 border-r border-slate-100 font-bold"
-                                    :class="row[viewMode].ultrapassou_limite ? 'bg-red-50 text-red-600' : 'bg-white text-slate-800'">
+                                :class="{
+                                    'bg-purple-50 hover:bg-purple-100/80': row[viewMode].is_negativo,
+                                    'bg-red-50 hover:bg-red-100/80': row[viewMode].ultrapassou_limite && !row[viewMode].is_negativo
+                                }">
+
+                                <td class="py-1.5 px-2 sticky left-0 z-10 border-r border-slate-100 font-bold"
+                                    :class="row[viewMode].is_negativo ? 'bg-purple-50 text-purple-700' : row[viewMode].ultrapassou_limite ? 'bg-red-50 text-red-600' : 'bg-white text-slate-800'">
                                     {{ fDate(row.data_movimento) }}
                                 </td>
 
-                                <td class="py-3 px-3 text-right font-mono text-slate-500 font-semibold bg-slate-50/30">
+                                <td class="py-1.5 px-2 text-right font-mono text-slate-500 font-semibold bg-slate-50/30">
                                     {{ fNum(row[viewMode].estq_abert) }}
                                     <span v-if="viewMode === 'lab' && parseFloat(row.lab.estq_abert) !== parseFloat(row.estq_abert)" 
                                           class="text-[9px] text-orange-400 block -mt-0.5 leading-none" title="Diferente da abertura original">
@@ -567,15 +681,8 @@ async function exportarSped() {
                                     </span>
                                 </td>
                                 
-                                <td class="py-3 px-3 text-center font-mono bg-blue-50/10">
-                                    {{ fNum(row[viewMode].vol_entr ?? row.vol_entr_lmc) }}
-                                    <span v-if="viewMode === 'lab' && row.lab.is_entr_edited" 
-                                          class="text-[9px] text-red-400 block -mt-0.5 leading-none" title="Entrada encolhida pelo Squeeze">
-                                          Original: {{ fNum(row.vol_entr_lmc) }}
-                                    </span>
-                                </td>
                                 
-                                <td class="py-3 px-3 text-center font-mono bg-blue-50/10 border-r border-blue-100 relative group">
+                                <td class="py-1.5 px-2 text-center font-mono bg-blue-50/10 border-r border-blue-100 relative group">
                                     <div class="flex flex-col items-center justify-center gap-1">
                                         <span :class="{'text-red-500 font-black': parseFloat(row.vol_entr_lmc) !== parseFloat(row.volume_nota)}">
                                             {{ fNum(row.volume_nota) }}
@@ -589,33 +696,39 @@ async function exportarSped() {
                                 </td>
 
                                 <!-- Input Editável de SAÍDA -->
-                                <td class="py-3 px-3 bg-orange-50/20 border-r border-orange-100 align-middle">
+                                <td class="py-1.5 px-2 bg-orange-50/20 border-r border-orange-100 align-middle">
                                     <div v-if="viewMode === 'raiox'" class="text-right font-mono font-bold text-slate-600">
                                         {{ fNum(row.raiox.vol_saidas) }}
                                     </div>
                                     <div v-else class="flex flex-col gap-1 items-center justify-center">
                                         <div class="flex items-center bg-white border rounded-lg overflow-hidden transition-colors shadow-inner"
                                             :class="row.lab.is_saida_edited ? 'border-orange-400' : 'border-slate-300'">
-                                            <input type="number" 
+                                            <input type="number"
                                                 @input="recalcularTudo"
-                                                v-model="row.edit_value" 
-                                                class="w-24 px-2 py-1 text-right text-xs font-mono font-bold bg-transparent outline-none"
+                                                v-model="row.edit_value"
+                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono font-bold bg-transparent outline-none"
                                                 :class="row.lab.is_saida_edited ? 'text-orange-500' : 'text-slate-700'"
                                                 step="0.001"
                                             />
                                         </div>
-                                        <span v-if="row.lab.is_saida_edited" class="text-[9px] text-slate-400 block font-bold leading-none">
-                                            Orig: {{ fNum(row.vol_saidas) }}
-                                        </span>
+                                        <template v-if="row.lab.is_saida_edited">
+                                            <span class="text-[9px] text-slate-400 block font-bold leading-none">
+                                                Orig: {{ fNum(row.vol_saidas) }}
+                                            </span>
+                                            <span class="text-[9px] font-bold leading-none"
+                                                :class="(row.edit_value - row.vol_saidas) >= 0 ? 'text-emerald-500' : 'text-red-500'">
+                                                Δ {{ (row.edit_value - row.vol_saidas) >= 0 ? '+' : '' }}{{ fNum(row.edit_value - row.vol_saidas) }}
+                                            </span>
+                                        </template>
                                     </div>
                                 </td>
-                                                                <td class="py-3 px-3 text-right font-mono bg-slate-100/50 border-r border-slate-100" title="Escritural">
+                                                                <td class="py-1.5 px-2 text-right font-mono bg-slate-100/50 border-r border-slate-100" title="Escritural">
                                     <span :class="viewMode === 'lab' ? 'text-slate-700 font-bold' : 'text-slate-400'">
                                         {{ fNum(row[viewMode].estq_escr) }}
                                     </span>
                                 </td>
 
-                                <td class="py-3 px-3 text-center border-r border-slate-100 bg-slate-50/30">
+                                <td class="py-1.5 px-2 text-center border-r border-slate-100 bg-slate-50/30">
                                     <div class="flex flex-col gap-0.5">
                                         <template v-if="viewMode === 'raiox'">
                                             <div v-if="row.val_perda > 0" class="text-xs text-red-500 font-bold">-{{ fNum(row.val_perda) }} L</div>
@@ -632,17 +745,17 @@ async function exportarSped() {
                                 </td>
                                 
                                 <!-- Input Editável de FÍSICO -->
-                                <td class="py-3 px-3 bg-indigo-50/20 border-r border-indigo-100 align-middle">
+                                <td class="py-1.5 px-2 bg-indigo-50/20 border-r border-indigo-100 align-middle">
                                     <div v-if="viewMode === 'raiox'" class="text-right font-mono font-bold text-slate-600">
                                         {{ fNum(row.raiox.fech_fisico) }}
                                     </div>
                                     <div v-else class="flex flex-col gap-1 items-center justify-center">
                                         <div class="flex items-center bg-white border rounded-lg overflow-hidden transition-colors shadow-inner"
                                             :class="row.lab.is_fisico_edited ? 'border-indigo-400' : 'border-slate-300'">
-                                            <input type="number" 
+                                            <input type="number"
                                                 @input="recalcularTudo"
-                                                v-model="row.fisico_edit_value" 
-                                                class="w-24 px-2 py-1 text-right text-xs font-mono font-bold bg-transparent outline-none"
+                                                v-model="row.fisico_edit_value"
+                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono font-bold bg-transparent outline-none"
                                                 :class="row.lab.is_fisico_edited ? 'text-indigo-500' : 'text-slate-700'"
                                                 step="0.001"
                                                 title="Altera o tanque real deste dia para regularizar a ANP"
@@ -659,14 +772,18 @@ async function exportarSped() {
                                     </div>
                                 </td>
 
-                                <td class="py-3 px-3 text-right font-mono" :class="row[viewMode].dif < 0 ? 'text-red-500' : (row[viewMode].dif > 0 ? 'text-emerald-500' : '')">
+                                <td class="py-1.5 px-2 text-right font-mono" :class="row[viewMode].dif < 0 ? 'text-red-500' : (row[viewMode].dif > 0 ? 'text-emerald-500' : '')">
                                     {{ fNum(Math.abs(row[viewMode].dif)) }} {{ row[viewMode].dif < 0 ? ' ▼' : (row[viewMode].dif > 0 ? ' ▲' : '') }}
                                 </td>
                                 
-                                <td class="py-3 px-3 text-center border-l-2 border-slate-200">
-                                    <span class="px-2 py-1 rounded-md text-[10px] font-black tracking-widest"
-                                        :class="row[viewMode].ultrapassou_limite 
-                                            ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm' 
+                                <td class="py-1.5 px-2 text-center border-l-2 border-slate-200">
+                                    <span v-if="row[viewMode].is_negativo"
+                                        class="px-2 py-1 rounded-md text-[10px] font-black tracking-widest bg-purple-100 text-purple-700 border border-purple-300 shadow-sm animate-pulse">
+                                        NEGATIVO
+                                    </span>
+                                    <span v-else class="px-2 py-1 rounded-md text-[10px] font-black tracking-widest"
+                                        :class="row[viewMode].ultrapassou_limite
+                                            ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm'
                                             : 'bg-emerald-100 text-emerald-600 shadow-sm opacity-80'">
                                         {{ fNum(row[viewMode].percentual) }}%
                                     </span>
