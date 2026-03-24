@@ -173,6 +173,7 @@ async function ejetarTodosGrupos() {
             // Salva FormData para reenvio com force_periodo
             _pendingFdNfe = fd;
             _pendingGruposAtivos = gruposAtivos;
+            _pendingEndpointNfe = 'grupos';
             modalPeriodoData.value = { periodo_sped: data.periodo_sped, avisos: data.avisos };
             modalPeriodo.value = true;
             gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = null; });
@@ -201,6 +202,7 @@ const modalPeriodo = ref(false);
 const modalPeriodoData = ref({ periodo_sped: '', avisos: [] });
 let _pendingFdNfe = null;
 let _pendingGruposAtivos = null;
+let _pendingEndpointNfe = null; // 'parse' | 'grupos'
 
 async function confirmarForcePeriodo() {
     modalPeriodo.value = false;
@@ -208,19 +210,33 @@ async function confirmarForcePeriodo() {
     _pendingFdNfe.set('force_periodo', 'true');
     isLoading.value = true;
     try {
-        const res = await axios.post(`${API_BASE_URL}/api/injetar-grupos`, _pendingFdNfe, {
-            headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token.value}` }
-        });
-        const det = res.data.detalhes;
-        logs.value.push('[SUCCESS] ' + res.data.message);
-        logs.value.push(`→ XMLs injetados: ${det.total_xml_injetados}`);
-        successInjectedId.value = idSpedBase.value;
+        if (_pendingEndpointNfe === 'parse') {
+            const res = await axios.post(`${API_BASE_URL}/api/xml-injector/parse`, _pendingFdNfe, {
+                headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token.value}` }
+            });
+            const data = res.data;
+            if (data.detalhes) {
+                successInjectedId.value = idSpedBase.value;
+                logs.value.push('[SUCCESS] ' + data.message);
+                logs.value.push(`→ XMLs injetados: ${data.detalhes.total_xml_injetados}`);
+                xmlFiles.value = [];
+            }
+        } else {
+            const res = await axios.post(`${API_BASE_URL}/api/injetar-grupos`, _pendingFdNfe, {
+                headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token.value}` }
+            });
+            const det = res.data.detalhes;
+            logs.value.push('[SUCCESS] ' + res.data.message);
+            logs.value.push(`→ XMLs injetados: ${det.total_xml_injetados}`);
+            successInjectedId.value = idSpedBase.value;
+        }
     } catch (e) {
         logs.value.push(`[ERRO] ${e.response?.data?.message || e.message}`);
     } finally {
         isLoading.value = false;
         _pendingFdNfe = null;
         _pendingGruposAtivos = null;
+        _pendingEndpointNfe = null;
     }
 }
 
@@ -327,9 +343,15 @@ async function parseXmls(forceReplace = false) {
             const data = e.response.data;
             const duplicadasStr = data.duplicadas.map(d => `Doc: ${d.num_doc} - Chave: ${d.chv_nfe}`).join('\n');
             const msg = `${data.message}\n\n${duplicadasStr}\n\nDeseja SUBSTITUIR as notas existentes pelas novas?`;
-            
+
             if (confirm(msg)) return parseXmls(true);
             else logs.value.push(`[INFO] Injeção cancelada pelo usuário.`);
+        } else if (e.response?.data?.tipo === 'periodo_divergente') {
+            const data = e.response.data;
+            _pendingFdNfe = formData;
+            _pendingEndpointNfe = 'parse';
+            modalPeriodoData.value = { periodo_sped: data.periodo_sped, avisos: data.avisos };
+            modalPeriodo.value = true;
         } else {
             console.error(e);
             const errMsg = e.response?.data?.message || e.message || 'Erro na injeção.';

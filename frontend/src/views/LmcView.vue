@@ -232,7 +232,7 @@ async function recalcularTudo() {
                 fech_fisico: fisicoSped,
                 dif: difTeoricaRaioX,
                 percentual: percentualRaioX,
-                ultrapassou_limite: percentualRaioX > 0.6,
+                ultrapassou_limite: percentualRaioX > 0.601,
                 is_negativo: escrRaioX < -0.01 || fisicoSped < -0.01
             };
 
@@ -264,7 +264,7 @@ async function recalcularTudo() {
                 val_ganho: ganhoLab,
                 dif: difBruta,
                 percentual: percentualLab,
-                ultrapassou_limite: percentualLab > 0.6,
+                ultrapassou_limite: percentualLab > 0.601,
                 is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
                 is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
                 is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),

@@ -1169,6 +1169,26 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
             }
         }
 
+        // --- VALIDAÇÃO DE PERÍODO ---
+        if (spedBaseObj && !req.body.analyzeOnly) {
+            const forcePeriodo = req.body.force_periodo === 'true';
+            const itensVal = parsedNotes.map(nota => ({
+                arquivo: nota.arquivo,
+                cnpjDest: nota.destinatario?.cnpj,
+                dtDoc: nota.c100?.dt_doc
+            }));
+            const { avisos: avisosP } = validarXmls(itensVal, spedBaseObj.cnpj_empresa, spedBaseObj.periodo_apuracao, forcePeriodo);
+            if (avisosP.length > 0) {
+                return res.status(422).json({
+                    tipo: 'periodo_divergente',
+                    message: `${avisosP.length} XML(s) com data fora do período auditado.`,
+                    periodo_sped: spedBaseObj.periodo_apuracao,
+                    avisos: avisosP
+                });
+            }
+        }
+        // --- FIM VALIDAÇÃO DE PERÍODO ---
+
         const options = {
             userCfop: req.body.cfop_padrao || '1102',
             forcarUsoConsumo: req.body.forcar_uso_consumo === 'true' || req.body.forcar_uso_consumo === true || req.body.forceCst040 === 'true' || req.body.forceCst040 === true,
@@ -2565,10 +2585,12 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     // 2. Dados consolidados por dia (originais)
     const { rows: dailyItems } = await dbClient.query(`
         SELECT data_mov,
-               SUM(vol_entr)   as vol_entr,
-               SUM(vol_saidas) as vol_saidas,
-               SUM(estq_abert) as estq_abert,
-               SUM(fech_fisico) as fech_fisico
+               SUM(vol_entr)    as vol_entr,
+               SUM(vol_saidas)  as vol_saidas,
+               SUM(estq_abert)  as estq_abert,
+               SUM(fech_fisico) as fech_fisico,
+               SUM(val_perda)   as val_perda,
+               SUM(val_ganho)   as val_ganho
         FROM lmc_movimentacao
         WHERE id_sped_arquivo = $1 AND cod_item = $2
         GROUP BY data_mov ORDER BY data_mov ASC
@@ -2578,7 +2600,8 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 
     // 3. Todos os registros originais (por tanque)
     const { rows: originalRows } = await dbClient.query(`
-        SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico
+        SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico,
+               val_perda, val_ganho
         FROM lmc_movimentacao
         WHERE id_sped_arquivo = $1 AND cod_item = $2
         ORDER BY data_mov ASC, num_tanque ASC
@@ -2633,6 +2656,9 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         saidaOrig: parseFloat(row.vol_saidas || 0),
         saidaCalc: parseFloat(row.vol_saidas || 0),
         fisicoOrig: parseFloat(row.fech_fisico || 0),
+        abertOrig: parseFloat(row.estq_abert || 0),
+        perdaOrig: parseFloat(row.val_perda || 0),
+        ganhoOrig: parseFloat(row.val_ganho || 0),
         abertCalc: 0, escrCalc: 0, fisicoCalc: 0
     }));
 
@@ -2712,6 +2738,22 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         }
     }
 
+    // Passe pós-motor: reaplica limites da cascata em ordem cronológica.
+    // O motor distribui saídas em múltiplos dias simultaneamente sem recomputar
+    // a cascata entre eles — isso pode gerar escritural negativo em dias com
+    // estoque baixo. Este passe corrige, garantindo:
+    //   a) saidaCalc ≤ disponivel - 0.5  (escritural ≥ 0.5, regra LMC)
+    //   b) saidaCalc ≥ disponivel - cap  (escritural ≤ capacidade, física do tanque)
+    let stockPos = aberturaInicialConsolidada;
+    for (let i = 0; i < calcs.length; i++) {
+        const disponivel = stockPos + calcs[i].entradasOrig;
+        const minObrig   = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
+        const maxPermit  = Math.max(minObrig, disponivel - 0.5);
+        calcs[i].saidaCalc = Math.max(calcs[i].saidaCalc, minObrig);
+        calcs[i].saidaCalc = Math.min(calcs[i].saidaCalc, maxPermit);
+        stockPos = disponivel - calcs[i].saidaCalc;
+    }
+
     // 9. Fase final: cascata com ruído ANP e rateio por tanque
     const updates = [];
     const lastClosingByTank = new Map();
@@ -2720,23 +2762,36 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         const dayCalc = calcs[i];
         const rowsDoDia = originalRows.filter(r => r.data_mov.getTime() === dayCalc.data_mov.getTime());
         const totalSaidaOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
-        const totalFisicoOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.fech_fisico || 0), 0);
 
         dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
         dayCalc.escrCalc = dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc;
 
+        // Perda/ganho: preserva o % original do SPED aplicado sobre a nova base
+        // Isso mantém o padrão real de comportamento do tanque (evaporação, temperatura)
+        // sem inventar valores — e com base maior o % tende a ser menor ou igual ao original
         const volBase = dayCalc.abertCalc + dayCalc.entradasOrig;
-        const maxDiff = volBase * 0.0055;
-        let ruido = getRandomNoise(volBase * 0.003);
-        ruido = Math.min(Math.max(ruido, -maxDiff), maxDiff);
-        dayCalc.fisicoCalc = Math.max(0.5, dayCalc.escrCalc + ruido);
-        if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal) dayCalc.fisicoCalc = capacidadeTotal * 0.99;
+        const baseOrig = dayCalc.abertOrig + dayCalc.entradasOrig;
+        const pctPerda = baseOrig > 0 ? dayCalc.perdaOrig / baseOrig : 0;
+        const pctGanho = baseOrig > 0 ? dayCalc.ganhoOrig / baseOrig : 0;
+        // Cap ANP 0,6% — garante que nunca ultrapasse mesmo se SPED original estiver no limite
+        const perdaNova = Math.min(pctPerda * volBase, volBase * 0.006);
+        const ganhoNovo = Math.min(pctGanho * volBase, volBase * 0.006);
+        const difReal   = ganhoNovo - perdaNova;
+
+        dayCalc.fisicoCalc = Math.max(0.5, dayCalc.escrCalc + difReal);
+        if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal * 0.99)
+            dayCalc.fisicoCalc = capacidadeTotal * 0.99;
+
+        // Rateio por tanque: distribui o fisicoCalc consolidado proporcionalmente
+        // pelo físico original de cada tanque. Isso garante que SUM(fAjustado) == dayCalc.fisicoCalc,
+        // evitando divergência entre a cascata do backend e a cascata do frontend.
+        const totalFisicoOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.fech_fisico || 0), 0);
 
         rowsDoDia.forEach(r => {
-            const pSaida = totalSaidaOrig > 0 ? parseFloat(r.vol_saidas || 0) / totalSaidaOrig : 1 / rowsDoDia.length;
+            const pSaida  = totalSaidaOrig  > 0 ? parseFloat(r.vol_saidas  || 0) / totalSaidaOrig  : 1 / rowsDoDia.length;
             const pFisico = totalFisicoOrig > 0 ? parseFloat(r.fech_fisico || 0) / totalFisicoOrig : 1 / rowsDoDia.length;
-            const sAjustada = dayCalc.saidaCalc * pSaida;
-            const fAjustado = dayCalc.fisicoCalc * pFisico;
+            const sAjustada = dayCalc.saidaCalc  * pSaida;
+            const fAjustado = dayCalc.fisicoCalc * pFisico;  // SUM(fAjustado) == fisicoCalc ✓
 
             let aAjustada = lastClosingByTank.get(r.num_tanque);
             if (aAjustada === undefined) {
@@ -2746,13 +2801,13 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
             }
 
             const escrTanque = Math.max(0, aAjustada + parseFloat(r.vol_entr || 0) - sAjustada);
-            const diffPG = fAjustado - escrTanque;
+            const diffPG     = fAjustado - escrTanque;
 
             updates.push({
                 id: r.id,
                 abertura: aAjustada, saida: sAjustada, fisico: fAjustado,
                 perda: diffPG < 0 ? Math.abs(diffPG) : 0,
-                ganho: diffPG > 0 ? diffPG : 0,
+                ganho: diffPG > 0 ? diffPG           : 0,
                 escritural: escrTanque
             });
 
