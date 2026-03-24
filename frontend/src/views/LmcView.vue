@@ -159,7 +159,7 @@ async function loadData(arquivoId) {
         if (combustiveis.value.length > 0 && !selectedFuel.value) {
             selectedFuel.value = combustiveis.value[0].cod_item;
         }
-        recalcularTudo();
+        await recalcularTudo();
         await checkContinuidade();
     } catch (error) {
         console.error("Erro ao carregar dados do LMC:", error);
@@ -189,94 +189,78 @@ const combustiveis = computed(() => {
 // OTIMIZAÇÃO: Processamento assíncrono para evitar travamento da UI
 async function recalcularTudo() {
     if (!lmcData.value || lmcData.value.length === 0) return;
-    
-    // Indica que iniciou o processamento interno
-    loading.value = true;
-    
-    // Extraímos os códigos manualmente
-    const uniqueCodes = [...new Set(lmcData.value.map(i => i.cod_item))];
-    
-    for (const code of uniqueCodes) {
-        const fuelName = lmcData.value.find(i => i.cod_item === code)?.nome_combustivel || code;
-        processingStatus.value = `Processando ${fuelName}...`;
-        
-        // Pequena pausa para deixar o navegador respirar e atualizar a UI
-        await new Promise(resolve => setTimeout(resolve, 0));
+    try {
+        const uniqueCodes = [...new Set(lmcData.value.map(i => i.cod_item))];
+        for (const code of uniqueCodes) {
+            const fuelName = lmcData.value.find(i => i.cod_item === code)?.nome_combustivel || code;
+            processingStatus.value = `Processando ${fuelName}...`;
+            await new Promise(resolve => setTimeout(resolve, 0));
 
-        const items = lmcData.value.filter(i => i.cod_item === code)
-            .sort((a,b) => new Date(a.data_movimento) - new Date(b.data_movimento));
-        
-        let runningAberturaLab = null;
+            const items = lmcData.value.filter(i => i.cod_item === code)
+                .sort((a,b) => new Date(a.data_movimento) - new Date(b.data_movimento));
 
-        items.forEach((row, index) => {
-            // Valores Originais do SPED (Secos)
-            const aberturaSped = parseFloat(row.estq_abert || 0);
-            const entradas = parseFloat(row.vol_entr_lmc || 0);
-            const saidaSped = parseFloat(row.vol_saidas || 0);
-            const perdaSped = parseFloat(row.val_perda || 0);
-            const ganhoSped = parseFloat(row.val_ganho || 0);
-            const escrituralSped = parseFloat(row.estq_escr || 0);
-            const fisicoSped = parseFloat(row.fech_fisico || 0);
+            let runningAberturaLab = null;
 
-            // MOTOR 1: RAIO-X
-            const volumeBase = aberturaSped + entradas;
-            const difTeoricaRaioX = fisicoSped - (aberturaSped + entradas - saidaSped);
-            const percentualRaioX = volumeBase > 0 ? (Math.abs(difTeoricaRaioX) / volumeBase) * 100 : 0;
+            items.forEach((row, index) => {
+                const aberturaSped = parseFloat(row.estq_abert || 0);
+                const entradas = parseFloat(row.vol_entr_lmc || 0);
+                const saidaSped = parseFloat(row.vol_saidas || 0);
+                const escrituralSped = parseFloat(row.estq_escr || 0);
+                const fisicoSped = parseFloat(row.fech_fisico || 0);
 
-            const escrRaioX = aberturaSped + entradas - saidaSped;
-            row.raiox = {
-                estq_abert: aberturaSped,
-                vol_entr: entradas,
-                vol_saidas: saidaSped,
-                estq_escr: escrituralSped,
-                fech_fisico: fisicoSped,
-                dif: difTeoricaRaioX,
-                percentual: percentualRaioX,
-                ultrapassou_limite: percentualRaioX > 0.601,
-                is_negativo: escrRaioX < -0.01 || fisicoSped < -0.01
-            };
+                // MOTOR 1: RAIO-X
+                const volumeBase = aberturaSped + entradas;
+                const difTeoricaRaioX = fisicoSped - (aberturaSped + entradas - saidaSped);
+                const percentualRaioX = volumeBase > 0 ? (Math.abs(difTeoricaRaioX) / volumeBase) * 100 : 0;
+                const escrRaioX = aberturaSped + entradas - saidaSped;
+                row.raiox = {
+                    estq_abert: aberturaSped,
+                    vol_entr: entradas,
+                    vol_saidas: saidaSped,
+                    estq_escr: escrituralSped,
+                    fech_fisico: fisicoSped,
+                    dif: difTeoricaRaioX,
+                    percentual: percentualRaioX,
+                    ultrapassou_limite: percentualRaioX > 0.601,
+                    is_negativo: escrRaioX < -0.01 || fisicoSped < -0.01
+                };
 
-            // MOTOR 2: LABORATÓRIO (Cascata Dinâmica)
-            const entrLab = row.vol_entr_ajustado !== null ? parseFloat(row.vol_entr_ajustado) : entradas;
-            const aberturaLab0 = row.estq_abert_ajustado !== null ? parseFloat(row.estq_abert_ajustado) : aberturaSped;
-            const aberturaLab = (index === 0) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
+                // MOTOR 2: LABORATÓRIO (Cascata Dinâmica)
+                const entrLab = row.vol_entr_ajustado !== null ? parseFloat(row.vol_entr_ajustado) : entradas;
+                const aberturaLab0 = row.estq_abert_ajustado !== null ? parseFloat(row.estq_abert_ajustado) : aberturaSped;
+                const aberturaLab = (index === 0) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
+                const saidaLab = parseFloat(row.edit_value ?? saidaSped);
+                const fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoSped);
+                const volumeBaseLab = aberturaLab + entrLab;
+                const difBruta = fisicoLab - (aberturaLab + entrLab - saidaLab);
+                const perdaLab = difBruta < 0 ? Math.abs(difBruta) : 0;
+                const ganhoLab = difBruta > 0 ? difBruta : 0;
+                const percentualLab = volumeBaseLab > 0 ? (Math.abs(difBruta) / volumeBaseLab) * 100 : 0;
+                const escrLab = aberturaLab + entrLab - saidaLab;
+                row.lab = {
+                    estq_abert: aberturaLab,
+                    vol_entr: entrLab,
+                    vol_saidas: saidaLab,
+                    estq_escr: fisicoLab,
+                    fech_fisico: fisicoLab,
+                    val_perda: perdaLab,
+                    val_ganho: ganhoLab,
+                    dif: difBruta,
+                    percentual: percentualLab,
+                    ultrapassou_limite: percentualLab > 0.601,
+                    is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
+                    is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
+                    is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),
+                    is_entr_edited: parseFloat(entrLab).toFixed(3) !== entradas.toFixed(3)
+                };
 
-            const saidaLab = parseFloat(row.edit_value ?? saidaSped);
-            const fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoSped);
-            
-            const volumeBaseLab = aberturaLab + entrLab;
-            const difBruta = fisicoLab - (aberturaLab + entrLab - saidaLab); 
-            
-            const perdaLab = difBruta < 0 ? Math.abs(difBruta) : 0;
-            const ganhoLab = difBruta > 0 ? difBruta : 0;
-
-            const escrituralLab = fisicoLab; 
-            const percentualLab = volumeBaseLab > 0 ? (Math.abs(difBruta) / volumeBaseLab) * 100 : 0;
-            
-            const escrLab = aberturaLab + entrLab - saidaLab;
-            row.lab = {
-                estq_abert: aberturaLab,
-                vol_entr: entrLab,
-                vol_saidas: saidaLab,
-                estq_escr: escrituralLab,
-                fech_fisico: fisicoLab,
-                val_perda: perdaLab,
-                val_ganho: ganhoLab,
-                dif: difBruta,
-                percentual: percentualLab,
-                ultrapassou_limite: percentualLab > 0.601,
-                is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
-                is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
-                is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),
-                is_entr_edited: parseFloat(entrLab).toFixed(3) !== entradas.toFixed(3)
-            };
-
-            runningAberturaLab = fisicoLab;
-        });
+                runningAberturaLab = fisicoLab;
+            });
+        }
+    } finally {
+        loading.value = false;
+        processingStatus.value = '';
     }
-    
-    loading.value = false;
-    processingStatus.value = '';
 }
 
 

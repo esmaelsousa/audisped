@@ -11,11 +11,12 @@ const empresaId = route.params.id;
 
 const arquivos = ref([]);
 const empresa = ref({ nome_empresa: 'Carregando...', cnpj: '' });
-const loading = ref(true);
+const loading = ref(false);
+const erroCarregamento = ref(false);
 const busca = ref('');
 const anoFiltro = ref('');
-const selecionados = ref(new Set());
-const anosExpandidos = ref(new Set());
+const selecionados = ref([]);
+const anosExpandidos = ref([]);
 
 const getAno = (p) => String(p || '').substring(0, 4) || '—';
 
@@ -33,12 +34,19 @@ const formatData = (d) => {
 };
 
 onMounted(async () => {
+  loading.value = true;
+  erroCarregamento.value = false;
+  // Segurança: garante que o spinner nunca fica travado para sempre
+  const safetyTimer = setTimeout(() => { loading.value = false; }, 15000);
   try {
-    const resEmpresas = await axios.get(`${API_BASE_URL}/api/empresas`);
+    const [resEmpresas, resArquivos] = await Promise.all([
+      axios.get(`${API_BASE_URL}/api/empresas`),
+      axios.get(`${API_BASE_URL}/api/arquivos/${empresaId}`)
+    ]);
+
     const emp = resEmpresas.data.find(e => e.id == empresaId);
     if (emp) empresa.value = emp;
 
-    const resArquivos = await axios.get(`${API_BASE_URL}/api/arquivos/${empresaId}`);
     arquivos.value = (resArquivos.data || []).sort((a, b) => {
       const toNum = (p) => {
         const s = String(p || '');
@@ -48,13 +56,14 @@ onMounted(async () => {
       return toNum(b.periodo_apuracao) - toNum(a.periodo_apuracao);
     });
 
-    // Expande o ano mais recente por padrão
     if (arquivos.value.length > 0) {
-      anosExpandidos.value.add(getAno(arquivos.value[0].periodo_apuracao));
+      anosExpandidos.value.push(getAno(arquivos.value[0].periodo_apuracao));
     }
   } catch (error) {
     console.error('Erro ao carregar histórico:', error);
+    erroCarregamento.value = true;
   } finally {
+    clearTimeout(safetyTimer);
     loading.value = false;
   }
 });
@@ -87,8 +96,9 @@ const arquivosPorAno = computed(() => {
 });
 
 function toggleAno(ano) {
-  if (anosExpandidos.value.has(ano)) anosExpandidos.value.delete(ano);
-  else anosExpandidos.value.add(ano);
+  const idx = anosExpandidos.value.indexOf(ano);
+  if (idx !== -1) anosExpandidos.value.splice(idx, 1);
+  else anosExpandidos.value.push(ano);
 }
 
 async function deletarArquivo(id, periodo) {
@@ -98,22 +108,22 @@ async function deletarArquivo(id, periodo) {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     await axios.delete(`${API_BASE_URL}/api/periodo/${id}`, { headers });
     arquivos.value = arquivos.value.filter(a => a.id !== id);
-    selecionados.value.delete(id);
+    selecionados.value = selecionados.value.filter(i => i !== id);
   } catch (e) {
     alert("Falha ao excluir arquivo: " + (e.response?.data?.message || e.message));
   }
 }
 
 async function deletarVariosArquivos() {
-  const ids = Array.from(selecionados.value);
+  const ids = [...selecionados.value];
   if (ids.length === 0) return;
   if (!confirm(`VOCÊ SELECIONOU ${ids.length} PERÍODO(S).\n\nDESEJA EXCLUIR TODOS PERMANENTEMENTE?\nEsta ação não pode ser desfeita.`)) return;
   try {
     const token = localStorage.getItem('token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     await axios.post(`${API_BASE_URL}/api/periodo/bulk-delete`, { ids }, { headers });
-    arquivos.value = arquivos.value.filter(a => !selecionados.value.has(a.id));
-    selecionados.value.clear();
+    arquivos.value = arquivos.value.filter(a => !selecionados.value.includes(a.id));
+    selecionados.value = [];
     alert("Exclusão concluída com sucesso.");
   } catch (e) {
     alert("Falha ao excluir arquivos em lote: " + (e.response?.data?.message || e.message));
@@ -121,15 +131,16 @@ async function deletarVariosArquivos() {
 }
 
 function toggleSelecao(id) {
-  if (selecionados.value.has(id)) selecionados.value.delete(id);
-  else selecionados.value.add(id);
+  const idx = selecionados.value.indexOf(id);
+  if (idx !== -1) selecionados.value.splice(idx, 1);
+  else selecionados.value.push(id);
 }
 
 function selecionarTudo() {
-  if (selecionados.value.size === arquivosFiltrados.value.length) {
-    selecionados.value.clear();
+  if (selecionados.value.length === arquivosFiltrados.value.length) {
+    selecionados.value = [];
   } else {
-    arquivosFiltrados.value.forEach(a => selecionados.value.add(a.id));
+    selecionados.value = arquivosFiltrados.value.map(a => a.id);
   }
 }
 
@@ -186,15 +197,15 @@ function abrirAnalise(id) {
     <div v-if="arquivos.length > 0" class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200">
       <div class="flex items-center gap-4">
         <label class="flex items-center gap-2 cursor-pointer group">
-          <input type="checkbox" :checked="selecionados.size === arquivosFiltrados.length && arquivosFiltrados.length > 0"
+          <input type="checkbox" :checked="selecionados.length === arquivosFiltrados.length && arquivosFiltrados.length > 0"
                  @change="selecionarTudo" class="w-5 h-5 rounded border-slate-300 text-brand-accent focus:ring-brand-accent" />
           <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">SELECIONAR TUDO</span>
         </label>
-        <span v-if="selecionados.size > 0" class="text-xs font-black bg-brand-accent text-white px-3 py-1 rounded-full animate-bounce">
-          {{ selecionados.size }} SELECIONADO(S)
+        <span v-if="selecionados.length > 0" class="text-xs font-black bg-brand-accent text-white px-3 py-1 rounded-full animate-bounce">
+          {{ selecionados.length }} SELECIONADO(S)
         </span>
       </div>
-      <button v-if="selecionados.size > 0" @click="deletarVariosArquivos"
+      <button v-if="selecionados.length > 0" @click="deletarVariosArquivos"
               class="px-6 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-lg shadow-red-100">
         <Trash2 class="w-4 h-4" />
         EXCLUIR SELECIONADOS
@@ -207,6 +218,15 @@ function abrirAnalise(id) {
       <p class="text-slate-400 font-bold tracking-widest text-xs uppercase">Carregando Repositório...</p>
     </div>
 
+    <!-- Erro de carregamento -->
+    <div v-else-if="erroCarregamento" class="py-32 flex flex-col items-center justify-center text-center">
+      <p class="text-red-400 font-bold text-sm mb-3">Falha ao carregar arquivos. Verifique a conexão com o servidor.</p>
+      <button @click="() => { erroCarregamento = false; $nextTick(() => location.reload()); }"
+        class="px-5 py-2 bg-brand-accent text-white text-xs font-bold rounded-xl">
+        Tentar novamente
+      </button>
+    </div>
+
     <!-- Lista agrupada por ano -->
     <div v-else-if="arquivosPorAno.length > 0" class="space-y-3">
       <div v-for="[ano, itens] in arquivosPorAno" :key="ano" class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -217,7 +237,7 @@ function abrirAnalise(id) {
           class="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/80 transition-colors group"
         >
           <div class="flex items-center gap-3">
-            <component :is="anosExpandidos.has(ano) ? ChevronDown : ChevronRight"
+            <component :is="anosExpandidos.includes(ano) ? ChevronDown : ChevronRight"
               class="w-4 h-4 text-slate-400 group-hover:text-brand-accent transition-all" />
             <span class="text-base font-black text-slate-700 tracking-tight">{{ ano }}</span>
             <span class="text-[11px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
@@ -230,7 +250,7 @@ function abrirAnalise(id) {
         </button>
 
         <!-- Tabela de registros (expansível) -->
-        <div v-show="anosExpandidos.has(ano)" class="border-t border-slate-50">
+        <div v-show="anosExpandidos.includes(ano)" class="border-t border-slate-50">
           <table class="w-full text-sm">
             <thead>
               <tr class="bg-slate-50/60 border-b border-slate-100 text-left">
@@ -247,11 +267,11 @@ function abrirAnalise(id) {
                 v-for="arq in itens"
                 :key="arq.id"
                 class="group border-b border-slate-50 last:border-0 hover:bg-slate-50/70 transition-colors cursor-pointer"
-                :class="{'bg-brand-accent/5': selecionados.has(arq.id)}"
+                :class="{'bg-brand-accent/5': selecionados.includes(arq.id)}"
               >
                 <!-- Checkbox -->
                 <td class="px-4 py-3" @click.stop>
-                  <input type="checkbox" :checked="selecionados.has(arq.id)" @change="toggleSelecao(arq.id)"
+                  <input type="checkbox" :checked="selecionados.includes(arq.id)" @change="toggleSelecao(arq.id)"
                          class="w-4 h-4 rounded border-slate-300 text-brand-accent focus:ring-brand-accent cursor-pointer" />
                 </td>
 

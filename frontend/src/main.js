@@ -5,6 +5,9 @@ import router from './router'
 import axios from 'axios'
 import { token, logout } from './store'
 
+// Timeout global: evita que requisições pendentes travem a UI indefinidamente
+axios.defaults.timeout = 30000;
+
 // Interceptor do Axios para injetar o Token em cada requisição
 axios.interceptors.request.use(config => {
     if (token.value) {
