@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios'
 import { API_BASE_URL } from '../api';
 import { arquivoInfo, setArquivoInfo, setEmpresaSelecionada, empresaSelecionada } from '../store';
-import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker } from 'lucide-vue-next';
+import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw } from 'lucide-vue-next';
 
 const route = useRoute();
 const router = useRouter();
@@ -51,6 +51,14 @@ const currentArquivoId = ref(null);
 const continuidade = ref({ tem_mes_anterior: false, divergencias: [] });
 const sincronizando = ref({});
 
+// ── Modal de preview de sincronização ──
+const showSyncModal = ref(false);
+const syncPreviewLoading = ref(false);
+const syncConfirmando = ref(false);
+const syncPreviews = ref([]);      // [{ cod_item, resumo, ajustes, dias, updates }]
+const syncAbaAtiva = ref(0);       // índice da aba ativa
+const syncDiasExpandido = ref(false);
+
 async function checkContinuidade() {
     if (!currentArquivoId.value) return;
     try {
@@ -64,29 +72,70 @@ async function checkContinuidade() {
     }
 }
 
-async function sincronizarEstoque(codItem, fechamentoAnterior) {
-    if (!currentArquivoId.value) return;
-    sincronizando.value = { ...sincronizando.value, [codItem]: true };
+async function abrirPreviewSincronizacao(divergencias) {
+    if (!currentArquivoId.value || !divergencias.length) return;
+    syncPreviewLoading.value = true;
+    syncDiasExpandido.value = false;
+    syncAbaAtiva.value = 0;
     try {
         const token = localStorage.getItem('token');
-        await axios.post(`${API_BASE_URL}/api/lmc/update-estoque-inicial`, {
+        const itens = divergencias.map(d => ({
             id_arquivo: currentArquivoId.value,
-            cod_item: codItem,
-            novo_estoque: parseFloat(fechamentoAnterior)
-        }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-        await loadData(currentArquivoId.value);
+            cod_item: d.cod_item,
+            novo_estoque: d.fechamento_anterior
+        }));
+        const res = await axios.post(`${API_BASE_URL}/api/lmc/preview-sincronizacao`, { itens },
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        // Injeta nome do produto no preview para exibição
+        syncPreviews.value = res.data.previews.map((p, i) => ({
+            ...p,
+            nome: divergencias[i]?.nome || divergencias[i]?.cod_item
+        }));
+        showSyncModal.value = true;
     } catch (e) {
-        alert('Erro ao sincronizar estoque: ' + (e.response?.data?.error || e.message));
-        const s = { ...sincronizando.value };
-        delete s[codItem];
-        sincronizando.value = s;
+        alert('Erro ao gerar prévia: ' + (e.response?.data?.error || e.message));
+    } finally {
+        syncPreviewLoading.value = false;
     }
 }
 
-async function sincronizarTodos() {
-    for (const div of continuidade.value.divergencias) {
-        await sincronizarEstoque(div.cod_item, div.fechamento_anterior);
+async function confirmarSincronizacao() {
+    syncConfirmando.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        const itens = syncPreviews.value.map(p => ({
+            id_arquivo: currentArquivoId.value,
+            cod_item: p.cod_item,
+            novo_estoque: p.resumo.abertura_depois
+        }));
+        await axios.post(`${API_BASE_URL}/api/lmc/confirmar-sincronizacao`, { itens },
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        showSyncModal.value = false;
+        await loadData(currentArquivoId.value);
+    } catch (e) {
+        alert('Erro ao confirmar: ' + (e.response?.data?.error || e.message));
+    } finally {
+        syncConfirmando.value = false;
     }
+}
+
+function sincronizarEstoque(codItem, fechamentoAnterior) {
+    const div = continuidade.value.divergencias.find(d => d.cod_item === codItem);
+    if (div) abrirPreviewSincronizacao([div]);
+}
+
+async function redistribuirCombustivel() {
+    if (!selectedFuel.value || !movimentacaoAtiva.value.length) return;
+    const firstRow = movimentacaoAtiva.value[0];
+    const novoEstoque = firstRow.estq_abert_ajustado !== null
+        ? parseFloat(firstRow.estq_abert_ajustado)
+        : parseFloat(firstRow.estq_abert || 0);
+    const nome = combustiveis.value.find(c => c.cod_item === selectedFuel.value)?.nome_combustivel || selectedFuel.value;
+    await abrirPreviewSincronizacao([{ cod_item: selectedFuel.value, fechamento_anterior: novoEstoque, nome }]);
+}
+
+function sincronizarTodos() {
+    abrirPreviewSincronizacao(continuidade.value.divergencias);
 }
 
 async function loadData(arquivoId) {
@@ -237,6 +286,35 @@ const movimentacaoAtiva = computed(() => {
     return lmcData.value.filter(item => item.cod_item === selectedFuel.value)
         .sort((a,b) => new Date(a.data_movimento) - new Date(b.data_movimento));
 });
+
+// Detecta inconsistência: fisicoLab foi ajustado mas está muito divergente (sync com código antigo)
+const distribuicaoInconsistente = computed(() => {
+    if (viewMode.value !== 'lab' || !movimentacaoAtiva.value.length) return false;
+    // Verifica se algum dia tem fech_fisico_ajustado setado mas com diferença > 1%
+    return movimentacaoAtiva.value.some(row => {
+        const temAjuste = row.fech_fisico_ajustado !== null;
+        const percentual = row.lab?.percentual || 0;
+        return temAjuste && percentual > 1.0;
+    });
+});
+
+const corrigindoDistribuicao = ref(false);
+
+async function corrigirDistribuicao() {
+    if (!selectedFuel.value) return;
+    corrigindoDistribuicao.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/lmc/corrigir-distribuicao`,
+            { id_arquivo: currentArquivoId.value, cod_item: selectedFuel.value },
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        await loadData(currentArquivoId.value);
+    } catch (e) {
+        alert('Erro ao corrigir: ' + (e.response?.data?.error || e.message));
+    } finally {
+        corrigindoDistribuicao.value = false;
+    }
+}
 
 async function rodarOtimizador() {
     if (!volumeAlvo.value || volumeAlvo.value <= 0) {
@@ -628,18 +706,48 @@ async function exportarSped() {
             </div>
             
             <!-- Simulador vs Original -->
-            <div class="bg-slate-200/50 p-1 rounded-xl flex gap-1 h-fit shrink-0 backdrop-blur-sm">
-                <button @click="viewMode = 'raiox'" 
-                    class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
-                    :class="viewMode === 'raiox' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'">
-                    <Eye class="w-3.5 h-3.5" /> RAIO-X
+            <div class="flex items-center gap-2 shrink-0">
+                <button v-if="viewMode === 'lab' && selectedFuel && movimentacaoAtiva.length > 0"
+                        @click="redistribuirCombustivel"
+                        :disabled="syncPreviewLoading"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border border-indigo-300 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all disabled:opacity-50"
+                        title="Re-executa a distribuição inteligente usando a abertura atual">
+                    <RefreshCw class="w-3 h-3" :class="syncPreviewLoading ? 'animate-spin' : ''" />
+                    Re-distribuir
                 </button>
-                <button @click="viewMode = 'lab'" 
-                    class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
-                    :class="viewMode === 'lab' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-700'">
-                    <Beaker class="w-3.5 h-3.5" /> LABORATÓRIO
-                </button>
+                <div class="bg-slate-200/50 p-1 rounded-xl flex gap-1 h-fit backdrop-blur-sm">
+                    <button @click="viewMode = 'raiox'"
+                        class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
+                        :class="viewMode === 'raiox' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'">
+                        <Eye class="w-3.5 h-3.5" /> RAIO-X
+                    </button>
+                    <button @click="viewMode = 'lab'"
+                        class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
+                        :class="viewMode === 'lab' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-700'">
+                        <Beaker class="w-3.5 h-3.5" /> LABORATÓRIO
+                    </button>
+                </div>
             </div>
+        </div>
+
+        <!-- Banner: distribuição inconsistente (sync com código antigo) -->
+        <div v-if="distribuicaoInconsistente"
+             class="flex items-center justify-between gap-4 bg-red-50 border border-red-300 rounded-2xl px-5 py-3 shadow-sm">
+            <div class="flex items-center gap-3">
+                <AlertTriangle class="w-5 h-5 text-red-500 shrink-0" />
+                <div>
+                    <p class="text-sm font-black text-red-700">Distribuição inconsistente detectada</p>
+                    <p class="text-xs text-red-600 mt-0.5">
+                        O estoque físico não condiz com a abertura ajustada. Clique em Corrigir para recalcular.
+                    </p>
+                </div>
+            </div>
+            <button @click="corrigirDistribuicao" :disabled="corrigindoDistribuicao"
+                    class="shrink-0 flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 shadow-md shadow-red-200">
+                <Loader2 v-if="corrigindoDistribuicao" class="w-3.5 h-3.5 animate-spin" />
+                <RefreshCw v-else class="w-3.5 h-3.5" />
+                {{ corrigindoDistribuicao ? 'Corrigindo...' : 'Corrigir Distribuição' }}
+            </button>
         </div>
 
         <!-- Tabela Progressiva -->
@@ -826,7 +934,177 @@ async function exportarSped() {
         </div>
     </div>
   </div>
+
+  <!-- ── Modal de Prévia da Sincronização ─────────────────────────────── -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="showSyncModal || syncPreviewLoading"
+           class="fixed inset-0 z-50 flex items-center justify-center p-4"
+           @click.self="!syncConfirmando && (showSyncModal = false)">
+
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+
+        <!-- Card -->
+        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+
+          <!-- Loading State -->
+          <div v-if="syncPreviewLoading" class="flex flex-col items-center justify-center py-20 gap-4">
+            <Loader2 class="w-10 h-10 text-brand-accent animate-spin" />
+            <p class="text-sm font-bold text-slate-500 uppercase tracking-widest">Calculando distribuição...</p>
+          </div>
+
+          <template v-else-if="syncPreviews.length">
+            <!-- Header -->
+            <div class="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h2 class="text-lg font-black text-slate-800 tracking-tight">Prévia da Sincronização</h2>
+                  <p class="text-xs text-slate-400 mt-0.5">Revise as alterações antes de confirmar. Esta ação redistribuirá as vendas do mês.</p>
+                </div>
+                <button @click="showSyncModal = false" :disabled="syncConfirmando"
+                        class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-all shrink-0">
+                  <XCircle class="w-4 h-4" />
+                </button>
+              </div>
+
+              <!-- Abas por produto -->
+              <div v-if="syncPreviews.length > 1" class="flex gap-1.5 mt-4 overflow-x-auto pb-0.5">
+                <button v-for="(p, i) in syncPreviews" :key="p.cod_item"
+                        @click="syncAbaAtiva = i; syncDiasExpandido = false"
+                        class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border whitespace-nowrap"
+                        :class="syncAbaAtiva === i
+                          ? 'bg-brand-accent text-white border-brand-accent'
+                          : 'bg-white text-slate-400 border-slate-200 hover:border-brand-accent hover:text-brand-accent'">
+                  {{ p.nome }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Corpo scrollável -->
+            <div class="overflow-y-auto flex-1 px-6 py-5 space-y-4"
+                 v-if="syncPreviews[syncAbaAtiva]">
+              <div :key="syncAbaAtiva">
+
+                <!-- Tabela Antes × Depois -->
+                <div class="rounded-2xl border border-slate-200 overflow-hidden">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="bg-slate-50 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                        <th class="px-4 py-3 text-left"></th>
+                        <th class="px-4 py-3 text-right text-slate-500">ANTES</th>
+                        <th class="px-4 py-3 text-right text-brand-accent">DEPOIS</th>
+                        <th class="px-4 py-3 text-right">Δ</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      <tr v-for="linha in [
+                        { label: 'Abertura do mês',   antes: syncPreviews[syncAbaAtiva].resumo.abertura_antes,   depois: syncPreviews[syncAbaAtiva].resumo.abertura_depois },
+                        { label: 'Total de vendas',   antes: syncPreviews[syncAbaAtiva].resumo.vendas_antes,     depois: syncPreviews[syncAbaAtiva].resumo.vendas_depois },
+                        { label: 'Fechamento do mês', antes: syncPreviews[syncAbaAtiva].resumo.fechamento_antes, depois: syncPreviews[syncAbaAtiva].resumo.fechamento_depois },
+                      ]" :key="linha.label">
+                        <td class="px-4 py-2.5 text-xs font-bold text-slate-600">{{ linha.label }}</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-400 line-through">{{ fNum(linha.antes) }} L</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs font-black text-slate-800">{{ fNum(linha.depois) }} L</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-[11px] font-black"
+                            :class="(linha.depois - linha.antes) === 0 ? 'text-slate-300'
+                                  : (linha.depois - linha.antes) > 0 ? 'text-emerald-600' : 'text-red-500'">
+                          {{ (linha.depois - linha.antes) === 0 ? '—'
+                           : ((linha.depois - linha.antes) > 0 ? '+' : '') + fNum(linha.depois - linha.antes) + ' L' }}
+                        </td>
+                      </tr>
+                      <tr v-if="syncPreviews[syncAbaAtiva].resumo.capacidade > 0" class="bg-slate-50/50">
+                        <td class="px-4 py-2 text-[10px] text-slate-400">Capacidade do tanque</td>
+                        <td colspan="3" class="px-4 py-2 text-right font-mono text-[10px] text-slate-400">{{ fNum(syncPreviews[syncAbaAtiva].resumo.capacidade) }} L</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Avisos de ajuste automático -->
+                <div v-if="syncPreviews[syncAbaAtiva].ajustes.length"
+                     class="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-1.5">
+                  <p class="text-[10px] font-black text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle class="w-3.5 h-3.5" /> Ajustes automáticos aplicados
+                  </p>
+                  <p v-for="a in syncPreviews[syncAbaAtiva].ajustes" :key="a"
+                     class="text-xs text-amber-700 pl-5">• {{ a }}</p>
+                </div>
+                <div v-else class="flex items-center gap-2 text-xs text-emerald-600 font-bold px-1">
+                  <CheckCircle2 class="w-4 h-4" />
+                  Distribuição viável — nenhum ajuste necessário.
+                </div>
+
+                <!-- Detalhes por dia (colapsável) -->
+                <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                  <button @click="syncDiasExpandido = !syncDiasExpandido"
+                          class="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                    <span>Ver distribuição por dia ({{ syncPreviews[syncAbaAtiva].dias.length }} registros)</span>
+                    <ChevronDown v-if="!syncDiasExpandido" class="w-4 h-4 text-slate-400" />
+                    <ChevronUp v-else class="w-4 h-4 text-slate-400" />
+                  </button>
+                  <div v-if="syncDiasExpandido" class="overflow-x-auto border-t border-slate-100">
+                    <table class="w-full text-[11px]">
+                      <thead>
+                        <tr class="bg-slate-50 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                          <th class="px-3 py-2 text-left">Data</th>
+                          <th class="px-3 py-2 text-right">Vendas Antes</th>
+                          <th class="px-3 py-2 text-right text-brand-accent">Vendas Depois</th>
+                          <th class="px-3 py-2 text-right">Estq. Antes</th>
+                          <th class="px-3 py-2 text-right text-brand-accent">Estq. Depois</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-50">
+                        <tr v-for="dia in syncPreviews[syncAbaAtiva].dias" :key="dia.data"
+                            :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'bg-amber-50/40' : ''">
+                          <td class="px-3 py-1.5 font-mono text-slate-500">
+                            {{ new Date(dia.data).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' }) }}
+                          </td>
+                          <td class="px-3 py-1.5 text-right font-mono text-slate-400">{{ fNum(dia.vendas_antes) }}</td>
+                          <td class="px-3 py-1.5 text-right font-mono font-bold"
+                              :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'text-amber-600' : 'text-slate-600'">
+                            {{ fNum(dia.vendas_depois) }}
+                          </td>
+                          <td class="px-3 py-1.5 text-right font-mono text-slate-400">{{ fNum(dia.estoque_antes) }}</td>
+                          <td class="px-3 py-1.5 text-right font-mono font-bold text-slate-700">{{ fNum(dia.estoque_depois) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-4 shrink-0 bg-slate-50/50">
+              <p class="text-[10px] text-slate-400 font-medium">
+                {{ syncPreviews.length > 1 ? `${syncPreviews.length} produtos serão sincronizados.` : '' }}
+              </p>
+              <div class="flex items-center gap-3">
+                <button @click="showSyncModal = false" :disabled="syncConfirmando"
+                        class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all disabled:opacity-50">
+                  Cancelar
+                </button>
+                <button @click="confirmarSincronizacao" :disabled="syncConfirmando"
+                        class="px-6 py-2.5 rounded-xl bg-brand-accent text-white text-sm font-black hover:scale-[1.02] transition-all shadow-lg shadow-brand-accent/20 disabled:opacity-50 flex items-center gap-2">
+                  <Loader2 v-if="syncConfirmando" class="w-4 h-4 animate-spin" />
+                  <CheckCircle2 v-else class="w-4 h-4" />
+                  {{ syncConfirmando ? 'Aplicando...' : 'Confirmar Sincronização' }}
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
+
+<style>
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.2s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+</style>
 
 <style scoped>
 .animate-fade-in {

@@ -1693,10 +1693,11 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
             FROM lmc_movimentacao lmc
             LEFT JOIN sped_produtos p ON lmc.id_sped_arquivo = p.id_sped_arquivo AND lmc.cod_item = p.cod_item
             LEFT JOIN sped_arquivos arq ON lmc.id_sped_arquivo = arq.id
-            LEFT JOIN lmc_tanques_config cfg ON cfg.cnpj = arq.cnpj_empresa AND cfg.cod_item = lmc.cod_item
-            WHERE lmc.id_sped_arquivo = $1 
-              AND COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico) > COALESCE(cfg.capacidade, lmc.cap_tanque) 
-              AND COALESCE(cfg.capacidade, lmc.cap_tanque) > 0;
+            LEFT JOIN lmc_tanques_config cfg ON REGEXP_REPLACE(cfg.cnpj, '[^0-9]', '', 'g') = REGEXP_REPLACE(arq.cnpj_empresa, '[^0-9]', '', 'g') AND cfg.cod_item = lmc.cod_item
+            WHERE lmc.id_sped_arquivo = $1
+              AND cfg.capacidade IS NOT NULL
+              AND cfg.capacidade > 0
+              AND COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico) > cfg.capacidade;
         `;
         const resCapacidade = await dbClient.query(capacidadeQuery, [arquivoId]);
         for (const row of resCapacidade.rows) {
@@ -2418,7 +2419,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
             FULL OUTER JOIN notas_entrada n ON l.cod_item = n.cod_item AND (l.data_mov::date = n.data_entrada::date)
             LEFT JOIN sped_produtos p ON p.id_sped_arquivo = $1 AND p.cod_item = COALESCE(l.cod_item, n.cod_item)
             LEFT JOIN sped_arquivos arq ON arq.id = $1
-            LEFT JOIN lmc_tanques_config cfg ON cfg.cnpj = arq.cnpj_empresa AND cfg.cod_item = COALESCE(l.cod_item, n.cod_item)
+            LEFT JOIN lmc_tanques_config cfg ON REGEXP_REPLACE(cfg.cnpj, '[^0-9]', '', 'g') = REGEXP_REPLACE(arq.cnpj_empresa, '[^0-9]', '', 'g') AND cfg.cod_item = COALESCE(l.cod_item, n.cod_item)
             ORDER BY nome_combustivel, data_movimento;
         `;
         const { rows } = await dbClient.query(query, [arquivoId]);
@@ -2478,6 +2479,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                     val_ganho: ganho_orig,
                     variacao_litros: diffLitre,
                     variacao_percentual: varPerc,
+                    excesso: cap > 0 && fisico > cap ? parseFloat((fisico - cap).toFixed(3)) : 0,
                     status_anp: status
                 });
             });
@@ -2548,6 +2550,356 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
 function getRandomNoise(margin) {
     return (Math.random() * 2 * margin) - margin;
 }
+
+// ─── HELPER: calcula a distribuição de sincronização sem salvar no banco ────────
+async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo_estoque) {
+    // 1. Capacidade configurada
+    const capRes = await dbClient.query(`
+        SELECT SUM(c.capacidade) as cap
+        FROM lmc_tanques_config c
+        JOIN sped_arquivos a ON REGEXP_REPLACE(a.cnpj_empresa,'[^0-9]','','g') = REGEXP_REPLACE(c.cnpj,'[^0-9]','','g')
+        WHERE a.id = $1 AND c.cod_item = $2
+    `, [id_arquivo, cod_item]);
+    const capacidadeTotal = parseFloat(capRes.rows[0]?.cap || 0);
+
+    // 2. Dados consolidados por dia (originais)
+    const { rows: dailyItems } = await dbClient.query(`
+        SELECT data_mov,
+               SUM(vol_entr)   as vol_entr,
+               SUM(vol_saidas) as vol_saidas,
+               SUM(estq_abert) as estq_abert,
+               SUM(fech_fisico) as fech_fisico
+        FROM lmc_movimentacao
+        WHERE id_sped_arquivo = $1 AND cod_item = $2
+        GROUP BY data_mov ORDER BY data_mov ASC
+    `, [id_arquivo, cod_item]);
+
+    if (dailyItems.length === 0) throw new Error('Nenhum registro LMC encontrado.');
+
+    // 3. Todos os registros originais (por tanque)
+    const { rows: originalRows } = await dbClient.query(`
+        SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico
+        FROM lmc_movimentacao
+        WHERE id_sped_arquivo = $1 AND cod_item = $2
+        ORDER BY data_mov ASC, num_tanque ASC
+    `, [id_arquivo, cod_item]);
+
+    const totalEntradas = dailyItems.reduce((s, r) => s + parseFloat(r.vol_entr || 0), 0);
+    const totalVendasOrig = dailyItems.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
+    const fechamentoAntes = dailyItems[dailyItems.length - 1];
+    const aberturaAntes = parseFloat(dailyItems[0].estq_abert || 0);
+    const ajustes = [];
+
+    // 4. Sanidade: abertura não pode ser negativa
+    let aberturaInicialConsolidada = Math.max(0.5, novo_estoque);
+    if (novo_estoque < 0) ajustes.push('Abertura negativa detectada — ajustada para 0,5 L.');
+
+    // 5. Meta de fechamento = físico real do último dia do SPED (medição de bujão)
+    //    Isso garante que o físico permaneça dentro da capacidade do tanque.
+    //    As SAÍDAS absorvem o excesso da nova abertura — NFC-e modelo 65 não tem
+    //    quantidade em litros, então o ajuste é fiscalmente defensável.
+    const fisicoRealUltimoDia = parseFloat(fechamentoAntes.fech_fisico || 0);
+    let targetFechamento = fisicoRealUltimoDia;
+
+    // 6. Travas sobre o FECHAMENTO alvo
+    //    6a. Não pode exceder a capacidade do tanque (segurança física)
+    const vendaMaximaPossivel = aberturaInicialConsolidada + totalEntradas - 0.5;
+    if (capacidadeTotal > 0 && targetFechamento > capacidadeTotal * 0.98) {
+        targetFechamento = capacidadeTotal * 0.98;
+        ajustes.push(`Fechamento limitado a ${targetFechamento.toFixed(3)} L para não exceder a capacidade do tanque (${capacidadeTotal.toFixed(0)} L).`);
+    }
+    //    6b. Não pode ser negativo
+    if (targetFechamento < 0.5) {
+        targetFechamento = 0.5;
+        ajustes.push('Fechamento mínimo ajustado para 0,5 L.');
+    }
+
+    // 7. Converte fechamento alvo em META DE VENDAS para o motor iterativo
+    //    targetReal = saídas totais necessárias para que:
+    //    abertura_nova + entradas - targetReal = targetFechamento
+    //    Regra LMC: escritural de cada dia NÃO pode ficar negativo.
+    //    O motor iterativo e o saneador garantem isso dia a dia.
+    let targetReal = aberturaInicialConsolidada + totalEntradas - targetFechamento;
+    if (targetReal > vendaMaximaPossivel) targetReal = vendaMaximaPossivel;
+    if (targetReal < 0) targetReal = 0;
+
+    // 8. Saneador: duas regras por dia
+    //    a) escritural NÃO pode ficar negativo (regra LMC)
+    //    b) escritural NÃO pode exceder capacidade do tanque (física)
+    //    Se abertura+entradas > capacidade → DEVE vender o excedente naquele dia
+    let calcs = dailyItems.map(row => ({
+        data_mov: row.data_mov,
+        entradasOrig: parseFloat(row.vol_entr || 0),
+        saidaOrig: parseFloat(row.vol_saidas || 0),
+        saidaCalc: parseFloat(row.vol_saidas || 0),
+        fisicoOrig: parseFloat(row.fech_fisico || 0),
+        abertCalc: 0, escrCalc: 0, fisicoCalc: 0
+    }));
+
+    let tempStock = aberturaInicialConsolidada;
+    for (let i = 0; i < calcs.length; i++) {
+        const disponivel = tempStock + calcs[i].entradasOrig;
+        // Limite superior: escritural ≤ 99% da capacidade (física do tanque)
+        const minObrigatorio = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
+        // Limite inferior: escritural ≥ 0.5 L (não pode vender mais do que tem)
+        const maxPermitido = Math.max(minObrigatorio, disponivel - 0.5);
+        calcs[i].saidaCalc = Math.max(calcs[i].saidaCalc, minObrigatorio);
+        calcs[i].saidaCalc = Math.min(calcs[i].saidaCalc, maxPermitido);
+        tempStock = disponivel - calcs[i].saidaCalc;
+    }
+
+    // Após saneador: se as saídas mínimas obrigatórias já excedem targetReal,
+    // sobe targetReal para cobrir (a física do tanque é lei — não dá para vender menos)
+    const totalMinObrigatorio = calcs.reduce((s, c) => s + c.saidaCalc, 0);
+    if (totalMinObrigatorio > targetReal) {
+        targetReal = Math.min(totalMinObrigatorio, vendaMaximaPossivel);
+        ajustes.push(`Saída mínima obrigatória (${totalMinObrigatorio.toFixed(3)} L) excedeu a meta — ajustada para respeitar a capacidade do tanque.`);
+    }
+
+    // Motor iterativo de distribuição
+    let iter = 0;
+    while (iter++ < 100) {
+        const totalCalc = calcs.reduce((s, c) => s + c.saidaCalc, 0);
+        const diff = targetReal - totalCalc;
+        if (Math.abs(diff) <= 0.5) break;
+
+        // Cascata com restrição de capacidade embutida:
+        // a cada dia força saída mínima se abertura+entradas ultrapassar o tanque
+        let runningAb = aberturaInicialConsolidada;
+        calcs.forEach(c => {
+            c.abertCalc = runningAb;
+            const disponivel = c.abertCalc + c.entradasOrig;
+            if (capacidadeTotal > 0) {
+                const minVenda = Math.max(0, disponivel - capacidadeTotal * 0.99);
+                if (c.saidaCalc < minVenda) c.saidaCalc = Math.min(minVenda, disponivel - 0.5);
+            }
+            c.escrCalc = disponivel - c.saidaCalc;
+            c.fisicoCalc = c.escrCalc;
+            runningAb = c.fisicoCalc;
+        });
+
+        const minFuturo = [];
+        let minV = Infinity;
+        for (let i = calcs.length - 1; i >= 0; i--) {
+            if (calcs[i].fisicoCalc < minV) minV = calcs[i].fisicoCalc;
+            minFuturo[i] = minV;
+        }
+
+        if (diff > 0) {
+            // Distribui mais saídas nos dias com maior "headroom" futuro (sem zerar o tanque)
+            const elig = calcs.map((c, i) => ({ c, min: minFuturo[i] })).filter(x => x.min > 0.01);
+            if (!elig.length) break;
+            const tot = elig.reduce((s, x) => s + (x.min - 0.01), 0);
+            if (tot <= 0) break;
+            elig.forEach(x => { x.c.saidaCalc += Math.min(diff * (x.min - 0.01) / tot, x.min - 0.01); });
+        } else {
+            // Reduz saídas proporcionalmente (respeitando mínimos obrigatórios por capacidade)
+            const elig = calcs.filter(c => {
+                const disponivel = c.abertCalc + c.entradasOrig;
+                const minVenda = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
+                return c.saidaCalc > minVenda + 0.001;
+            });
+            if (!elig.length) break;
+            const tot = elig.reduce((s, c) => s + c.saidaCalc, 0);
+            if (tot <= 0) break;
+            const da = Math.abs(diff);
+            elig.forEach(c => {
+                const disponivel = c.abertCalc + c.entradasOrig;
+                const minVenda = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
+                const reducao = Math.min(da * c.saidaCalc / tot, c.saidaCalc - minVenda - 0.001);
+                if (reducao > 0) c.saidaCalc -= reducao;
+            });
+        }
+    }
+
+    // 9. Fase final: cascata com ruído ANP e rateio por tanque
+    const updates = [];
+    const lastClosingByTank = new Map();
+
+    for (let i = 0; i < calcs.length; i++) {
+        const dayCalc = calcs[i];
+        const rowsDoDia = originalRows.filter(r => r.data_mov.getTime() === dayCalc.data_mov.getTime());
+        const totalSaidaOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
+        const totalFisicoOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.fech_fisico || 0), 0);
+
+        dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
+        dayCalc.escrCalc = dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc;
+
+        const volBase = dayCalc.abertCalc + dayCalc.entradasOrig;
+        const maxDiff = volBase * 0.0055;
+        let ruido = getRandomNoise(volBase * 0.003);
+        ruido = Math.min(Math.max(ruido, -maxDiff), maxDiff);
+        dayCalc.fisicoCalc = Math.max(0.5, dayCalc.escrCalc + ruido);
+        if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal) dayCalc.fisicoCalc = capacidadeTotal * 0.99;
+
+        rowsDoDia.forEach(r => {
+            const pSaida = totalSaidaOrig > 0 ? parseFloat(r.vol_saidas || 0) / totalSaidaOrig : 1 / rowsDoDia.length;
+            const pFisico = totalFisicoOrig > 0 ? parseFloat(r.fech_fisico || 0) / totalFisicoOrig : 1 / rowsDoDia.length;
+            const sAjustada = dayCalc.saidaCalc * pSaida;
+            const fAjustado = dayCalc.fisicoCalc * pFisico;
+
+            let aAjustada = lastClosingByTank.get(r.num_tanque);
+            if (aAjustada === undefined) {
+                const totAbertDia = rowsDoDia.reduce((s, x) => s + parseFloat(x.estq_abert || 0), 0);
+                const peso = totAbertDia > 0 ? parseFloat(r.estq_abert || 0) / totAbertDia : 1 / rowsDoDia.length;
+                aAjustada = aberturaInicialConsolidada * peso;
+            }
+
+            const escrTanque = Math.max(0, aAjustada + parseFloat(r.vol_entr || 0) - sAjustada);
+            const diffPG = fAjustado - escrTanque;
+
+            updates.push({
+                id: r.id,
+                abertura: aAjustada, saida: sAjustada, fisico: fAjustado,
+                perda: diffPG < 0 ? Math.abs(diffPG) : 0,
+                ganho: diffPG > 0 ? diffPG : 0,
+                escritural: escrTanque
+            });
+
+            lastClosingByTank.set(r.num_tanque, fAjustado);
+        });
+    }
+
+    // 10. Monta resumo para o preview
+    const fechamentoDepois = calcs[calcs.length - 1].fisicoCalc;
+    const totalVendasDepois = calcs.reduce((s, c) => s + c.saidaCalc, 0);
+
+    const dias = calcs.map(c => ({
+        data: c.data_mov,
+        vendas_antes: parseFloat(c.saidaOrig.toFixed(3)),
+        vendas_depois: parseFloat(c.saidaCalc.toFixed(3)),
+        estoque_antes: parseFloat(c.fisicoOrig.toFixed(3)),
+        estoque_depois: parseFloat(c.fisicoCalc.toFixed(3))
+    }));
+
+    return {
+        cod_item,
+        resumo: {
+            abertura_antes:   parseFloat(aberturaAntes.toFixed(3)),
+            abertura_depois:  parseFloat(aberturaInicialConsolidada.toFixed(3)),
+            vendas_antes:     parseFloat(totalVendasOrig.toFixed(3)),
+            vendas_depois:    parseFloat(totalVendasDepois.toFixed(3)),
+            fechamento_antes: parseFloat((parseFloat(fechamentoAntes.fech_fisico) || 0).toFixed(3)),
+            fechamento_depois: parseFloat(fechamentoDepois.toFixed(3)),
+            capacidade:       capacidadeTotal,
+            target_calculado: parseFloat(targetReal.toFixed(3))
+        },
+        ajustes,
+        dias,
+        updates // usado pelo endpoint de confirmação
+    };
+}
+
+// ─── PREVIEW: mostra o antes/depois sem salvar ───────────────────────────────
+app.post('/api/lmc/preview-sincronizacao', authMiddleware, async (req, res) => {
+    const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
+    if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
+
+    const dbClient = await pool.connect();
+    try {
+        const previews = [];
+        for (const item of itens) {
+            const preview = await calcularSincronizacaoPreview(dbClient, item.id_arquivo, item.cod_item, parseFloat(item.novo_estoque));
+            previews.push(preview);
+        }
+        res.json({ previews });
+    } catch (e) {
+        logger.error('Erro no preview de sincronização:', e);
+        res.status(500).json({ error: e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// ─── CONFIRMAR: calcula e salva em transação única ───────────────────────────
+app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, async (req, res) => {
+    const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
+    if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        await dbClient.query('ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS estq_abert_ajustado NUMERIC(15,3)');
+
+        for (const item of itens) {
+            const { updates } = await calcularSincronizacaoPreview(dbClient, item.id_arquivo, item.cod_item, parseFloat(item.novo_estoque));
+            for (const up of updates) {
+                await dbClient.query(`
+                    UPDATE lmc_movimentacao
+                    SET estq_abert_ajustado = $1, vol_saidas_ajustado = $2, fech_fisico_ajustado = $3,
+                        val_perda_ajustado = $4, val_ganho_ajustado = $5, vol_escr_ajustado = $6,
+                        vol_entr_ajustado = vol_entr
+                    WHERE id = $7
+                `, [up.abertura, up.saida, up.fisico, up.perda, up.ganho, up.escritural, up.id]);
+            }
+        }
+
+        await dbClient.query('COMMIT');
+        res.json({ success: true, message: `${itens.length} produto(s) sincronizados e redistribuídos com sucesso.` });
+    } catch (e) {
+        await dbClient.query('ROLLBACK');
+        logger.error('Erro ao confirmar sincronização:', e);
+        res.status(500).json({ error: e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// ─── CORRIGIR DISTRIBUIÇÃO: aplica delta-shift (abertura nova - abertura original) ─
+// Abordagem definitiva: se abertura subiu +X, físico de TODOS os dias sobe +X.
+// Saídas voltam ao original. Preserva os padrões ANP originais dia a dia.
+app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
+    const { id_arquivo, cod_item } = req.body;
+    if (!id_arquivo || !cod_item) return res.status(400).json({ error: 'Parâmetros inválidos.' });
+
+    const dbClient = await pool.connect();
+    try {
+        // Lê a abertura já sincronizada no 1º dia
+        const abertRes = await dbClient.query(`
+            SELECT COALESCE(SUM(estq_abert_ajustado), SUM(estq_abert)) AS abertura,
+                   SUM(estq_abert_ajustado) AS abertura_ajustada_raw
+            FROM lmc_movimentacao
+            WHERE id_sped_arquivo = $1 AND cod_item = $2
+              AND data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = $2)
+        `, [id_arquivo, cod_item]);
+
+        const aberturaAjustada = parseFloat(abertRes.rows[0]?.abertura || 0);
+        const temAjuste = abertRes.rows[0]?.abertura_ajustada_raw !== null;
+
+        if (!temAjuste) {
+            return res.status(400).json({ error: 'Nenhuma abertura sincronizada encontrada. Sincronize o estoque inicial primeiro.' });
+        }
+
+        // Reutiliza o motor de distribuição (que respeita capacidade e escritural ≥ 0)
+        // targetFechamento = físico real do SPED → saídas absorvem o excesso da nova abertura
+        const { updates, resumo } = await calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, aberturaAjustada);
+
+        await dbClient.query('BEGIN');
+        for (const up of updates) {
+            await dbClient.query(`
+                UPDATE lmc_movimentacao
+                SET estq_abert_ajustado = $1,
+                    vol_saidas_ajustado = $2,
+                    fech_fisico_ajustado = $3,
+                    val_perda_ajustado = $4,
+                    val_ganho_ajustado = $5,
+                    vol_escr_ajustado = $6,
+                    vol_entr_ajustado = vol_entr
+                WHERE id = $7
+            `, [up.abertura, up.saida, up.fisico, up.perda, up.ganho, up.escritural, up.id]);
+        }
+        await dbClient.query('COMMIT');
+
+        logger.info(`Correcao distribuicao: arquivo=${id_arquivo} cod_item=${cod_item} abertura=${aberturaAjustada.toFixed(3)} vendas_antes=${resumo.vendas_antes.toFixed(3)} vendas_depois=${resumo.vendas_depois.toFixed(3)}`);
+        res.json({ success: true, resumo });
+    } catch (e) {
+        await dbClient.query('ROLLBACK');
+        logger.error('Erro ao corrigir distribuição:', e);
+        res.status(500).json({ error: e.message });
+    } finally {
+        dbClient.release();
+    }
+});
 
 app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
     const { id_arquivo, cod_item, volume_alvo } = req.body;
