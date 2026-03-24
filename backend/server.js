@@ -765,6 +765,141 @@ function validarXmls(itens, cnpjSped, periodoSped, forcePeriodo) {
     }
     return { bloqueados, avisos };
 }
+
+// --- HELPERS LMC PÓS-INJEÇÃO DE XML ---
+const NCM_COMBUSTIVEL_MAP = {
+    '27101259': 'GASOLINA',
+    '27101912': 'GASOLINA ADITIVADA',
+    '27101921': 'OLEO DIESEL',
+    '27101922': 'OLEO DIESEL S10',
+    '22071000': 'ALCOOL ETILICO',
+    '27112100': 'GAS NATURAL',
+};
+const CFOP_COMBUSTIVEL_SET = new Set(['1652', '2652', '1653', '2653']);
+
+function mapNcmCodItemSped(spedPath) {
+    // Lê registros 0200 do arquivo SPED e retorna Map<ncm → cod_item[]>
+    const map = new Map();
+    try {
+        const lines = fs.readFileSync(spedPath, 'latin1').split(/\r?\n/);
+        for (const line of lines) {
+            if (!line.startsWith('|0200|')) continue;
+            const p = line.split('|');
+            const cod = (p[2] || '').trim();
+            const ncm = (p[8] || '').replace(/\D/g, '');
+            if (cod && ncm) {
+                if (!map.has(ncm)) map.set(ncm, []);
+                if (!map.get(ncm).includes(cod)) map.get(ncm).push(cod);
+            }
+        }
+    } catch (_) {}
+    return map;
+}
+
+function detectarCombustivelNfe(parsedNotes) {
+    // Retorna itens de combustível encontrados nas NF-es parseadas
+    const result = [];
+    for (const nota of parsedNotes) {
+        const dtDoc = nota.c100?.dt_doc;
+        for (const item of (nota.itens || [])) {
+            const ncm = String(item.ncm || '').replace(/\D/g, '');
+            const cfop = String(item.cfop || '');
+            if (NCM_COMBUSTIVEL_MAP[ncm] || CFOP_COMBUSTIVEL_SET.has(cfop)) {
+                result.push({
+                    dt_doc: dtDoc,
+                    ncm,
+                    cfop,
+                    qcom: parseFloat(item.qcom || 0),
+                    descr: item.descr_item || NCM_COMBUSTIVEL_MAP[ncm] || 'Combustivel',
+                });
+            }
+        }
+    }
+    return result;
+}
+
+async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov, volume) {
+    // Atualiza linha consolidada (num_tanque = '0')
+    const res = await dbClient.query(`
+        UPDATE lmc_movimentacao
+        SET vol_entr          = vol_entr + $1,
+            estq_escr         = estq_abert + (vol_entr + $1) - vol_saidas,
+            vol_entr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
+                                     THEN vol_entr_ajustado + $1 ELSE NULL END,
+            vol_escr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
+                                     THEN COALESCE(estq_abert_ajustado, estq_abert)
+                                          + (vol_entr_ajustado + $1)
+                                          - COALESCE(vol_saidas_ajustado, vol_saidas)
+                                     ELSE NULL END
+        WHERE id_sped_arquivo = $2 AND cod_item = $3 AND data_mov = $4 AND num_tanque = '0'
+        RETURNING id
+    `, [volume, id_arquivo, cod_item, data_mov]);
+
+    if (res.rowCount === 0) return false;
+
+    // Distribui igualmente entre tanques individuais
+    const tankRows = await dbClient.query(`
+        SELECT id FROM lmc_movimentacao
+        WHERE id_sped_arquivo = $1 AND cod_item = $2 AND data_mov = $3 AND num_tanque != '0'
+    `, [id_arquivo, cod_item, data_mov]);
+
+    if (tankRows.rows.length > 0) {
+        const perTank = volume / tankRows.rows.length;
+        for (const row of tankRows.rows) {
+            await dbClient.query(`
+                UPDATE lmc_movimentacao
+                SET vol_entr          = vol_entr + $1,
+                    estq_escr         = estq_abert + (vol_entr + $1) - vol_saidas,
+                    vol_entr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
+                                             THEN vol_entr_ajustado + $1 ELSE NULL END,
+                    vol_escr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
+                                             THEN COALESCE(estq_abert_ajustado, estq_abert)
+                                                  + (vol_entr_ajustado + $1)
+                                                  - COALESCE(vol_saidas_ajustado, vol_saidas)
+                                             ELSE NULL END
+                WHERE id = $2
+            `, [perTank, row.id]);
+        }
+    }
+    return true;
+}
+
+async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedPath, parsedNotes) {
+    const combustiveis = detectarCombustivelNfe(parsedNotes);
+    if (combustiveis.length === 0) return [];
+
+    const ncmMap = mapNcmCodItemSped(spedPath);
+    const atualizados = [];
+    const dbClient = await poolOrClient.connect();
+
+    try {
+        await dbClient.query('BEGIN');
+
+        for (const item of combustiveis) {
+            if (item.qcom <= 0) continue;
+            const candidatos = ncmMap.get(item.ncm) || [];
+            if (candidatos.length === 0) {
+                atualizados.push({ ...item, cod_item: null, status: 'ncm_sem_mapeamento' });
+                continue;
+            }
+            for (const cod_item of candidatos) {
+                const ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, item.dt_doc, item.qcom);
+                atualizados.push({ ...item, cod_item, status: ok ? 'atualizado' : 'data_nao_encontrada' });
+            }
+        }
+
+        await dbClient.query('COMMIT');
+    } catch (e) {
+        await dbClient.query('ROLLBACK');
+        logger.error('[LMC pós-injeção] Erro ao atualizar entradas:', e.message);
+    } finally {
+        dbClient.release();
+    }
+
+    return atualizados;
+}
+// --- FIM HELPERS LMC PÓS-INJEÇÃO ---
+
 // --- HELPER PARA EXTRAIR DADOS DO XML DA NF-e ---
 const extractNfeData = (nfeNode) => {
     if (!nfeNode || !nfeNode.infNFe) return null;
@@ -1211,14 +1346,19 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                 fs.writeFileSync(fullSpedPath, finalSpedString, { encoding: 'latin1' });
                 const totalLinhas = finalSpedString.split('\n').length;
 
+                // Atualiza entradas de combustível no LMC quando aplicável
+                const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes);
+
                 return res.json({
                     message: 'Injeção concluída com sucesso.',
                     detalhes: {
                         sped_id: idSpedBase,
                         nome_arquivo: spedBaseObj.nome_arquivo,
+                        periodo: spedBaseObj.periodo_apuracao,
                         total_xml_injetados: parsedNotes.length,
                         total_linhas_sped: totalLinhas,
-                        estatisticas: spedDataPayload.relatorio
+                        estatisticas: spedDataPayload.relatorio,
+                        lmc_atualizados: lmcAtualizados
                     },
                     erros
                 });
@@ -1340,6 +1480,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         const resultadosGrupos = [];
         let totalInjetados = 0;
         let linhasAtuais = null; // array de linhas em memória, atualizado a cada grupo
+        const todasNotasInjetadas = []; // acumula notas de todos os grupos para LMC
 
         for (let i = 0; i < gruposConfig.length; i++) {
             const config = gruposConfig[i];
@@ -1414,6 +1555,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
 
             // Registra chaves injetadas para controle de duplicatas nos próximos grupos
             notasParaInjetar.forEach(n => { if (n.c100?.chv_nfe) chavesExistentes.add(n.c100.chv_nfe); });
+            todasNotasInjetadas.push(...notasParaInjetar);
             totalInjetados += notasParaInjetar.length;
             resultadosGrupos.push({ grupo: i + 1, status: 'ok', injetados: notasParaInjetar.length });
         }
@@ -1431,6 +1573,9 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         const finalStr = linhasAtuais.join('\r\n') + '\r\n';
         fs.writeFileSync(fullSpedPath, finalStr, { encoding: 'latin1' });
 
+        // Atualiza entradas de combustível no LMC quando aplicável
+        const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas);
+
         limparTemps();
         return res.json({
             message: 'Grupos injetados com sucesso.',
@@ -1439,7 +1584,8 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
                 nome_arquivo: spedBaseObj.nome_arquivo,
                 total_xml_injetados: totalInjetados,
                 total_linhas_sped: linhasAtuais.length,
-                grupos: resultadosGrupos
+                grupos: resultadosGrupos,
+                lmc_atualizados: lmcAtualizados
             }
         });
 

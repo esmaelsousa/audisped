@@ -161,6 +161,7 @@ async function ejetarTodosGrupos() {
             }
         });
 
+        exibirLogLmc(det.lmc_atualizados);
         successInjectedId.value = idSpedBase.value;
     } catch (e) {
         const data = e.response?.data;
@@ -195,6 +196,25 @@ async function ejetarTodosGrupos() {
     } finally {
         isLoading.value = false;
     }
+}
+
+// --- Helper: log LMC atualizado pós-injeção ---
+function exibirLogLmc(lmcAtualizados) {
+    if (!lmcAtualizados || lmcAtualizados.length === 0) return;
+    const atualizados = lmcAtualizados.filter(l => l.status === 'atualizado');
+    const semMapa    = lmcAtualizados.filter(l => l.status === 'ncm_sem_mapeamento');
+    const semData    = lmcAtualizados.filter(l => l.status === 'data_nao_encontrada');
+    if (atualizados.length > 0) {
+        logs.value.push('[LMC] Entradas de combustível atualizadas automaticamente:');
+        atualizados.forEach(l => logs.value.push(`  + ${l.descr} | ${l.qcom.toFixed(3)} L | data ${l.dt_doc} | cod ${l.cod_item}`));
+        logs.value.push('[LMC] Verifique a necessidade de re-sincronizar o LMC.');
+    }
+    if (semMapa.length > 0) {
+        logs.value.push('[LMC] Combustível detectado sem mapeamento NCM no SPED (produto novo?):');
+        semMapa.forEach(l => logs.value.push(`  ! NCM ${l.ncm} — ${l.descr} — ${l.qcom.toFixed(3)} L`));
+    }
+    if (semData.length > 0)
+        semData.forEach(l => logs.value.push(`  ! LMC: data ${l.dt_doc} não encontrada para ${l.cod_item}`));
 }
 
 // --- Modal de confirmação de período ---
@@ -326,6 +346,7 @@ async function parseXmls(forceReplace = false) {
             logs.value.push(`→ XMLs injetados: ${data.detalhes.total_xml_injetados}`);
             logs.value.push(`→ Total linhas no SPED agora: ${data.detalhes.total_linhas_sped}`);
             logs.value.push('[INFO] Arquivo salvo no disco.');
+            exibirLogLmc(data.detalhes.lmc_atualizados);
             
             if (isDashboardView.value) {
                 alert("Injeção realizada com sucesso! Você já pode baixar o arquivo.");
