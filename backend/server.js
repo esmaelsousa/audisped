@@ -5054,6 +5054,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (nAbert < 0) nAbert = 0.5;
 
                 let nDisp = Number((nAbert + nEntr).toFixed(3));
+                // Escudo por tanque: saída nunca excede disponível (dados legados ou arredondamento)
+                if (nSaida > nDisp - 0.001) nSaida = Math.max(0, Number((nDisp - 0.001).toFixed(3)));
                 let nEscr = Number((nDisp - nSaida).toFixed(3));
                 let nFisico = Number((nEscr - nPerda + nGanho).toFixed(3));
 
@@ -5261,6 +5263,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                         let novoSaida = Number(oldSaida.toFixed(3));
                         if (aj.vol_saidas_ajustado !== null) novoSaida = Number(parseFloat(aj.vol_saidas_ajustado).toFixed(3));
+                        // Escudo de exportação: saída nunca pode exceder disponível (evita ESTQ_ESCR negativo)
+                        if (novoSaida > disp - 0.001) novoSaida = Math.max(0, Number((disp - 0.001).toFixed(3)));
                         fields[7] = novoSaida.toFixed(3).replace('.', ',');
 
                         const escr = Number((disp - novoSaida).toFixed(3));
