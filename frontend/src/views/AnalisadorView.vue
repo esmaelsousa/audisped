@@ -83,11 +83,9 @@ const targetVolume = ref(0);
 const savingOtimizacao = ref(false);
 
 // --- Accordion LMC por Combustível ---
-const expandedFuels = ref(new Set());
+const expandedFuels = ref({});
 function toggleFuel(cod) {
-    const s = new Set(expandedFuels.value);
-    s.has(cod) ? s.delete(cod) : s.add(cod);
-    expandedFuels.value = s;
+    expandedFuels.value = { ...expandedFuels.value, [cod]: !expandedFuels.value[cod] };
 }
 function lmcDoCombustivel(cod) {
     return filteredLmc.value.filter(item => item.cod_item === cod);
@@ -499,6 +497,42 @@ async function startOtimizacao() {
 // --- Edição Manual de Estoque Inicial (Fase 20) ---
 const editingStock = ref({}); // Ex: { "01": 5000 }
 const savingStock = ref(false);
+
+// --- Edição Manual de Saída por Dia (cascata) ---
+const editingSaida = ref({}); // chave: "cod_item|data_movimento"
+const savingSaida = ref(false);
+
+function toggleEditSaida(codItem, dataMov, valorAtual) {
+    const key = `${codItem}|${dataMov}`;
+    if (editingSaida.value[key] !== undefined) {
+        delete editingSaida.value[key];
+    } else {
+        editingSaida.value[key] = valorAtual;
+    }
+}
+
+async function saveEditSaida(codItem, dataMov) {
+    const key = `${codItem}|${dataMov}`;
+    const novoValor = editingSaida.value[key];
+    if (novoValor === undefined || !idArquivoSped.value) return;
+    savingSaida.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/lmc/ajustar-cascata`, {
+            id_sped: idArquivoSped.value,
+            cod_item: codItem,
+            data_mov: dataMov,
+            vol_saidas_ajustado: parseFloat(novoValor)
+        }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        delete editingSaida.value[key];
+        await runAnalysis(false);
+        await loadLmcDetailed();
+    } catch (e) {
+        alert('Erro ao salvar saída: ' + (e.response?.data?.error || e.message));
+    } finally {
+        savingSaida.value = false;
+    }
+}
 
 // --- Continuidade de Estoque entre Meses ---
 const continuidade = ref({ tem_mes_anterior: false, divergencias: [] });
@@ -1624,7 +1658,7 @@ const getStatusColor = (score) => {
                     <div class="flex items-center gap-3">
                         <!-- Seta expand/collapse -->
                         <span class="text-slate-400 transition-transform duration-200 text-xs"
-                              :class="expandedFuels.has(comb.cod) ? 'rotate-90' : ''">▶</span>
+                              :class="expandedFuels[comb.cod] ? 'rotate-90' : ''">▶</span>
                         <div class="w-1 h-5 bg-brand-accent rounded-full"></div>
                         <span class="text-sm font-black text-slate-800 uppercase tracking-tight">{{ comb.nome }}</span>
                         <span class="text-[9px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">{{ comb.cod }}</span>
@@ -1634,7 +1668,23 @@ const getStatusColor = (score) => {
                     <div class="flex items-center gap-2 ml-4 flex-wrap justify-end">
                         <div class="flex flex-col items-end">
                             <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Est. Inicial</span>
-                            <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueInicial) }}</span>
+                            <div v-if="editingStock[comb.cod] === undefined" class="flex items-center gap-1">
+                                <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueInicial) }}</span>
+                                <button @click.stop="toggleEditStock(comb.cod, comb.estoqueInicial)"
+                                        class="text-[10px] text-slate-400 hover:text-brand-accent transition-colors leading-none"
+                                        title="Ajustar estoque inicial">✏️</button>
+                            </div>
+                            <div v-else class="flex items-center gap-1" @click.stop>
+                                <input v-model="editingStock[comb.cod]" type="number" step="0.001"
+                                       class="bg-white border border-slate-200 rounded px-2 py-0.5 text-xs font-black focus:ring-1 focus:ring-brand-accent outline-none w-28">
+                                <button @click.stop="saveInitialStock(comb.cod)" :disabled="savingStock"
+                                        class="bg-emerald-500 text-white rounded px-2 py-0.5 text-xs hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                                    <Loader2 v-if="savingStock" class="w-3 h-3 animate-spin inline"/>
+                                    <span v-else>Salvar</span>
+                                </button>
+                                <button @click.stop="delete editingStock[comb.cod]"
+                                        class="text-xs text-slate-400 hover:text-slate-600 px-1">✕</button>
+                            </div>
                         </div>
                         <div class="w-px h-6 bg-slate-100"></div>
                         <div class="flex flex-col items-end">
@@ -1670,7 +1720,7 @@ const getStatusColor = (score) => {
                 </div>
 
                 <!-- Tabela expandível -->
-                <div v-if="expandedFuels.has(comb.cod)" class="border-t border-slate-100">
+                <div v-if="expandedFuels[comb.cod]" class="border-t border-slate-100">
                     <!-- Edição estoque inicial -->
                     <div class="px-4 py-2 bg-slate-50/50 flex items-center gap-3 border-b border-slate-100">
                         <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Est. Inicial do Mês:</span>
@@ -1696,6 +1746,7 @@ const getStatusColor = (score) => {
                                     <th class="px-4 py-2.5 text-center whitespace-nowrap">Capacidade</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Est. Inicial</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Entradas</th>
+                                    <th class="px-4 py-2.5 text-right text-orange-400 whitespace-nowrap">Saídas ✏️</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Escritural</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Físico</th>
                                     <th class="px-4 py-2.5 text-right border-l border-slate-100 whitespace-nowrap">Diferença (L)</th>
@@ -1712,6 +1763,29 @@ const getStatusColor = (score) => {
                                     </td>
                                     <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_abert_final || item.estq_abert) }}</td>
                                     <td class="px-4 py-2 text-right font-mono text-xs text-emerald-600">{{ formatNumber(item.vol_entr_lmc) }}</td>
+                                    <!-- Saídas editável -->
+                                    <td class="px-4 py-2 text-right font-mono text-xs text-amber-700 bg-orange-50/30">
+                                        <div v-if="editingSaida[`${item.cod_item}|${item.data_movimento}`] === undefined"
+                                             class="flex items-center justify-end gap-1">
+                                            <span>{{ formatNumber(item.vol_saidas_final) }}</span>
+                                            <button @click="toggleEditSaida(item.cod_item, item.data_movimento, item.vol_saidas_final)"
+                                                    class="text-[10px] text-slate-400 hover:text-orange-500 transition-colors"
+                                                    title="Editar saída deste dia">✏️</button>
+                                        </div>
+                                        <div v-else class="flex items-center justify-end gap-1">
+                                            <input v-model="editingSaida[`${item.cod_item}|${item.data_movimento}`]"
+                                                   type="number" step="0.001"
+                                                   class="bg-white border border-orange-300 rounded px-1.5 py-0.5 text-xs font-black focus:ring-1 focus:ring-orange-400 outline-none w-24">
+                                            <button @click="saveEditSaida(item.cod_item, item.data_movimento)"
+                                                    :disabled="savingSaida"
+                                                    class="bg-orange-500 text-white rounded px-1.5 py-0.5 text-[10px] hover:bg-orange-600 disabled:opacity-50 transition-colors">
+                                                <span v-if="savingSaida">...</span>
+                                                <span v-else>OK</span>
+                                            </button>
+                                            <button @click="delete editingSaida[`${item.cod_item}|${item.data_movimento}`]"
+                                                    class="text-[10px] text-slate-400 hover:text-slate-600">✕</button>
+                                        </div>
+                                    </td>
                                     <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_escr_final) }}</td>
                                     <td class="px-4 py-2 text-right font-mono text-xs font-black text-slate-800">{{ formatNumber(item.fech_fisico_final) }}</td>
                                     <td class="px-4 py-2 text-right border-l border-slate-50">

@@ -200,6 +200,7 @@ async function recalcularTudo() {
                 .sort((a,b) => new Date(a.data_movimento) - new Date(b.data_movimento));
 
             let runningAberturaLab = null;
+            let cascadeModified = false; // true a partir do dia em que algo mudou
 
             items.forEach((row, index) => {
                 const aberturaSped = parseFloat(row.estq_abert || 0);
@@ -230,13 +231,33 @@ async function recalcularTudo() {
                 const aberturaLab0 = row.estq_abert_ajustado !== null ? parseFloat(row.estq_abert_ajustado) : aberturaSped;
                 const aberturaLab = (index === 0) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
                 const saidaLab = parseFloat(row.edit_value ?? saidaSped);
-                const fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoSped);
                 const volumeBaseLab = aberturaLab + entrLab;
-                const difBruta = fisicoLab - (aberturaLab + entrLab - saidaLab);
+                const escrLab = Math.max(0, aberturaLab + entrLab - saidaLab);
+
+                // Detecta se algo mudou neste dia ou veio em cascata de um dia anterior
+                const saidaEditada = parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3);
+                const aberturaAlterada = index > 0 && Math.abs(aberturaLab - (parseFloat(row.estq_abert_ajustado ?? aberturaSped))).toFixed(3) > 0.001;
+                if (saidaEditada || aberturaAlterada) cascadeModified = true;
+
+                let fisicoLab;
+                if (cascadeModified) {
+                    // Recalcula o físico a partir do novo escritural mantendo % ANP original (cap 0,6%)
+                    const baseOrig = aberturaSped + entradas;
+                    const pctPerda = baseOrig > 0 ? parseFloat(row.val_perda || 0) / baseOrig : 0;
+                    const pctGanho = baseOrig > 0 ? parseFloat(row.val_ganho || 0) / baseOrig : 0;
+                    const perdaNova = Math.min(pctPerda * volumeBaseLab, volumeBaseLab * 0.006);
+                    const ganhoNovo = Math.min(pctGanho * volumeBaseLab, volumeBaseLab * 0.006);
+                    fisicoLab = Math.max(0.5, escrLab + ganhoNovo - perdaNova);
+                    // Sincroniza o campo de entrada do físico para refletir o valor recalculado
+                    row.fisico_edit_value = parseFloat(fisicoLab.toFixed(3));
+                } else {
+                    fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoSped);
+                }
+
+                const difBruta = fisicoLab - escrLab;
                 const perdaLab = difBruta < 0 ? Math.abs(difBruta) : 0;
                 const ganhoLab = difBruta > 0 ? difBruta : 0;
                 const percentualLab = volumeBaseLab > 0 ? (Math.abs(difBruta) / volumeBaseLab) * 100 : 0;
-                const escrLab = aberturaLab + entrLab - saidaLab;
                 row.lab = {
                     estq_abert: aberturaLab,
                     vol_entr: entrLab,
@@ -249,7 +270,7 @@ async function recalcularTudo() {
                     percentual: percentualLab,
                     ultrapassou_limite: percentualLab > 0.601,
                     is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
-                    is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
+                    is_saida_edited: saidaEditada,
                     is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),
                     is_entr_edited: parseFloat(entrLab).toFixed(3) !== entradas.toFixed(3)
                 };
@@ -353,7 +374,7 @@ function toggleDay(date) {
 async function salvarAjuste(row) {
     const finalSaida = parseFloat(row.edit_value) === parseFloat(row.vol_saidas) ? null : row.edit_value;
     const finalFisico = parseFloat(row.fisico_edit_value) === parseFloat(row.fech_fisico) ? null : row.fisico_edit_value;
-    
+
     savingDate.value = row.data_movimento;
     try {
         await axios.post(`${API_BASE_URL}/api/lmc/ajustar-lote`, {
@@ -371,6 +392,43 @@ async function salvarAjuste(row) {
     } catch (error) {
         alert('Erro ao salvar o ajuste.');
         console.error(error);
+    } finally {
+        savingDate.value = null;
+    }
+}
+
+// Salva a venda editada e propaga a cascata para todos os dias seguintes no banco
+async function salvarSaidaComCascata(row) {
+    const id_sped = route.params.id || arquivoInfo.value?.id;
+    savingDate.value = row.data_movimento;
+    try {
+        await axios.post(`${API_BASE_URL}/api/lmc/ajustar-cascata`, {
+            id_sped,
+            cod_item: row.cod_item,
+            data_mov: row.data_movimento,
+            vol_saidas_ajustado: parseFloat(row.edit_value)
+        });
+        // Recarga silenciosa: atualiza os dados sem exibir o overlay de loading
+        const response = await axios.get(`${API_BASE_URL}/api/lmc/${id_sped}`);
+        response.data.forEach(serverRow => {
+            const local = lmcData.value.find(r =>
+                r.cod_item === serverRow.cod_item &&
+                r.data_movimento === serverRow.data_movimento
+            );
+            if (local) {
+                local.estq_abert_ajustado = serverRow.estq_abert_ajustado;
+                local.vol_saidas_ajustado = serverRow.vol_saidas_ajustado;
+                local.fech_fisico_ajustado = serverRow.fech_fisico_ajustado;
+                local.vol_escr_ajustado = serverRow.vol_escr_ajustado;
+                local.val_perda_ajustado = serverRow.val_perda_ajustado;
+                local.val_ganho_ajustado = serverRow.val_ganho_ajustado;
+                local.edit_value = serverRow.vol_saidas_ajustado !== null ? serverRow.vol_saidas_ajustado : serverRow.vol_saidas;
+                local.fisico_edit_value = serverRow.fech_fisico_ajustado !== null ? serverRow.fech_fisico_ajustado : serverRow.fech_fisico;
+            }
+        });
+        await recalcularTudo();
+    } catch (error) {
+        alert('Erro ao salvar com cascata: ' + (error.response?.data?.error || error.message));
     } finally {
         savingDate.value = null;
     }
@@ -802,6 +860,12 @@ async function exportarSped() {
                                                 :class="row.lab.is_saida_edited ? 'text-orange-500' : 'text-slate-700'"
                                                 step="0.001"
                                             />
+                                            <button @click="salvarSaidaComCascata(row)"
+                                                :disabled="savingDate === row.data_movimento"
+                                                class="bg-orange-100 hover:bg-orange-200 text-orange-700 px-2 py-1 text-[10px] font-black h-full border-l border-orange-200 transition-colors disabled:opacity-50"
+                                                title="Salvar venda e atualizar cascata dos dias seguintes">
+                                                {{ savingDate === row.data_movimento ? '...' : '✔' }}
+                                            </button>
                                         </div>
                                         <template v-if="row.lab.is_saida_edited">
                                             <span class="text-[9px] text-slate-400 block font-bold leading-none">

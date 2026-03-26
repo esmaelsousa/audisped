@@ -171,7 +171,6 @@ async function ejetarTodosGrupos() {
             data.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → CNPJ XML: ${b.cnpj_xml} | CNPJ SPED: ${b.cnpj_sped}`));
             gruposAtivos.forEach(g => { g.status = 'erro'; });
         } else if (data?.tipo === 'periodo_divergente') {
-            // Salva FormData para reenvio com force_periodo
             _pendingFdNfe = fd;
             _pendingGruposAtivos = gruposAtivos;
             _pendingEndpointNfe = 'grupos';
@@ -239,6 +238,7 @@ async function confirmarForcePeriodo() {
                 successInjectedId.value = idSpedBase.value;
                 logs.value.push('[SUCCESS] ' + data.message);
                 logs.value.push(`→ XMLs injetados: ${data.detalhes.total_xml_injetados}`);
+                exibirLogLmc(data.detalhes.lmc_atualizados);
                 xmlFiles.value = [];
             }
         } else {
@@ -248,6 +248,7 @@ async function confirmarForcePeriodo() {
             const det = res.data.detalhes;
             logs.value.push('[SUCCESS] ' + res.data.message);
             logs.value.push(`→ XMLs injetados: ${det.total_xml_injetados}`);
+            exibirLogLmc(det.lmc_atualizados);
             successInjectedId.value = idSpedBase.value;
         }
     } catch (e) {

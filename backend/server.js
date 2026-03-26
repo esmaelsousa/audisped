@@ -513,8 +513,8 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
 
         // Inserir Produtos (0200)
         for (const p of produtos) {
-            const prodQuery = 'INSERT INTO sped_produtos (id_sped_arquivo, cod_item, descr_item) VALUES ($1, $2, $3) ON CONFLICT (id_sped_arquivo, cod_item) DO NOTHING';
-            await dbClient.query(prodQuery, [sped_arquivo_id, p.cod_item, p.descr_item]);
+            const prodQuery = 'INSERT INTO sped_produtos (id_sped_arquivo, cod_item, descr_item, ncm) VALUES ($1, $2, $3, $4) ON CONFLICT (id_sped_arquivo, cod_item) DO UPDATE SET ncm = EXCLUDED.ncm';
+            await dbClient.query(prodQuery, [sped_arquivo_id, p.cod_item, p.descr_item, p.ncm || null]);
         }
         logger.info(`Passo 5.5: Produtos (0200) inseridos.`);
 
@@ -745,12 +745,15 @@ function parsePeriodoSped(periodoStr) {
 
 function dataForaPeriodo(dtStr, periodo) {
     if (!dtStr || !periodo.inicio || !periodo.fim) return false;
-    const dt = new Date(dtStr); // YYYY-MM-DD
+    // Parse YYYY-MM-DD em horário local para evitar erros de fuso (UTC vs local)
+    const [y, m, d] = dtStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
     return dt < periodo.inicio || dt > periodo.fim;
 }
 
 function validarXmls(itens, cnpjSped, periodoSped, forcePeriodo) {
     // itens: [{ arquivo, cnpjDest, dtDoc }]
+    // forcePeriodo=true: usuário confirmou o alerta e permite XMLs fora do período
     const bloqueados = [];
     const avisos = [];
     const periodo = parsePeriodoSped(periodoSped);
@@ -773,6 +776,8 @@ const NCM_COMBUSTIVEL_MAP = {
     '27101921': 'OLEO DIESEL',
     '27101922': 'OLEO DIESEL S10',
     '22071000': 'ALCOOL ETILICO',
+    '22071090': 'ALCOOL ETILICO HIDRATADO',
+    '22071010': 'ALCOOL ETILICO ANIDRO',
     '27112100': 'GAS NATURAL',
 };
 const CFOP_COMBUSTIVEL_SET = new Set(['1652', '2652', '1653', '2653']);
@@ -798,9 +803,10 @@ function mapNcmCodItemSped(spedPath) {
 
 function detectarCombustivelNfe(parsedNotes) {
     // Retorna itens de combustível encontrados nas NF-es parseadas
+    // Usa dt_doc (data de emissão da NF) como data de entrada no LMC
     const result = [];
     for (const nota of parsedNotes) {
-        const dtDoc = nota.c100?.dt_doc;
+        const dtDoc = nota.c100?.dt_doc || '';
         for (const item of (nota.itens || [])) {
             const ncm = String(item.ncm || '').replace(/\D/g, '');
             const cfop = String(item.cfop || '');
@@ -864,13 +870,24 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov, 
     return true;
 }
 
-async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedPath, parsedNotes) {
+async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedPath, parsedNotes, periodoSped) {
     const combustiveis = detectarCombustivelNfe(parsedNotes);
     if (combustiveis.length === 0) return [];
 
     const ncmMap = mapNcmCodItemSped(spedPath);
     const atualizados = [];
     const dbClient = await poolOrClient.connect();
+
+    // Calcula data de fallback: primeiro dia do período do SPED
+    // Usado quando o XML é de outro mês (ex: NF de jan injetada em fev)
+    let dataFallback = null;
+    if (periodoSped) {
+        const periodo = parsePeriodoSped(periodoSped);
+        if (periodo.inicio) {
+            const d = periodo.inicio;
+            dataFallback = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+    }
 
     try {
         await dbClient.query('BEGIN');
@@ -883,8 +900,14 @@ async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedP
                 continue;
             }
             for (const cod_item of candidatos) {
-                const ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, item.dt_doc, item.qcom);
-                atualizados.push({ ...item, cod_item, status: ok ? 'atualizado' : 'data_nao_encontrada' });
+                let dataMov = item.dt_doc;
+                let ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataMov, item.qcom);
+                // Se a data do XML não existe no LMC (período diferente), tenta o 1º dia do período
+                if (!ok && dataFallback && dataFallback !== dataMov) {
+                    ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataFallback, item.qcom);
+                    if (ok) dataMov = dataFallback;
+                }
+                atualizados.push({ ...item, cod_item, dt_doc: dataMov, status: ok ? 'atualizado' : 'data_nao_encontrada' });
             }
         }
 
@@ -1033,8 +1056,8 @@ const extractNfeData = (nfeNode) => {
             num_doc: ide.nNF,
             serie: ide.serie,
             mod: ide.mod || '55',
-            dt_doc: ide.dhEmi ? ide.dhEmi.substring(0, 10) : '',
-            dt_e_s: ide.dhSaiEnt ? ide.dhSaiEnt.substring(0, 10) : (ide.dhEmi ? ide.dhEmi.substring(0, 10) : ''),
+            dt_doc: (ide.dhEmi || ide.dEmi) ? (ide.dhEmi || ide.dEmi).substring(0, 10) : '',
+            dt_e_s: (ide.dhSaiEnt || ide.dSaiEnt) ? (ide.dhSaiEnt || ide.dSaiEnt).substring(0, 10) : ((ide.dhEmi || ide.dEmi) ? (ide.dhEmi || ide.dEmi).substring(0, 10) : ''),
             vl_doc: vlDocFromTotal,
             vl_merc: vlMercFromTotal,
             vl_desc: parseValorNFe(total.vDesc),
@@ -1347,7 +1370,7 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                 const totalLinhas = finalSpedString.split('\n').length;
 
                 // Atualiza entradas de combustível no LMC quando aplicável
-                const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes);
+                const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes, spedBaseObj?.periodo_apuracao);
 
                 return res.json({
                     message: 'Injeção concluída com sucesso.',
@@ -1574,7 +1597,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         fs.writeFileSync(fullSpedPath, finalStr, { encoding: 'latin1' });
 
         // Atualiza entradas de combustível no LMC quando aplicável
-        const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas);
+        const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas, spedBaseObj.periodo_apuracao);
 
         limparTemps();
         return res.json({
@@ -2510,10 +2533,26 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
     const dbClient = await pool.connect();
     try {
         const query = `
-            WITH notas_entrada AS (
-                SELECT 
-                    item.cod_item, 
-                    c100.dt_e_s as data_entrada,
+            WITH ncm_to_lmc AS (
+                -- Para cada prefixo NCM (6 dígitos), mapeia para o cod_item com mais entradas no LMC
+                -- Isso permite resolver GASA/GASC/AEHC para o cod_item canônico do posto
+                SELECT DISTINCT ON (LEFT(sp.ncm, 6))
+                    LEFT(sp.ncm, 6) as ncm_prefix,
+                    lmc_cnt.cod_item
+                FROM (
+                    SELECT cod_item, COUNT(*) FILTER (WHERE vol_entr > 0) as entr_count
+                    FROM lmc_movimentacao
+                    WHERE id_sped_arquivo = $1
+                    GROUP BY cod_item
+                ) lmc_cnt
+                JOIN sped_produtos sp ON sp.cod_item = lmc_cnt.cod_item AND sp.id_sped_arquivo = $1
+                WHERE sp.ncm IS NOT NULL AND length(sp.ncm) >= 6
+                ORDER BY LEFT(sp.ncm, 6), lmc_cnt.entr_count DESC, lmc_cnt.cod_item
+            ),
+            notas_entrada AS (
+                SELECT
+                    COALESCE(ncm_map.cod_item, item.cod_item) as cod_item,
+                    c100.dt_doc as data_entrada,
                     SUM(item.qtd) as volume_nota,
                     json_agg(
                         json_build_object(
@@ -2526,17 +2565,20 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 FROM documentos_c100 c100
                 JOIN documentos_itens_c170 item ON item.id_documento_c100 = c100.id
                 LEFT JOIN sped_participantes part ON part.cod_part = c100.cod_part AND part.id_sped_arquivo = c100.id_sped_arquivo
-                WHERE c100.id_sped_arquivo = $1 
-                  AND c100.ind_oper = '0' 
+                LEFT JOIN sped_produtos sp ON sp.cod_item = item.cod_item AND sp.id_sped_arquivo = c100.id_sped_arquivo
+                LEFT JOIN ncm_to_lmc ncm_map ON ncm_map.ncm_prefix = LEFT(sp.ncm, 6)
+                WHERE c100.id_sped_arquivo = $1
+                  AND c100.ind_oper = '0'
                   AND (
-                      item.cfop LIKE '165%' OR 
-                      item.cfop LIKE '265%' OR 
-                      item.cfop LIKE '065%' OR 
+                      item.cfop LIKE '165%' OR
+                      item.cfop LIKE '265%' OR
+                      item.cfop LIKE '065%' OR
                       item.cfop LIKE '65%' OR
-                      item.cfop LIKE '116%' OR 
-                      item.cfop LIKE '216%'
+                      item.cfop LIKE '116%' OR
+                      item.cfop LIKE '216%' OR
+                      LEFT(sp.ncm, 4) IN ('2710', '2207', '2711')
                   )
-                GROUP BY item.cod_item, c100.dt_e_s
+                GROUP BY COALESCE(ncm_map.cod_item, item.cod_item), c100.dt_doc
             ),
             lmc_entrada AS (
                 SELECT 
@@ -4761,6 +4803,91 @@ app.post('/api/corrigir-massa', authMiddleware, async (req, res) => {
     }
 });
 
+// --- AJUSTAR VENDA DE UM DIA COM CASCATA ---
+app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
+    const { id_sped, cod_item, data_mov, vol_saidas_ajustado } = req.body;
+    if (!id_sped || !cod_item || !data_mov || vol_saidas_ajustado === undefined) {
+        return res.status(400).json({ error: 'Parâmetros inválidos.' });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        // Busca todos os dias do produto ordenados
+        const { rows } = await dbClient.query(`
+            SELECT id, data_mov,
+                   COALESCE(estq_abert_ajustado, estq_abert)   AS abertura,
+                   COALESCE(vol_entr_ajustado, vol_entr)        AS entradas,
+                   COALESCE(vol_saidas_ajustado, vol_saidas)    AS saidas,
+                   val_perda, val_ganho,
+                   COALESCE(estq_abert, 0) AS estq_abert_orig,
+                   COALESCE(vol_entr, 0)   AS vol_entr_orig
+            FROM lmc_movimentacao
+            WHERE id_sped_arquivo = $1 AND cod_item = $2
+            ORDER BY data_mov ASC
+        `, [id_sped, cod_item]);
+
+        const alvo = new Date(data_mov).toISOString().split('T')[0];
+        const editIndex = rows.findIndex(r => {
+            const d = new Date(r.data_mov);
+            return d.toISOString().split('T')[0] === alvo;
+        });
+        if (editIndex === -1) return res.status(404).json({ error: 'Dia não encontrado.' });
+
+        await dbClient.query('BEGIN');
+
+        let prevFisico = null;
+        for (let i = editIndex; i < rows.length; i++) {
+            const row = rows[i];
+            const novaAbertura = i === editIndex
+                ? parseFloat(row.abertura)
+                : prevFisico;
+            const entradas = parseFloat(row.entradas);
+
+            // Saída: usa o novo valor no dia editado, mantém o atual nos demais
+            let saida = i === editIndex
+                ? parseFloat(vol_saidas_ajustado)
+                : parseFloat(row.saidas);
+
+            // Garante que saída não deixa estoque negativo (mínimo 0.5 L)
+            const maxSaida = Math.max(0, novaAbertura + entradas - 0.5);
+            saida = Math.min(saida, maxSaida);
+
+            // ANP: preserva o % de perda/ganho original, limitado a 0,6%
+            const baseOrig = parseFloat(row.estq_abert_orig) + parseFloat(row.vol_entr_orig);
+            const volBase  = novaAbertura + entradas;
+            const pctPerda = baseOrig > 0 ? parseFloat(row.val_perda || 0) / baseOrig : 0;
+            const pctGanho = baseOrig > 0 ? parseFloat(row.val_ganho || 0) / baseOrig : 0;
+            const perdaNova = Math.min(pctPerda * volBase, volBase * 0.006);
+            const ganhoNovo = Math.min(pctGanho * volBase, volBase * 0.006);
+
+            const escritural  = Math.max(0, novaAbertura + entradas - saida);
+            const novoFisico  = Math.max(0.5, escritural + (ganhoNovo - perdaNova));
+
+            await dbClient.query(`
+                UPDATE lmc_movimentacao
+                SET estq_abert_ajustado  = $1,
+                    vol_saidas_ajustado  = $2,
+                    fech_fisico_ajustado = $3,
+                    val_perda_ajustado   = $4,
+                    val_ganho_ajustado   = $5,
+                    vol_escr_ajustado    = $6
+                WHERE id = $7
+            `, [novaAbertura, saida, novoFisico, perdaNova, ganhoNovo, escritural, row.id]);
+
+            prevFisico = novoFisico;
+        }
+
+        await dbClient.query('COMMIT');
+        res.json({ success: true });
+    } catch (e) {
+        await dbClient.query('ROLLBACK');
+        logger.error('Erro em ajustar-cascata:', e);
+        res.status(500).json({ error: e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // --- FIM DOS AJUSTES LMC ---
 
 
@@ -5623,7 +5750,7 @@ function parseSpedFile(filePath, originalFilename) {
                 } else if (reg === '0150') {
                     data.participants.push({ cod_part: fields[2], nome: fields[3], cnpj: fields[5] });
                 } else if (reg === '0200') {
-                    data.produtos.push({ cod_item: fields[2], descr_item: fields[3] });
+                    data.produtos.push({ cod_item: fields[2], descr_item: fields[3], ncm: (fields[8] || '').replace(/\D/g, '') });
                 } else if (reg === '1300') {
                     // *** REGISTRO CONSOLIDADO (A SOLUÇÃO REAL) ***
                     // O cliente informou que o LMC precisa bater os totais. 
