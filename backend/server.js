@@ -3059,11 +3059,21 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     }
 
     // Motor iterativo de distribuição
+    // PROTEÇÃO 1: Visibilidade total de convergência
     let iter = 0;
-    while (iter++ < 100) {
+    const MAX_ITER = 100;
+    const CONVERGENCE_THRESHOLD = 0.5;
+    let iteracaoConvergence = null;
+
+    while (iter++ < MAX_ITER) {
         const totalCalc = calcs.reduce((s, c) => s + c.saidaCalc, 0);
         const diff = targetReal - totalCalc;
-        if (Math.abs(diff) <= 0.5) break;
+
+        if (Math.abs(diff) <= CONVERGENCE_THRESHOLD) {
+            iteracaoConvergence = iter;
+            logger.info(`[MOTOR CASCATA] ✓ Convergência alcançada em ${iter} iteração(ões). Diferença final: ${Math.abs(diff).toFixed(3)}L <= ${CONVERGENCE_THRESHOLD}L (meta=${targetReal.toFixed(3)}L, real=${totalCalc.toFixed(3)}L)`);
+            break;
+        }
 
         // Cascata com restrição de capacidade embutida:
         // a cada dia força saída mínima se abertura+entradas ultrapassar o tanque
@@ -3114,6 +3124,14 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         }
     }
 
+    // Aviso se motor não convergiu
+    if (!iteracaoConvergence) {
+        const totalFinal = calcs.reduce((s, c) => s + c.saidaCalc, 0);
+        const diffFinal = targetReal - totalFinal;
+        logger.warn(`[MOTOR CASCATA] ⚠️  Sem convergência em ${MAX_ITER} iterações. Diferença final: ${Math.abs(diffFinal).toFixed(3)}L (meta=${targetReal.toFixed(3)}L, real=${totalFinal.toFixed(3)}L). Resultado aproximado.`);
+        ajustes.push(`Atenção: Otimização não convergiu completamente (diferença de ${Math.abs(diffFinal).toFixed(3)}L). Resultado é aproximado.`);
+    }
+
     // Passe pós-motor: reaplica limites da cascata em ordem cronológica.
     // O motor distribui saídas em múltiplos dias simultaneamente sem recomputar
     // a cascata entre eles — isso pode gerar escritural negativo em dias com
@@ -3137,7 +3155,20 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     for (let i = 0; i < calcs.length; i++) {
         const dayCalc = calcs[i];
         const rowsDoDia = originalRowsNormalized.filter(r => r.data_mov_normalized === dayCalc.data_mov_normalized);
+
+        // CAMADA 3: Validação de Integridade - Detecta problema imediatamente
+        if (rowsDoDia.length === 0) {
+            const erro = `[CASCATA CRÍTICO] Nenhum registro encontrado para data ${dayCalc.data_mov_normalized} (cod_item=${cod_item}, arquivo=${id_arquivo}). Verifique sincronização de timezone ou integridade do banco.`;
+            logger.error(erro);
+            throw new Error(erro);
+        }
+
         const totalSaidaOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
+
+        // PROTEÇÃO 2: Verificação de Sanidade - Alerta se dados parecem anômalos
+        if (totalSaidaOrig === 0 && rowsDoDia.length > 0) {
+            logger.warn(`[CASCATA SANIDADE] Aviso: Nenhuma saída registrada para ${dayCalc.data_mov_normalized} (cod_item=${cod_item}). Distribuindo rateio igualmente entre ${rowsDoDia.length} tanque(s).`);
+        }
 
         dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
         dayCalc.escrCalc = dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc;
@@ -3162,6 +3193,11 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         // pelo físico original de cada tanque. Isso garante que SUM(fAjustado) == dayCalc.fisicoCalc,
         // evitando divergência entre a cascata do backend e a cascata do frontend.
         const totalFisicoOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.fech_fisico || 0), 0);
+
+        // PROTEÇÃO 2: Continuação - Alerta se físico original for zero
+        if (totalFisicoOrig === 0 && rowsDoDia.length > 0) {
+            logger.warn(`[CASCATA SANIDADE] Aviso: Nenhum fechamento registrado para ${dayCalc.data_mov_normalized} (cod_item=${cod_item}). Distribuindo rateio igualmente entre ${rowsDoDia.length} tanque(s).`);
+        }
 
         rowsDoDia.forEach(r => {
             const pSaida  = totalSaidaOrig  > 0 ? parseFloat(r.vol_saidas  || 0) / totalSaidaOrig  : 1 / rowsDoDia.length;
@@ -3189,6 +3225,15 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 
             lastClosingByTank.set(r.num_tanque, fAjustado);
         });
+    }
+
+    // PROTEÇÃO 3: Validação de Integridade da Cascata
+    const aberturaPrimeiroDia = aberturaInicialConsolidada;
+    const fechamentoUltimoDia = calcs[calcs.length - 1].fisicoCalc;
+
+    if (aberturaPrimeiroDia > 0 && fechamentoUltimoDia < 0.5) {
+        logger.warn(`[CASCATA INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDia.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
+        ajustes.push(`Atenção crítica: Fechamento final muito baixo (${fechamentoUltimoDia.toFixed(3)}L). Verifique integridade das entradas e saídas.`);
     }
 
     // 10. Monta resumo para o preview
@@ -3603,6 +3648,15 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
                 // Atualiza o mapa para o dia seguinte
                 lastClosingByTank.set(r.num_tanque, fAjustado);
             });
+        }
+
+        // PROTEÇÃO 3: Validação de Integridade da Cascata (segunda função)
+        const aberturaPrimeiroDiaOtim = aberturaInicialConsolidada;
+        const fechamentoUltimoDiaOtim = calcs[calcs.length - 1].fisicoCalc;
+
+        if (aberturaPrimeiroDiaOtim > 0 && fechamentoUltimoDiaOtim < 0.5) {
+            logger.warn(`[OTIMIZADOR INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDiaOtim.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
+            infoTrava = `Atenção crítica: Fechamento final muito baixo (${fechamentoUltimoDiaOtim.toFixed(3)}L). Verifique integridade das entradas e saídas.`;
         }
 
         // Executar updates persistindo TODAS as colunas ajustadas
@@ -5081,6 +5135,14 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
             `, [novaAbertura, saida, novoFisico, perdaNova, ganhoNovo, escritural, row.id]);
 
             prevFisico = novoFisico;
+        }
+
+        // PROTEÇÃO 3: Validação de Integridade da Cascata Manual
+        const aberturaPrimeiroDiaCascata = parseFloat(rows[0].abertura || 0);
+        const fechamentoUltimoDiaCascata = prevFisico;
+
+        if (aberturaPrimeiroDiaCascata > 0 && fechamentoUltimoDiaCascata < 0.5) {
+            logger.warn(`[CASCATA MANUAL INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDiaCascata.toFixed(3)}L (mínimo obrigatório=0.5L). A alteração resultou em estoque crítico. Revise a saída ajustada.`);
         }
 
         await dbClient.query('COMMIT');
