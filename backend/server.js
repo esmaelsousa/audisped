@@ -824,22 +824,34 @@ function detectarCombustivelNfe(parsedNotes) {
     return result;
 }
 
-async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov, volume) {
+async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov) {
+    // Recalcula vol_entr_ajustado como soma das NFs reais registradas (não acumula incrementalmente).
+    // Nunca altera vol_entr (dado original do SPED).
+    const somaRes = await dbClient.query(`
+        SELECT COALESCE(SUM(i.qtd), 0) as total_nfs
+        FROM documentos_c100 c
+        JOIN documentos_itens_c170 i ON i.id_documento_c100 = c.id
+        WHERE c.id_sped_arquivo = $1
+          AND c.ind_oper = '0'
+          AND c.dt_doc = $2
+          AND i.cod_item = $3
+          AND (i.cfop LIKE '165%' OR i.cfop LIKE '265%' OR i.cfop LIKE '065%'
+               OR i.cfop LIKE '65%' OR i.cfop LIKE '116%' OR i.cfop LIKE '216%')
+    `, [id_arquivo, data_mov, cod_item]);
+
+    const totalNfs = parseFloat(somaRes.rows[0].total_nfs) || 0;
+
     // Atualiza linha consolidada (num_tanque = '0')
     const res = await dbClient.query(`
         UPDATE lmc_movimentacao
-        SET vol_entr          = vol_entr + $1,
-            estq_escr         = estq_abert + (vol_entr + $1) - vol_saidas,
-            vol_entr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
-                                     THEN vol_entr_ajustado + $1 ELSE NULL END,
-            vol_escr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
-                                     THEN COALESCE(estq_abert_ajustado, estq_abert)
-                                          + (vol_entr_ajustado + $1)
-                                          - COALESCE(vol_saidas_ajustado, vol_saidas)
-                                     ELSE NULL END
+        SET vol_entr_ajustado = $1,
+            estq_escr         = estq_abert + vol_entr - vol_saidas,
+            vol_escr_ajustado = COALESCE(estq_abert_ajustado, estq_abert)
+                                + $1
+                                - COALESCE(vol_saidas_ajustado, vol_saidas)
         WHERE id_sped_arquivo = $2 AND cod_item = $3 AND data_mov = $4 AND num_tanque = '0'
         RETURNING id
-    `, [volume, id_arquivo, cod_item, data_mov]);
+    `, [totalNfs, id_arquivo, cod_item, data_mov]);
 
     if (res.rowCount === 0) return false;
 
@@ -850,24 +862,114 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov, 
     `, [id_arquivo, cod_item, data_mov]);
 
     if (tankRows.rows.length > 0) {
-        const perTank = volume / tankRows.rows.length;
+        const perTank = totalNfs / tankRows.rows.length;
         for (const row of tankRows.rows) {
             await dbClient.query(`
                 UPDATE lmc_movimentacao
-                SET vol_entr          = vol_entr + $1,
-                    estq_escr         = estq_abert + (vol_entr + $1) - vol_saidas,
-                    vol_entr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
-                                             THEN vol_entr_ajustado + $1 ELSE NULL END,
-                    vol_escr_ajustado = CASE WHEN vol_entr_ajustado IS NOT NULL
-                                             THEN COALESCE(estq_abert_ajustado, estq_abert)
-                                                  + (vol_entr_ajustado + $1)
-                                                  - COALESCE(vol_saidas_ajustado, vol_saidas)
-                                             ELSE NULL END
+                SET vol_entr_ajustado = $1,
+                    estq_escr         = estq_abert + vol_entr - vol_saidas,
+                    vol_escr_ajustado = COALESCE(estq_abert_ajustado, estq_abert)
+                                        + $1
+                                        - COALESCE(vol_saidas_ajustado, vol_saidas)
                 WHERE id = $2
             `, [perTank, row.id]);
         }
     }
     return true;
+}
+
+// Após injeção de XMLs, sincroniza os C100/C170 no banco usando dt_doc como data de entrada.
+// Garante que a NF apareça no LMC e no Analisador do período onde foi injetada.
+async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
+    if (!parsedNotes || parsedNotes.length === 0) return;
+    const dbClient = await pool.connect();
+    try {
+        for (const nota of parsedNotes) {
+            if (!nota.c100?.chv_nfe && !nota.c100?.num_doc) continue;
+            const c = nota.c100;
+            const dtDoc = c.dt_doc || null;       // data de emissão (YYYY-MM-DD)
+            const dtEs  = dtDoc;                  // usa emissão como data de entrada
+
+            // Ignora se já existe neste arquivo (evita duplicata na reinjeção)
+            const existe = await dbClient.query(
+                `SELECT 1 FROM documentos_c100
+                 WHERE id_sped_arquivo = $1
+                   AND (chv_nfe = $2 OR (num_doc = $3 AND chv_nfe IS NULL))
+                 LIMIT 1`,
+                [id_arquivo, c.chv_nfe || null, c.num_doc || null]
+            );
+            if (existe.rowCount > 0) continue;
+
+            // Resolve cod_part pelo CNPJ do emitente
+            let codPart = nota.emitente?.cnpj || null;
+            if (codPart) {
+                const partRes = await dbClient.query(
+                    `SELECT cod_part FROM sped_participantes
+                     WHERE id_sped_arquivo = $1
+                       AND REGEXP_REPLACE(cnpj,'[^0-9]','','g') = REGEXP_REPLACE($2,'[^0-9]','','g')
+                     LIMIT 1`,
+                    [id_arquivo, codPart]
+                );
+                if (partRes.rowCount > 0) codPart = partRes.rows[0].cod_part;
+            }
+
+            const vlDoc = parseFloat((c.vl_doc || '0').toString().replace(',', '.')) || 0;
+            const insC100 = await dbClient.query(
+                `INSERT INTO documentos_c100
+                    (id_sped_arquivo, ind_oper, num_doc, cod_mod, cod_sit, dt_doc, dt_e_s, vl_doc, cod_part, chv_nfe)
+                 VALUES ($1,'0',$2,$3,'00',$4,$5,$6,$7,$8)
+                 RETURNING id`,
+                [id_arquivo, c.num_doc, c.mod || '55', dtDoc, dtEs, vlDoc, codPart, c.chv_nfe || null]
+            );
+            const c100Id = insC100.rows[0].id;
+
+            // Insere itens C170
+            // Suporta dois formatos de campo: extractNfeData (qcom/vprod/ucom/cfop/cst_icms)
+            // e o parser inline legado (qtd/vl_item/unid/cfop_original/cst_icms_original)
+            const cnpjEmitente = (nota.emitente?.cnpj || '').replace(/\D/g, '');
+            let numItem = 1;
+            for (const item of (nota.itens || [])) {
+                const rawQtd  = item.qtd  ?? item.qcom  ?? '0';
+                const rawVlIt = item.vl_item ?? item.vprod ?? '0';
+                const qtd  = parseFloat(rawQtd.toString().replace(',', '.'))  || 0;
+                const vlIt = parseFloat(rawVlIt.toString().replace(',', '.')) || 0;
+                const unid = item.unid || item.ucom || 'UN';
+                const cstIcms = item.cst_icms_original || item.cst_icms || '000';
+
+                // Resolve cod_item e cfop via de_para_xml (mesmo lookup que xmlInjectorService usa)
+                let codItemFinal = item.cod_item;
+                let cfop = item.cfop_original || item.cfop || '1102';
+                if (cnpjEmitente) {
+                    const deparaRes = await dbClient.query(
+                        `SELECT cod_interno, novo_cfop FROM de_para_xml
+                         WHERE cnpj_emissor = $1 AND cod_produto_xml = $2 LIMIT 1`,
+                        [cnpjEmitente, item.cod_item]
+                    );
+                    if (deparaRes.rowCount > 0) {
+                        const dep = deparaRes.rows[0];
+                        if (dep.cod_interno) codItemFinal = dep.cod_interno;
+                        if (dep.novo_cfop)   cfop = dep.novo_cfop;
+                    } else {
+                        // Fallback: converte CFOP da perspectiva do emitente para destinatário (5xxx→1xxx, 6xxx→2xxx)
+                        const cfopStr = String(cfop);
+                        if (cfopStr.startsWith('5')) cfop = '1' + cfopStr.slice(1);
+                        else if (cfopStr.startsWith('6')) cfop = '2' + cfopStr.slice(1);
+                    }
+                }
+
+                await dbClient.query(
+                    `INSERT INTO documentos_itens_c170
+                        (id_documento_c100, num_item, cod_item, qtd, unid, vl_item, cst_icms, cfop, cst_pis, cst_cofins)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+                    [c100Id, numItem++, codItemFinal, qtd, unid, vlIt, cstIcms, cfop, '07', '07']
+                );
+            }
+        }
+    } catch (err) {
+        logger.warn('sincronizarNotasInjetadas: erro ao sincronizar C100/C170:', err.message);
+    } finally {
+        dbClient.release();
+    }
 }
 
 async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedPath, parsedNotes, periodoSped) {
@@ -901,10 +1003,10 @@ async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedP
             }
             for (const cod_item of candidatos) {
                 let dataMov = item.dt_doc;
-                let ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataMov, item.qcom);
+                let ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataMov);
                 // Se a data do XML não existe no LMC (período diferente), tenta o 1º dia do período
                 if (!ok && dataFallback && dataFallback !== dataMov) {
-                    ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataFallback, item.qcom);
+                    ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataFallback);
                     if (ok) dataMov = dataFallback;
                 }
                 atualizados.push({ ...item, cod_item, dt_doc: dataMov, status: ok ? 'atualizado' : 'data_nao_encontrada' });
@@ -957,11 +1059,28 @@ const extractNfeData = (nfeNode) => {
                 vICMS = parseValorNFe(icmsNode.vICMS);
                 vBCST = parseValorNFe(icmsNode.vBCST);
                 vICMSST = parseValorNFe(icmsNode.vICMSST);
+
+                // Novos campos ICMS ST Retido / Mantido
+                const vBCSTRet = parseValorNFe(icmsNode.vBCSTRet);
+                const vICMSSTRet = parseValorNFe(icmsNode.vICMSSTRet);
+                const pST = parseValorNFe(icmsNode.pST || icmsNode.pICMSST);
+                const vBCSTDest = parseValorNFe(icmsNode.vBCSTDest);
+                const vICMSSTDest = parseValorNFe(icmsNode.vICMSSTDest);
+
                 // Adicionando FCP e FCPST
                 const vFCP = parseValorNFe(icmsNode.vFCP);
                 const vFCPST = parseValorNFe(icmsNode.vFCPST);
                 vICMS += vFCP; // No SPED, vICMS costuma englobar vFCP se for para o mesmo CST
                 vICMSST += vFCPST;
+
+                // Armazenamos no objeto do item para uso posterior no C170
+                det.extractedIcms = {
+                    vBCSTRet,
+                    vICMSSTRet,
+                    pST,
+                    vBCSTDest,
+                    vICMSSTDest
+                };
             }
         }
 
@@ -1009,7 +1128,13 @@ const extractNfeData = (nfeNode) => {
             vbc_cofins: parseValorNFe(cofinsNode.vBC),
             pcofins: parseValorNFe(cofinsNode.pCOFINS),
             vcofins: parseValorNFe(cofinsNode.vCOFINS),
-            vipidevol: parseValorNFe(prod.vIPIDevol || det.impostoDevol?.IPI?.vIPIDevol)
+            vipidevol: parseValorNFe(prod.vIPIDevol || det.impostoDevol?.IPI?.vIPIDevol),
+            // Campos adicionais ICMS ST Retido / Mantido
+            vbc_st_ret: det.extractedIcms?.vBCSTRet || 0,
+            vicms_st_ret: det.extractedIcms?.vICMSSTRet || 0,
+            p_st: det.extractedIcms?.pST || 0,
+            vbc_st_dest: det.extractedIcms?.vBCSTDest || 0,
+            vicms_st_dest: det.extractedIcms?.vICMSSTDest || 0
         };
     });
 
@@ -1167,13 +1292,13 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
                 novo_cfop = EXCLUDED.novo_cfop,
                 novo_cst = EXCLUDED.novo_cst,
                 descricao_produto = EXCLUDED.descricao_produto,
-                ncm = EXCLUDED.ncm,
-                cod_interno = EXCLUDED.cod_interno,
-                conta_contabil = EXCLUDED.conta_contabil,
-                aliq_icms = EXCLUDED.aliq_icms,
-                bc_icms_override = EXCLUDED.bc_icms_override,
-                cst_pis = EXCLUDED.cst_pis,
-                cst_cofins = EXCLUDED.cst_cofins,
+                ncm = COALESCE(NULLIF(EXCLUDED.ncm, ''), de_para_xml.ncm),
+                cod_interno = COALESCE(NULLIF(EXCLUDED.cod_interno, ''), de_para_xml.cod_interno),
+                conta_contabil = COALESCE(NULLIF(EXCLUDED.conta_contabil, ''), de_para_xml.conta_contabil),
+                aliq_icms = COALESCE(EXCLUDED.aliq_icms, de_para_xml.aliq_icms),
+                bc_icms_override = COALESCE(EXCLUDED.bc_icms_override, de_para_xml.bc_icms_override),
+                cst_pis = COALESCE(NULLIF(EXCLUDED.cst_pis, ''), de_para_xml.cst_pis),
+                cst_cofins = COALESCE(NULLIF(EXCLUDED.cst_cofins, ''), de_para_xml.cst_cofins),
                 updated_at = CURRENT_TIMESTAMP
         `;
 
@@ -1371,6 +1496,9 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
 
                 // Atualiza entradas de combustível no LMC quando aplicável
                 const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes, spedBaseObj?.periodo_apuracao);
+
+                // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
+                await sincronizarNotasInjetadas(pool, idSpedBase, parsedNotes);
 
                 return res.json({
                     message: 'Injeção concluída com sucesso.',
@@ -1599,6 +1727,9 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         // Atualiza entradas de combustível no LMC quando aplicável
         const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas, spedBaseObj.periodo_apuracao);
 
+        // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
+        await sincronizarNotasInjetadas(pool, idSpedBase, todasNotasInjetadas);
+
         limparTemps();
         return res.json({
             message: 'Grupos injetados com sucesso.',
@@ -1750,6 +1881,8 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
     const dbClient = await pool.connect();
     try {
         await dbClient.query('BEGIN');
+        // Limita cada query a 30s para evitar congelamento do event loop em SPEDs grandes
+        await dbClient.query('SET LOCAL statement_timeout = 30000');
         await dbClient.query('DELETE FROM erros_analise WHERE id_sped_arquivo = $1', [arquivoId]);
 
         const erros = [];
@@ -2266,22 +2399,43 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
         }
 
         // Insere todos os erros no banco com padronização de data para ISO
-        for (const erro of erros) {
-            const queryInsert = `
-                INSERT INTO erros_analise(
-                    id_sped_arquivo, tipo_erro, regra_id, titulo_erro, descricao_erro,
-                    sugestao_correcao, linha_arquivo, conteudo_linha,
-                    data_erro, cod_item_erro, num_tanque_erro
-                ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-            `;
-            // Normaliza data para String YYYY-MM-DD para evitar problemas de fuso
-            const dataNormalizada = erro.data_erro ? (erro.data_erro instanceof Date ? erro.data_erro.toISOString().split('T')[0] : erro.data_erro) : null;
-
-            await dbClient.query(queryInsert, [
-                arquivoId, erro.tipo_erro, erro.regra_id, erro.titulo_erro, erro.descricao_erro,
-                erro.sugestao_correcao, erro.linha_arquivo, erro.conteudo_linha,
-                dataNormalizada, erro.cod_item_erro, erro.num_tanque_erro
-            ]);
+        if (erros.length > 0) {
+            const chunkSize = 1000;
+            for (let i = 0; i < erros.length; i += chunkSize) {
+                const chunk = erros.slice(i, i + chunkSize);
+                const values = [];
+                const params = [];
+                let pIndex = 1;
+                
+                for (const erro of chunk) {
+                    const dataNormalizada = erro.data_erro ? (erro.data_erro instanceof Date ? erro.data_erro.toISOString().split('T')[0] : erro.data_erro) : null;
+                    values.push(`($${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++}, $${pIndex++})`);
+                    
+                    params.push(
+                        arquivoId, 
+                        erro.tipo_erro, 
+                        erro.regra_id, 
+                        erro.titulo_erro, 
+                        erro.descricao_erro,
+                        erro.sugestao_correcao, 
+                        erro.linha_arquivo, 
+                        erro.conteudo_linha,
+                        dataNormalizada, 
+                        erro.cod_item_erro, 
+                        erro.num_tanque_erro
+                    );
+                }
+                
+                const queryInsert = `
+                    INSERT INTO erros_analise(
+                        id_sped_arquivo, tipo_erro, regra_id, titulo_erro, descricao_erro,
+                        sugestao_correcao, linha_arquivo, conteudo_linha,
+                        data_erro, cod_item_erro, num_tanque_erro
+                    ) VALUES ${values.join(', ')};
+                `;
+                
+                await dbClient.query(queryInsert, params);
+            }
         }
 
         await dbClient.query('COMMIT');
@@ -2576,7 +2730,12 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                       item.cfop LIKE '65%' OR
                       item.cfop LIKE '116%' OR
                       item.cfop LIKE '216%' OR
-                      LEFT(sp.ncm, 4) IN ('2710', '2207', '2711')
+                      -- NCM filter restrito aos itens já cadastrados no LMC para evitar
+                      -- varredura de milhares de produtos derivados de petróleo em SPEDs grandes
+                      (LEFT(sp.ncm, 4) IN ('2710', '2207', '2711')
+                       AND item.cod_item IN (
+                           SELECT cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1
+                       ))
                   )
                 GROUP BY COALESCE(ncm_map.cod_item, item.cod_item), c100.dt_doc
             ),
@@ -2622,7 +2781,8 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 l.fech_fisico_ajustado,
                 l.estq_abert_ajustado,
                 l.vol_escr_ajustado,
-                COALESCE(cfg.capacidade, 0) as capacidade_tanque
+                COALESCE(cfg.capacidade, 0) as capacidade_tanque,
+                (l.cod_item IS NOT NULL) as has_lmc_row
             FROM lmc_entrada l
             FULL OUTER JOIN notas_entrada n ON l.cod_item = n.cod_item AND (l.data_mov::date = n.data_entrada::date)
             LEFT JOIN sped_produtos p ON p.id_sped_arquivo = $1 AND p.cod_item = COALESCE(l.cod_item, n.cod_item)
@@ -2789,11 +2949,30 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     // 3. Todos os registros originais (por tanque)
     const { rows: originalRows } = await dbClient.query(`
         SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico,
-               val_perda, val_ganho
+               val_perda, val_ganho, num_tanque
         FROM lmc_movimentacao
         WHERE id_sped_arquivo = $1 AND cod_item = $2
         ORDER BY data_mov ASC, num_tanque ASC
     `, [id_arquivo, cod_item]);
+
+    // Normalizar datas para comparação (converter para string ISO date para evitar diferenças de timezone)
+    const normalizeDate = (d) => {
+        if (!d) return null;
+        if (typeof d === 'string') return d.split('T')[0];
+        return d.toISOString().split('T')[0];
+    };
+
+    // Mapear dailyItems com datas normalizadas
+    const dailyItemsNormalized = dailyItems.map(d => ({
+        ...d,
+        data_mov_normalized: normalizeDate(d.data_mov)
+    }));
+
+    // Mapear originalRows com datas normalizadas
+    const originalRowsNormalized = originalRows.map(r => ({
+        ...r,
+        data_mov_normalized: normalizeDate(r.data_mov)
+    }));
 
     const totalEntradas = dailyItems.reduce((s, r) => s + parseFloat(r.vol_entr || 0), 0);
     const totalVendasOrig = dailyItems.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
@@ -2838,8 +3017,9 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     //    a) escritural NÃO pode ficar negativo (regra LMC)
     //    b) escritural NÃO pode exceder capacidade do tanque (física)
     //    Se abertura+entradas > capacidade → DEVE vender o excedente naquele dia
-    let calcs = dailyItems.map(row => ({
+    let calcs = dailyItemsNormalized.map(row => ({
         data_mov: row.data_mov,
+        data_mov_normalized: row.data_mov_normalized,
         entradasOrig: parseFloat(row.vol_entr || 0),
         saidaOrig: parseFloat(row.vol_saidas || 0),
         saidaCalc: parseFloat(row.vol_saidas || 0),
@@ -2948,7 +3128,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 
     for (let i = 0; i < calcs.length; i++) {
         const dayCalc = calcs[i];
-        const rowsDoDia = originalRows.filter(r => r.data_mov.getTime() === dayCalc.data_mov.getTime());
+        const rowsDoDia = originalRowsNormalized.filter(r => r.data_mov_normalized === dayCalc.data_mov_normalized);
         const totalSaidaOrig = rowsDoDia.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
 
         dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
@@ -3186,29 +3366,47 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
 
         // 3. Buscar todos os registros originais para redistribuição final
         const resLmcOriginal = await dbClient.query(`
-            SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico
-            FROM lmc_movimentacao 
+            SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico, num_tanque
+            FROM lmc_movimentacao
             WHERE id_sped_arquivo = $1 AND cod_item = $2
             ORDER BY data_mov ASC, num_tanque ASC
         `, [id_arquivo, cod_item]);
-        const originalRows = resLmcOriginal.rows;
+
+        // Normalizar datas para comparação (converter para string ISO date para evitar diferenças de timezone)
+        const normalizeDate = (d) => {
+            if (!d) return null;
+            if (typeof d === 'string') return d.split('T')[0];
+            return d.toISOString().split('T')[0];
+        };
+
+        const originalRows = resLmcOriginal.rows.map(r => ({
+            ...r,
+            data_mov_normalized: normalizeDate(r.data_mov)
+        }));
+
+        // Mapear dailyItems com datas normalizadas
+        const dailyItemsNormalized = dailyItems.map(d => ({
+            ...d,
+            data_mov_normalized: normalizeDate(d.data_mov)
+        }));
 
         // 4. Calcular Otimização no Consolidado Diário
-        const volumeAntigoTotal = dailyItems.reduce((acc, i) => acc + parseFloat(i.vol_saidas || 0), 0);
+        const volumeAntigoTotal = dailyItemsNormalized.reduce((acc, i) => acc + parseFloat(i.vol_saidas || 0), 0);
         const limitRatio = 0.0050;
 
-        let aberturaInicialConsolidada = parseFloat(dailyItems[0].estq_abert_ajustado ?? dailyItems[0].estq_abert ?? 0);
+        let aberturaInicialConsolidada = parseFloat(dailyItemsNormalized[0].estq_abert_ajustado ?? dailyItemsNormalized[0].estq_abert ?? 0);
 
         // NOVA TRAVA: Blindagem contra Lixo do PDV (Ex: SPED com Estoque Negativo já no dia 01)
-        // O caso "CHAPADA_02_2026" começa com o dia 1 registrando -17L de estoque de fechamento. 
+        // O caso "CHAPADA_02_2026" começa com o dia 1 registrando -17L de estoque de fechamento.
         // O algoritmo matemático quebra por não aceitar estoques impossíveis.
         if (aberturaInicialConsolidada < 0) {
             logger.warn(`[MOTOR MATEMATICO] ATENÇÃO: Identificado Estoque Inicial Consolidado Negativo (${aberturaInicialConsolidada}L). Resetando sumariamente para 0.5L para viabilizar as cascatas.`);
             aberturaInicialConsolidada = 0.5;
         }
 
-        let calcs = dailyItems.map(row => ({
+        let calcs = dailyItemsNormalized.map(row => ({
             data_mov: row.data_mov,
+            data_mov_normalized: row.data_mov_normalized,
             entradasOrig: parseFloat(row.vol_entr || 0),
             saidaOrig: parseFloat(row.vol_saidas || 0),
             saidaCalc: parseFloat(row.vol_saidas || 0),
@@ -3340,7 +3538,7 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
 
         for (let i = 0; i < calcs.length; i++) {
             const dayCalc = calcs[i];
-            const rowsDoDia = originalRows.filter(r => r.data_mov.getTime() === dayCalc.data_mov.getTime());
+            const rowsDoDia = originalRows.filter(r => r.data_mov_normalized === dayCalc.data_mov_normalized);
 
             let totalSaidaOriginalDia = rowsDoDia.reduce((acc, r) => acc + parseFloat(r.vol_saidas || 0), 0);
             let totalFisicoOriginalDia = rowsDoDia.reduce((acc, r) => acc + parseFloat(r.fech_fisico || 0), 0);
@@ -5902,11 +6100,11 @@ app.post('/api/de-para', async (req, res) => {
                 novo_cfop = EXCLUDED.novo_cfop,
                 novo_cst = EXCLUDED.novo_cst,
                 descricao_produto = EXCLUDED.descricao_produto,
-                cod_interno = EXCLUDED.cod_interno,
-                aliq_icms = EXCLUDED.aliq_icms,
-                bc_icms_override = EXCLUDED.bc_icms_override,
-                cst_pis = EXCLUDED.cst_pis,
-                cst_cofins = EXCLUDED.cst_cofins,
+                cod_interno = COALESCE(NULLIF(EXCLUDED.cod_interno, ''), de_para_xml.cod_interno),
+                aliq_icms = COALESCE(EXCLUDED.aliq_icms, de_para_xml.aliq_icms),
+                bc_icms_override = COALESCE(EXCLUDED.bc_icms_override, de_para_xml.bc_icms_override),
+                cst_pis = COALESCE(NULLIF(EXCLUDED.cst_pis, ''), de_para_xml.cst_pis),
+                cst_cofins = COALESCE(NULLIF(EXCLUDED.cst_cofins, ''), de_para_xml.cst_cofins),
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
         `;
