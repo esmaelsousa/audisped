@@ -70,13 +70,18 @@ const authMiddleware = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
 
-    if (!token) return res.status(401).json({ message: 'Acesso negado. Token não fornecido.' });
+    if (!token) {
+        logger.warn(`[AUTH] Token não fornecido para ${req.method} ${req.path}`);
+        return res.status(401).json({ message: 'Acesso negado. Token não fornecido.' });
+    }
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded;
+        logger.debug(`[AUTH] Token válido para usuário ${decoded.id || decoded.email}`);
         next();
     } catch (err) {
+        logger.warn(`[AUTH] Token inválido: ${err.message} para ${req.method} ${req.path}`);
         res.status(403).json({ message: 'Token inválido ou expirado.' });
     }
 };
@@ -2540,6 +2545,8 @@ app.get('/api/arquivos', authMiddleware, async (req, res) => {
 // Listar arquivos (períodos) de uma empresa específica
 app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
     const idEmpresa = parseInt(req.params.id_empresa);
+    logger.info(`[GET /api/arquivos/:id_empresa] Recebido: id_empresa=${idEmpresa}, usuário=${req.user?.id || 'anônimo'}`);
+
     const dbClient = await pool.connect();
     try {
         const query = `
@@ -2549,9 +2556,10 @@ app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
             ORDER BY data_upload DESC
         `;
         const { rows } = await dbClient.query(query, [idEmpresa]);
+        logger.info(`[GET /api/arquivos/:id_empresa] Sucesso! Retornando ${rows.length} arquivos para empresa ${idEmpresa}`);
         res.json(rows);
     } catch (error) {
-        logger.error('Erro ao listar períodos:', error);
+        logger.error(`[GET /api/arquivos/:id_empresa] Erro ao listar períodos (empresa ${idEmpresa}):`, error);
         res.status(500).send("Erro ao carregar histórico da empresa.");
     } finally {
         dbClient.release();
