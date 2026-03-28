@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import { useRouter } from 'vue-router'
-import { setEmpresaSelecionada, token } from '../store'
+import { setEmpresaSelecionada } from '../store'
 import { Search, Building2, ChevronRight, Plus, Trash2, X } from 'lucide-vue-next'
 
 const router = useRouter();
@@ -37,14 +37,18 @@ onMounted(async () => {
 
 async function carregarEmpresas() {
   loading.value = true;
+  // Segurança: garante que o spinner nunca fica travado para sempre
+  const safetyTimer = setTimeout(() => { loading.value = false; }, 15000);
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/empresas`, {
-        headers: { Authorization: `Bearer ${token.value}` }
-    });
+    const response = await axios.get(`${API_BASE_URL}/api/empresas`);
     empresas.value = response.data;
   } catch (error) {
-    console.error('Falha ao buscar empresas:', error);
+    // 401/403 já é tratado pelo interceptor global (redireciona para login)
+    if (error.response?.status !== 401 && error.response?.status !== 403) {
+      console.error('Falha ao buscar empresas:', error);
+    }
   } finally {
+    clearTimeout(safetyTimer);
     loading.value = false;
   }
 }
@@ -78,9 +82,7 @@ async function deletarEmpresa() {
   const idEmpresa = empresaToDelete.value.id;
   deletando.value = true;
   try {
-    await axios.delete(`${API_BASE_URL}/api/empresas/${idEmpresa}?cascade=true`, {
-      headers: { Authorization: `Bearer ${token.value}` }
-    });
+    await axios.delete(`${API_BASE_URL}/api/empresas/${idEmpresa}?cascade=true`);
     empresas.value = empresas.value.filter(e => e.id !== idEmpresa);
     isDeleteModalOpen.value = false;
     empresaToDelete.value = null;
@@ -107,8 +109,6 @@ async function criarEmpresa() {
       nome_empresa: novaEmpresa.value.nome_empresa,
       uf: novaEmpresa.value.uf.toUpperCase(),
       nome_fantasia: novaEmpresa.value.nome_fantasia
-    }, {
-      headers: { Authorization: `Bearer ${token.value}` }
     });
     await carregarEmpresas();
     novaEmpresa.value = { cnpj: '', nome_empresa: '', uf: '', nome_fantasia: '' };

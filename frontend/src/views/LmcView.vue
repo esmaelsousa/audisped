@@ -126,7 +126,8 @@ function sincronizarEstoque(codItem, fechamentoAnterior) {
 
 async function redistribuirCombustivel() {
     if (!selectedFuel.value || !movimentacaoAtiva.value.length) return;
-    const firstRow = movimentacaoAtiva.value[0];
+    // Usa a primeira linha com dados reais do LMC (ignora linhas fantasmas do FULL OUTER JOIN)
+    const firstRow = movimentacaoAtiva.value.find(r => r.has_lmc_row) || movimentacaoAtiva.value[0];
     const novoEstoque = firstRow.estq_abert_ajustado !== null
         ? parseFloat(firstRow.estq_abert_ajustado)
         : parseFloat(firstRow.estq_abert || 0);
@@ -142,9 +143,10 @@ async function loadData(arquivoId) {
     if (!arquivoId) return;
     currentArquivoId.value = arquivoId;
     loading.value = true;
+    selectedFuel.value = null;
     lmcData.value = []; // Limpa para garantir reatividade total
     try {
-        const response = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoId}`);
+        const response = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoId}`, { timeout: 60000 });
         lmcData.value = response.data.map(item => ({
             ...item,
             nfs_detalhadas: typeof item.nfs_detalhadas === 'string'
@@ -202,12 +204,20 @@ async function recalcularTudo() {
             let runningAberturaLab = null;
             let cascadeModified = false; // true a partir do dia em que algo mudou
 
-            items.forEach((row, index) => {
+            items.forEach((row) => {
                 const aberturaSped = parseFloat(row.estq_abert || 0);
                 const entradas = parseFloat(row.vol_entr_lmc || 0);
                 const saidaSped = parseFloat(row.vol_saidas || 0);
                 const escrituralSped = parseFloat(row.estq_escr || 0);
                 const fisicoSped = parseFloat(row.fech_fisico || 0);
+
+                // Linhas fantasmas (só NF sem LMC correspondente): exibe dados mas não entra na cascata
+                // Só filtra quando has_lmc_row for explicitamente false (campo novo da API v2)
+                if (row.has_lmc_row === false) {
+                    row.raiox = { estq_abert: 0, vol_entr: 0, vol_saidas: 0, estq_escr: 0, fech_fisico: 0, dif: 0, percentual: 0, ultrapassou_limite: false, is_negativo: false };
+                    row.lab = { estq_abert: 0, vol_entr: 0, vol_saidas: 0, estq_escr: 0, fech_fisico: 0, val_perda: 0, val_ganho: 0, dif: 0, percentual: 0, ultrapassou_limite: false, is_negativo: false, is_saida_edited: false, is_fisico_edited: false, is_entr_edited: false };
+                    return; // não atualiza runningAberturaLab
+                }
 
                 // MOTOR 1: RAIO-X
                 const volumeBase = aberturaSped + entradas;
@@ -229,14 +239,18 @@ async function recalcularTudo() {
                 // MOTOR 2: LABORATÓRIO (Cascata Dinâmica)
                 const entrLab = row.vol_entr_ajustado !== null ? parseFloat(row.vol_entr_ajustado) : entradas;
                 const aberturaLab0 = row.estq_abert_ajustado !== null ? parseFloat(row.estq_abert_ajustado) : aberturaSped;
-                const aberturaLab = (index === 0) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
-                const saidaLab = parseFloat(row.edit_value ?? saidaSped);
+                const aberturaLab = (runningAberturaLab === null) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
+                // Usa vol_saidas_ajustado do banco como base quando disponível (evita falso positivo no banner "Distribuição inconsistente")
+                const saidaBaseDB = (row.vol_saidas_ajustado !== null && row.vol_saidas_ajustado !== undefined)
+                    ? parseFloat(row.vol_saidas_ajustado)
+                    : saidaSped;
+                const saidaLab = parseFloat(row.edit_value ?? saidaBaseDB);
                 const volumeBaseLab = aberturaLab + entrLab;
                 const escrLab = Math.max(0, aberturaLab + entrLab - saidaLab);
 
                 // Detecta se algo mudou neste dia ou veio em cascata de um dia anterior
                 const saidaEditada = parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3);
-                const aberturaAlterada = index > 0 && Math.abs(aberturaLab - (parseFloat(row.estq_abert_ajustado ?? aberturaSped))).toFixed(3) > 0.001;
+                const aberturaAlterada = runningAberturaLab !== null && Math.abs(aberturaLab - (parseFloat(row.estq_abert_ajustado ?? aberturaSped))).toFixed(3) > 0.001;
                 if (saidaEditada || aberturaAlterada) cascadeModified = true;
 
                 let fisicoLab;
@@ -251,7 +265,11 @@ async function recalcularTudo() {
                     // Sincroniza o campo de entrada do físico para refletir o valor recalculado
                     row.fisico_edit_value = parseFloat(fisicoLab.toFixed(3));
                 } else {
-                    fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoSped);
+                    // Usa fech_fisico_ajustado do banco quando disponível e não há edição manual
+                    const fisicoBaseDB = (row.fech_fisico_ajustado !== null && row.fech_fisico_ajustado !== undefined)
+                        ? parseFloat(row.fech_fisico_ajustado)
+                        : fisicoSped;
+                    fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoBaseDB);
                 }
 
                 const difBruta = fisicoLab - escrLab;
@@ -507,6 +525,11 @@ async function salvarLoteRateio() {
 
 // Quando trocar combustível, rodar cálculo
 watch(selectedFuel, () => recalcularTudo());
+
+// Recarrega dados ao navegar entre meses sem desmontar o componente
+watch(() => route.params.id, (newId) => {
+    if (newId) loadData(newId);
+});
 
 // Formatação Visual
 const fNum = (num) => {

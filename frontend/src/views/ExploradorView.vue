@@ -61,7 +61,10 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Erro ao carregar histórico:', error);
-    erroCarregamento.value = true;
+    // 401/403 já é tratado pelo interceptor global (redireciona para login)
+    if (error.response?.status !== 401 && error.response?.status !== 403) {
+      erroCarregamento.value = true;
+    }
   } finally {
     clearTimeout(safetyTimer);
     loading.value = false;
