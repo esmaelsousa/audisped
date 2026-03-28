@@ -61,6 +61,14 @@ const pool = new Pool({
     database: process.env.DB_DATABASE,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
+    max: 20,                      // máximo de conexões simultâneas (padrão era 10)
+    connectionTimeoutMillis: 5000, // falha rápida se pool esgotado (evita timeout de 30s no Axios)
+    idleTimeoutMillis: 30000,      // libera conexões ociosas após 30s
+});
+
+// Handler global de erros do pool (evita crash silencioso em conexões perdidas)
+pool.on('error', (err) => {
+    logger.error('Erro inesperado no pool PostgreSQL:', { message: err.message, stack: err.stack });
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
@@ -155,7 +163,7 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(401).json({ message: 'Email ou senha incorretos.' });
         }
 
-        const token = jwt.sign({ id: user.id, nome: user.nome, email: user.email }, JWT_SECRET, { expiresIn: '12h' });
+        const token = jwt.sign({ id: user.id, nome: user.nome, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
         res.json({ token, user: { id: user.id, nome: user.nome, email: user.email } });
     } catch (err) {
         res.status(500).json({ message: 'Erro no servidor.', error: err.message });
@@ -1135,9 +1143,9 @@ const extractNfeData = (nfeNode) => {
             vcofins: parseValorNFe(cofinsNode.vCOFINS),
             vipidevol: parseValorNFe(prod.vIPIDevol || det.impostoDevol?.IPI?.vIPIDevol),
             // Campos adicionais ICMS ST Retido / Mantido
-            vbc_st_ret: det.extractedIcms?.vBCSTRet || 0,
+            vbc_icms_st_ret: det.extractedIcms?.vBCSTRet || 0,
             vicms_st_ret: det.extractedIcms?.vICMSSTRet || 0,
-            p_st: det.extractedIcms?.pST || 0,
+            picms_st: det.extractedIcms?.pST || 0,
             vbc_st_dest: det.extractedIcms?.vBCSTDest || 0,
             vicms_st_dest: det.extractedIcms?.vICMSSTDest || 0
         };
@@ -4024,22 +4032,8 @@ app.get('/api/documentos/auditoria/saidas/:id_arquivo', authMiddleware, async (r
     }
 });
 
-// --- ROTA PARA LISTAR EMPRESAS (PRESENTE) ---
-app.get('/api/empresas', authMiddleware, async (req, res) => {
-    logger.info('Recebida requisição para listar empresas.');
-    const dbClient = await pool.connect();
-    try {
-        const query = `SELECT id, cnpj, nome_empresa, uf FROM empresas ORDER BY nome_empresa; `;
-        const { rows } = await dbClient.query(query);
-        logger.info(`Encontradas ${rows.length} empresas.`);
-        res.status(200).json(rows);
-    } catch (error) {
-        logger.error('--- ERRO AO BUSCAR EMPRESAS ---', { message: error.message, stack: error.stack });
-        res.status(500).json({ message: "Erro ao buscar empresas no banco de dados.", error: error.message });
-    } finally {
-        if (dbClient) dbClient.release();
-    }
-});
+// ROTA REMOVIDA: duplicata de app.get('/api/empresas') definida anteriormente (~linha 2484).
+// Em Express, apenas a primeira definição é usada. Esta era código morto.
 
 // --- ROTA PARA CRIAR EMPRESA ---
 app.post('/api/empresas', authMiddleware, async (req, res) => {
@@ -5368,6 +5362,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         let encerrantesBombasMap = {}; // Rastreador global contínuo (Bico -> Último Encerrante Final)
 
+        // ── Fix B: período do arquivo (DDMMYYYY) para autocorreção de COD_SIT ──
+        // Convertidos para Date (UTC) no bloco 0000 para comparação com DT_E_S
+        let periodoIniDate = null; // Date UTC do primeiro dia do período
+        let periodoFimDate = null; // Date UTC do último dia do período
+        // ── Fix C: rastrear 0150 presentes e CNPJs referenciados no 1601 ──
+        const set0150CnpjsPresentes = new Set(); // CNPJs que já têm 0150 no arquivo
+        const map1601Participantes = new Map();  // CNPJ -> { cod_part, nome } vindos do 1601
+
         let pending1300 = null;
         let pending1310s = [];
         let pending1320s = {}; // Dicionário de Bicos { "idxAfericao": [array of fields...], ... }
@@ -5602,6 +5604,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (fields.length >= 2 && fields[1] === '0000') {
                 let current_version = fields[2];
                 let date_start = fields[4]; // DDMMYYYY
+                let date_end   = fields[5]; // DDMMYYYY
 
                 if (date_start && date_start.length === 8) {
                     let year = parseInt(date_start.substring(4, 8), 10);
@@ -5609,9 +5612,24 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         fields[2] = '020'; // Transmuta silenciosamente para salvar a importação no PVA
                         changesApplied++;
                     }
+                    // Fix B: captura período para autocorreção de COD_SIT
+                    const dd0 = date_start.substring(0,2), mm0 = date_start.substring(2,4), yy0 = date_start.substring(4,8);
+                    periodoIniDate = new Date(Date.UTC(parseInt(yy0), parseInt(mm0)-1, parseInt(dd0)));
+                }
+                if (date_end && date_end.length === 8) {
+                    const dd1 = date_end.substring(0,2), mm1 = date_end.substring(2,4), yy1 = date_end.substring(4,8);
+                    periodoFimDate = new Date(Date.UTC(parseInt(yy1), parseInt(mm1)-1, parseInt(dd1)));
                 }
                 layoutVersion = fields[2]; // Define a regra para o restante do arquivo
                 pushLine(fields.join('|'));
+                continue;
+            }
+
+            // --- BLOCO 0150 (Fix C: registrar CNPJs presentes) ---
+            if (fields.length >= 2 && fields[1] === '0150') {
+                const cnpj0150 = (fields[5] || '').replace(/\D/g, '');
+                if (cnpj0150.length >= 11) set0150CnpjsPresentes.add(cnpj0150);
+                pushLine(line);
                 continue;
             }
 
@@ -5735,6 +5753,24 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             // Qualquer outro bloco (ou bloco que não esteja vinculado à modificação no 1300), libera buffer primeiro
             flush1300Group();
+            // ── Fix B (inline): corrige COD_SIT="07" para "00" quando DT_E_S está dentro do período ──
+            // Executado ANTES do rastreamento de sitExportST para garantir consistência
+            if (fields.length >= 2 && fields[1] === 'C100' &&
+                fields[6] === '07' && periodoIniDate && periodoFimDate &&
+                fields[11] && fields[11].length === 8) {
+                const dEs = fields[11];
+                const dtEs = new Date(Date.UTC(
+                    parseInt(dEs.substring(4,8)),
+                    parseInt(dEs.substring(2,4)) - 1,
+                    parseInt(dEs.substring(0,2))
+                ));
+                if (dtEs >= periodoIniDate && dtEs <= periodoFimDate) {
+                    fields[6] = '00';
+                    changesApplied++;
+                    logger.info(`[Fix B] COD_SIT corrigido 07->00 para NF ${fields[8]} (DT_E_S ${dEs} dentro do período)`);
+                }
+            }
+
             // Rastreia COD_SIT do documento pai (C100/D100/etc.) para filtro E210
             if (fields.length >= 2 &&
                 (fields[1] === 'C100' || fields[1] === 'C500' || fields[1] === 'C600' ||
@@ -5763,32 +5799,47 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const codItem = fields[3];
                 const key = `${lastC100.numDoc}_${lastC100.chvNfe || ''}_${numItem}_${codItem}`;
 
+                // Fix A (inline): sanitiza IND_MOV para evitar "0,00"/"1,00" que desalinha campos no PVA
+                let c170Modified = false;
+                if (fields.length > 9) {
+                    const rawIndMov = fields[9];
+                    const sanitized = (parseInt(rawIndMov, 10) === 1) ? '1' : '0';
+                    if (rawIndMov !== sanitized) {
+                        fields[9] = sanitized;
+                        changesApplied++;
+                        c170Modified = true;
+                    }
+                }
+
                 if (mapC170.has(key)) {
                     const row = mapC170.get(key);
-                    let changed = false;
+                    let mapChanged = false;
 
                     if (row.cst_icms && fields[10] !== row.cst_icms) {
                         fields[10] = String(row.cst_icms).padStart(3, '0');
-                        changed = true;
+                        mapChanged = true;
                     }
                     if (row.cfop && fields[11] !== row.cfop) {
                         fields[11] = String(row.cfop).padStart(4, '0');
-                        changed = true;
+                        mapChanged = true;
                     }
                     if (row.cst_pis && fields[25] !== row.cst_pis && fields.length > 25) {
                         fields[25] = String(row.cst_pis).padStart(2, '0');
-                        changed = true;
+                        mapChanged = true;
                     }
                     if (row.cst_cofins && fields[31] !== row.cst_cofins && fields.length > 31) {
                         fields[31] = String(row.cst_cofins).padStart(2, '0');
-                        changed = true;
+                        mapChanged = true;
                     }
-
-                    if (changed) {
+                    if (mapChanged) {
                         changesApplied++;
-                        pushLine(fields.join('|'));
-                        continue;
+                        c170Modified = true;
                     }
+                }
+
+                if (c170Modified) {
+                    pushLine(fields.join('|'));
+                    continue;
                 }
             }
 
@@ -5856,11 +5907,63 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 continue;
             }
 
+            // ── Fix C: coleta participantes do 1601 para verificação de 0150 ──
+            if (fields.length >= 2 && fields[1] === '1601') {
+                // |1601|COD_PART|... (campos: 1=REG, 2=COD_PART)
+                // Busca na tabela sped_participantes o CNPJ deste participante
+                const codPart1601 = fields[2] || '';
+                if (codPart1601 && !map1601Participantes.has(codPart1601)) {
+                    map1601Participantes.set(codPart1601, { cod_part: codPart1601 });
+                }
+            }
+
             pushLine(line);
         }
 
         // Descarregar buffer residual se o arquivo terminar em um bloco 1310 ajustado
         flush1300Group();
+
+        // ── Fix C (pós-loop): injeta 0150 para CNPJs do 1601 que estão ausentes ──
+        if (map1601Participantes.size > 0) {
+            // Busca CNPJs dos participantes do 1601 na tabela sped_participantes
+            const codPartsList = [...map1601Participantes.keys()];
+            let participantes1601 = [];
+            try {
+                const res1601 = await dbClient.query(
+                    'SELECT cod_part, nome, cnpj FROM sped_participantes WHERE id_sped_arquivo = $1 AND cod_part = ANY($2)',
+                    [arquivoId, codPartsList]
+                );
+                participantes1601 = res1601.rows;
+            } catch (e) {
+                logger.warn('[Fix C] Erro ao buscar participantes 1601 no banco:', e.message);
+            }
+
+            for (const part of participantes1601) {
+                const cnpjLimpo = (part.cnpj || '').replace(/\D/g, '');
+                if (!cnpjLimpo || set0150CnpjsPresentes.has(cnpjLimpo)) continue;
+
+                // Determina COD_MUN a partir do arquivo ou usa padrão
+                const nomePart = (part.nome || 'FORNECEDOR COMBUSTIVEL').toUpperCase().substring(0, 60);
+                // Formato 0150: |0150|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
+                const nova0150 = `|0150|${part.cod_part}|${nomePart}|1058|${cnpjLimpo}||ISENTO|||||||`;
+
+                // Insere a nova linha 0150 antes do 0990 no outputLines
+                const idx0990 = outputLines.findIndex(l => l.split('|')[1] === '0990');
+                if (idx0990 !== -1) {
+                    outputLines.splice(idx0990, 0, nova0150);
+                } else {
+                    // Fallback: insere após o último 0150 existente
+                    let lastIdx0150 = -1;
+                    for (let i = outputLines.length - 1; i >= 0; i--) {
+                        if (outputLines[i].split('|')[1] === '0150') { lastIdx0150 = i; break; }
+                    }
+                    outputLines.splice(lastIdx0150 !== -1 ? lastIdx0150 + 1 : 0, 0, nova0150);
+                }
+                set0150CnpjsPresentes.add(cnpjLimpo);
+                changesApplied++;
+                logger.info(`[Fix C] 0150 injetado para participante 1601: ${part.cod_part} / CNPJ: ${cnpjLimpo}`);
+            }
+        }
 
         // ── Recalcular contadores 9900 / 0990 / 9999 ──────────────────────────
         // Após filtrar 0200/0206 e outras modificações, as contagens originais do

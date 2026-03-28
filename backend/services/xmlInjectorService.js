@@ -316,14 +316,19 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             let vlIcms = parseValor(item.vicms);
             let aliqIcms = (m && m.aliq_icms != null) ? m.aliq_icms : parseValor(item.picms);
 
-            let vlCofins = parseValor(item.vcofins);
-            let vIpiDevol = parseValor(item.vipidevol);
 
             // Novos campos extraídos (BCs e Alíquotas)
             let bcIpi = parseValor(item.vbc_ipi);
             let aliqIpi = parseValor(item.pipi);
             let bcIcmsSt = parseValor(item.vbc_icms_st);
             let vlIcmsSt = parseValor(item.vicms_st);
+
+            // Novos campos extraídos conforme Plano Fase 2
+            let bcIcmsXml = parseValor(item.vbc_icms);
+            let vlIcmsXml = parseValor(item.vicms);
+            let bcIcmsStRet = parseValor(item.vbc_icms_st_ret);
+            let vlIcmsStRet = parseValor(item.vicms_st_ret);
+
             let cstPis = (m && m.cst_pis) ? m.cst_pis : (item.cst_pis || '07');
             let bcPis = parseValor(item.vbc_pis);
             let aliqPis = parseValor(item.ppis);
@@ -331,36 +336,40 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             let cstCofins = (m && m.cst_cofins) ? m.cst_cofins : (item.cst_cofins || '07');
             let bcCofins = parseValor(item.vbc_cofins);
             let aliqCofins = parseValor(item.pcofins);
+            let vlCofins = parseValor(item.vcofins);
+            let vIpiDevol = parseValor(item.vipidevol);
 
             // Extração de valores acessórios
             let vFrete = parseValor(item.vfrete);
             let vSeg = parseValor(item.vseg);
             let vOutro = parseValor(item.voutro);
 
+            // Se for CST 60 ou 61, usamos os valores retidos como base de ST no C170
+            if (finalCst === '060' || finalCst === '061') {
+                bcIcmsSt = bcIcmsStRet;
+                vlIcmsSt = vlIcmsStRet;
+            }
+
             // Ajustes de Custo (Premium Feature)
             if (ajusteIpi) {
-                // IPI é externo ao valor do produto na NF-e, então adicionamos ao valor do item para compor custo
                 vlItem += vlIpi;
-                // Zeramos os campos de imposto destacados se solicitado ajuste
                 vlIpi = 0; 
                 bcIpi = 0;
                 aliqIpi = 0;
             }
             if (ajusteIcms) {
-                // ICMS já está embutido no vProd (vlItem) na NF-e. 
-                // Apenas zeramos os campos de impostos para que não haja crédito no SPED
+                // Ao ajustar ICMS para custo, zeramos tanto o valor quanto a base destacada
                 vlIcms = 0;
                 aliqIcms = 0;
+                bcIcmsXml = 0; // Evita que a BC original apareça no SPED
             }
 
             if (forcarUsoConsumo && finalCfop === '1556') {
                 finalCst = '040';
-                // No uso e consumo, ICMS ST, IPI e IPI Devol tornam-se custo do produto
                 vlItem += vlIcmsSt;
                 vlItem += vlIpi;
                 vlItem += vIpiDevol;
                 
-                // Zeramos os impostos destacados para o SPED (não há crédito)
                 vlIcms = 0;
                 aliqIcms = 0;
                 bcIcmsSt = 0;
@@ -369,12 +378,22 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                 bcIpi = 0;
                 aliqIpi = 0;
                 vIpiDevol = 0;
+                bcIcmsXml = 0;
             }
 
-            // Base de ICMS: (Valor Produto - Desconto + Frete + Seguro + Outros), com override do De-Para
-            const bcIcmsCalculado = (finalCst === '000' || finalCst === '020') ? (vlItem - descItem + vFrete + vSeg + vOutro) : 0;
-            const bcIcms = (m && m.bc_icms_override != null) ? m.bc_icms_override : bcIcmsCalculado;
-            const vIcmsCalc = (bcIcms * aliqIcms) / 100;
+            // Prioridade para Base de ICMS do XML, senão calcula.
+            // CSTs que admitem BC: 00, 10, 20, 70 (simplificado)
+            const cstComBase = ['000', '010', '020', '070', '090'].includes(finalCst);
+            const bcIcmsCalculado = cstComBase ? (vlItem - descItem + vFrete + vSeg + vOutro) : 0;
+            
+            const bcIcms = (m && m.bc_icms_override != null) 
+                ? m.bc_icms_override 
+                : (bcIcmsXml > 0 ? bcIcmsXml : bcIcmsCalculado);
+            
+            // Valor do ICMS: Prioriza XML se não houver override de alíquota pelo De-Para
+            const vIcmsCalc = (m && m.aliq_icms != null) 
+                ? (bcIcms * aliqIcms) / 100 
+                : (vlIcmsXml > 0 ? vlIcmsXml : (bcIcms * aliqIcms) / 100);
 
             const codUnit = item.ucom || 'UN';
             const codProdutoNfe = (m && m.cod_interno) ? m.cod_interno : (item.cod_item || (codItemInterno++).toString());
@@ -616,6 +635,12 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                     bc_icms: item.vbc_icms != null ? parseValor(item.vbc_icms) : 0,
                     vl_icms_st: item.vicms_st || 0,
                     bc_icms_st: item.vbc_icms_st != null ? parseValor(item.vbc_icms_st) : 0,
+                    // Novos campos de ST Retido / Destino (CST 60 / CSOSN 500)
+                    vbc_st_ret: item.vbc_st_ret || 0,
+                    vicms_st_ret: item.vicms_st_ret || 0,
+                    p_st: item.p_st || 0,
+                    vbc_st_dest: item.vbc_st_dest || 0,
+                    vicms_st_dest: item.vicms_st_dest || 0,
                     // Valores do mapeamento salvo (se houver override)
                     aliq_icms_override: mapping ? mapping.aliq_icms : null,
                     bc_icms_override: mapping ? mapping.bc_icms_override : null,
