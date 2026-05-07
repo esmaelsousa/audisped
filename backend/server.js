@@ -3863,12 +3863,11 @@ app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, 
         // E usamos subqueries (ou json_agg) para injetar o C190 e o C170 dentro de cada C100
         const query = `
             SELECT 
-                doc.id,
-                doc.num_doc,
-                doc.ind_oper,
-                doc.cod_mod,
-                doc.dt_doc,
-                doc.dt_e_s,
+                doc.id, 
+                doc.num_doc, 
+                doc.ind_oper, 
+                doc.dt_doc, 
+                doc.dt_e_s, 
                 doc.vl_doc::float8 AS vl_doc,
                 part.nome as nome_fornecedor,
                 part.cnpj as cnpj_fornecedor,

@@ -155,32 +155,11 @@ const loadingNotas = ref(false);
 const expandedNotas = ref(new Set());
 const buscaNF = ref('');
 
-const somaEntradasMod55 = computed(() =>
-    notasAnaliticas.value
-        .filter(n => n.cod_mod === '55')
-        .reduce((acc, n) => acc + (n.vl_doc || 0), 0)
-);
-
-const somaEntradasMod55PorCfop = computed(() => {
-    const mapa = {};
-    notasAnaliticas.value
-        .filter(n => n.cod_mod === '55')
-        .forEach(n => {
-            (n.consolidacao_c190 || []).forEach(c => {
-                if (!c.cfop) return;
-                mapa[c.cfop] = (mapa[c.cfop] || 0) + (c.vl_opr || 0);
-            });
-        });
-    return Object.entries(mapa)
-        .map(([cfop, total]) => ({ cfop, total }))
-        .sort((a, b) => a.cfop.localeCompare(b.cfop));
-});
-
 const filteredNotas = computed(() => {
     if (!buscaNF.value) return notasAnaliticas.value;
     const lower = buscaNF.value.toLowerCase();
-    return notasAnaliticas.value.filter(nf =>
-        (nf.num_doc && nf.num_doc.toLowerCase().includes(lower)) ||
+    return notasAnaliticas.value.filter(nf => 
+        (nf.num_doc && nf.num_doc.toLowerCase().includes(lower)) || 
         (nf.nome_fornecedor && nf.nome_fornecedor.toLowerCase().includes(lower))
     );
 });
@@ -1126,25 +1105,10 @@ const getStatusColor = (score) => {
                 <p class="text-xs text-slate-500">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
              </div>
              <div class="flex items-center gap-3">
-                 <div class="flex flex-col items-end bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-2">
-                     <span class="text-[9px] font-black uppercase tracking-widest text-emerald-500">Total Entradas NF-e (Mod. 55)</span>
-                     <span class="text-base font-black text-emerald-700 tabular-nums">{{ formatCurrency(somaEntradasMod55) }}</span>
-                 </div>
                  <input v-model="buscaNF" type="text" placeholder="Buscar por NF ou Fornecedor" class="px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-accent w-64 shadow-sm" />
              </div>
           </div>
           
-          <!-- Sub-somas por CFOP (Modelo 55 Entradas) -->
-          <div v-if="somaEntradasMod55PorCfop.length > 0" class="px-6 py-3 border-b border-slate-100 bg-slate-50/30 flex flex-wrap gap-2 items-center">
-              <span class="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">Por CFOP:</span>
-              <div v-for="item in somaEntradasMod55PorCfop" :key="item.cfop"
-                   class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-sm">
-                  <span class="text-[10px] font-black text-indigo-600 font-mono">{{ item.cfop }}</span>
-                  <span class="w-px h-3 bg-slate-200"></span>
-                  <span class="text-[10px] font-bold text-slate-700 tabular-nums">{{ formatCurrency(item.total) }}</span>
-              </div>
-          </div>
-
           <div v-if="loadingNotas" class="py-20 flex flex-col items-center justify-center text-slate-400">
              <div class="animate-spin text-3xl mb-4 text-brand-accent border-4 border-brand-accent/20 border-t-brand-accent rounded-full w-8 h-8"></div>
              <p class="font-bold text-sm tracking-widest uppercase">PROCESSANDO TABELAS REGISTRO C...</p>
