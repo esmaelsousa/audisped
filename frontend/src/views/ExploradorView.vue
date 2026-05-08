@@ -17,6 +17,8 @@ const busca = ref('');
 const anoFiltro = ref('');
 const selecionados = ref([]);
 const anosExpandidos = ref([]);
+const pendingDelete = ref(null); // { ids: [], label: '' }
+const deleteMsg = ref('');
 
 const getAno = (p) => String(p || '').substring(0, 4) || '—';
 
@@ -104,32 +106,40 @@ function toggleAno(ano) {
   else anosExpandidos.value.push(ano);
 }
 
-async function deletarArquivo(id, periodo) {
-  if (!confirm(`TEM CERTEZA?\n\nIsso excluirá permanentemente todos os dados e análises do período ${formatPeriodo(periodo)}.\nEsta ação não pode ser desfeita.`)) return;
-  try {
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    await axios.delete(`${API_BASE_URL}/api/periodo/${id}`, { headers });
-    arquivos.value = arquivos.value.filter(a => a.id !== id);
-    selecionados.value = selecionados.value.filter(i => i !== id);
-  } catch (e) {
-    alert("Falha ao excluir arquivo: " + (e.response?.data?.message || e.message));
-  }
+function deletarArquivo(id, periodo) {
+  pendingDelete.value = {
+    ids: [id],
+    label: `o período ${formatPeriodo(periodo)}`,
+    modo: 'single',
+  };
 }
 
-async function deletarVariosArquivos() {
+function deletarVariosArquivos() {
   const ids = [...selecionados.value];
   if (ids.length === 0) return;
-  if (!confirm(`VOCÊ SELECIONOU ${ids.length} PERÍODO(S).\n\nDESEJA EXCLUIR TODOS PERMANENTEMENTE?\nEsta ação não pode ser desfeita.`)) return;
+  pendingDelete.value = {
+    ids,
+    label: `${ids.length} período(s) selecionado(s)`,
+    modo: 'lote',
+  };
+}
+
+async function confirmarDelete() {
+  const { ids, modo } = pendingDelete.value;
+  pendingDelete.value = null;
   try {
     const token = localStorage.getItem('token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    await axios.post(`${API_BASE_URL}/api/periodo/bulk-delete`, { ids }, { headers });
-    arquivos.value = arquivos.value.filter(a => !selecionados.value.includes(a.id));
-    selecionados.value = [];
-    alert("Exclusão concluída com sucesso.");
+    if (modo === 'single') {
+      await axios.delete(`${API_BASE_URL}/api/periodo/${ids[0]}`, { headers });
+    } else {
+      await axios.post(`${API_BASE_URL}/api/periodo/bulk-delete`, { ids }, { headers });
+    }
+    arquivos.value = arquivos.value.filter(a => !ids.includes(a.id));
+    selecionados.value = selecionados.value.filter(i => !ids.includes(i));
+    deleteMsg.value = 'Exclusão concluída com sucesso.';
   } catch (e) {
-    alert("Falha ao excluir arquivos em lote: " + (e.response?.data?.message || e.message));
+    deleteMsg.value = 'Falha ao excluir: ' + (e.response?.data?.message || e.message);
   }
 }
 
@@ -197,6 +207,24 @@ function abrirAnalise(id) {
     </header>
 
     <!-- Toolbar de Ações em Massa -->
+    <!-- Confirmação de exclusão -->
+    <div v-if="pendingDelete" class="flex items-center justify-between gap-4 bg-red-50 border border-red-300 rounded-2xl px-5 py-3 shadow-sm">
+      <div class="flex items-center gap-3">
+        <span class="text-red-500 text-lg">🗑️</span>
+        <p class="text-sm font-black text-red-800">Excluir permanentemente {{ pendingDelete.label }}? Esta ação não pode ser desfeita.</p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button @click="pendingDelete = null" class="px-4 py-1.5 border border-slate-300 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-100 transition-all">CANCELAR</button>
+        <button @click="confirmarDelete" class="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-black rounded-xl transition-all">CONFIRMAR</button>
+      </div>
+    </div>
+
+    <!-- Resultado da exclusão -->
+    <div v-if="deleteMsg" class="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-300 rounded-2xl px-5 py-3 shadow-sm">
+      <p class="text-sm font-black text-emerald-800">{{ deleteMsg }}</p>
+      <button @click="deleteMsg = ''" class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl transition-all">FECHAR</button>
+    </div>
+
     <div v-if="arquivos.length > 0" class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200">
       <div class="flex items-center gap-4">
         <label class="flex items-center gap-2 cursor-pointer group">

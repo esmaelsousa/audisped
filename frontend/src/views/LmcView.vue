@@ -17,9 +17,11 @@ const selectedFuel = ref(null);
 const expandedDays = ref(new Set()); 
 const viewMode = ref('raiox'); // 'raiox' | 'laboratorio'
 
-const metaVendas = ref(''); 
+const metaVendas = ref('');
 const showOptimizerModal = ref(false);
 const volumeAlvo = ref(0);
+const otimizadorMsg = ref('');
+const pendingGravar = ref(false);
 
 onMounted(async () => {
     const arquivoId = route.params.id || arquivoInfo.value?.id;
@@ -355,7 +357,7 @@ async function rodarOtimizador() {
         });
         
         if (response.data.success) {
-            alert(response.data.message + (response.data.estouro_tanque ? "\n\nAtenção: O teto do tanque foi atingido em alguns dias." : ""));
+            otimizadorMsg.value = response.data.message + (response.data.estouro_tanque ? " ⚠️ O teto do tanque foi atingido em alguns dias." : "");
             showOptimizerModal.value = false;
             viewMode.value = 'lab'; // Força visualização dos cálculos
             await loadData(arquivoId); // Recarrega tudo do banco
@@ -489,12 +491,15 @@ async function aplicarRateioInteligente() {
 }
 
 
-async function salvarLoteRateio() {
-    if (!confirm("Isso reescreverá a auditoria deste combustível e salvará todas as quebras mascaradas. Continuar?")) return;
-    
+function salvarLoteRateio() {
+    pendingGravar.value = true;
+}
+
+async function confirmarGravar() {
+    pendingGravar.value = false;
     savingMacro.value = true;
     const items = lmcData.value.filter(i => i.cod_item === selectedFuel.value);
-    
+
     const updates = items.map(row => {
         return {
             id_sped: route.params.id || arquivoInfo.value?.id,
@@ -514,10 +519,10 @@ async function salvarLoteRateio() {
             }
         });
         recalcularTudo();
-        alert("Rateio em Lote salvo com sucesso! Toda a margem ANP foi calculada.");
+        otimizadorMsg.value = 'Rateio em Lote salvo com sucesso! Toda a margem ANP foi calculada.';
         metaVendas.value = '';
     } catch (error) {
-        alert('Erro ao salvar em lote.');
+        otimizadorMsg.value = 'Erro ao salvar em lote.';
     } finally {
         savingMacro.value = false;
     }
@@ -703,6 +708,29 @@ async function exportarSped() {
                 <p v-if="totais.vendasAjustadas !== totais.vendasDeclaradas" class="text-[8px] font-black text-indigo-400/70 mt-1 uppercase">
                     Δ: {{ fNum(totais.vendasAjustadas - totais.vendasDeclaradas) }} L
                 </p>
+            </div>
+        </div>
+
+        <!-- Toast de sucesso do Otimizador 1300 -->
+        <div v-if="otimizadorMsg" class="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-300 rounded-2xl px-5 py-3 shadow-sm">
+            <div class="flex items-center gap-3">
+                <span class="text-emerald-500 text-lg">✅</span>
+                <p class="text-sm font-black text-emerald-800">{{ otimizadorMsg }}</p>
+            </div>
+            <button @click="otimizadorMsg = ''" class="shrink-0 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl transition-all">
+                FECHAR
+            </button>
+        </div>
+
+        <!-- Confirmação do GRAVAR -->
+        <div v-if="pendingGravar" class="flex items-center justify-between gap-4 bg-amber-50 border border-amber-300 rounded-2xl px-5 py-3 shadow-sm">
+            <div class="flex items-center gap-3">
+                <span class="text-amber-500 text-lg">⚠️</span>
+                <p class="text-sm font-black text-amber-800">Isso reescreverá a auditoria deste combustível e salvará todas as quebras mascaradas. Confirmar?</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button @click="pendingGravar = false" class="px-4 py-1.5 border border-slate-300 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-100 transition-all">CANCELAR</button>
+                <button @click="confirmarGravar" class="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl transition-all">CONFIRMAR</button>
             </div>
         </div>
 
