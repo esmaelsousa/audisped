@@ -2045,35 +2045,38 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
             });
         }
 
-        // REGRA 3: Variação de Estoque > 0,60%
+        // REGRA 3: Variação de Estoque > 0,60% (base: Fechamento Físico)
         const variacaoQuery = `
-            SELECT 
-                lmc.cod_item, COALESCE(p.descr_item, lmc.cod_item) as nome_combustivel, 
-                lmc.num_tanque, lmc.data_mov, 
-                COALESCE(lmc.vol_escr_ajustado, lmc.estq_escr) as estq_escr, 
-                COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico) as fech_fisico, 
-                (COALESCE(lmc.estq_abert_ajustado, lmc.estq_abert) + COALESCE(lmc.vol_entr_ajustado, lmc.vol_entr)) as base_calculo
+            SELECT
+                lmc.cod_item, COALESCE(p.descr_item, lmc.cod_item) as nome_combustivel,
+                lmc.num_tanque, lmc.data_mov,
+                COALESCE(lmc.vol_escr_ajustado, lmc.estq_escr) as estq_escr,
+                COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico) as fech_fisico,
+                (COALESCE(lmc.estq_abert_ajustado, lmc.estq_abert) + COALESCE(lmc.vol_entr_ajustado, lmc.vol_entr)) as vol_disponivel,
+                COALESCE(lmc.vol_saidas_ajustado, lmc.vol_saidas) as vol_saidas,
+                COALESCE(lmc.estq_abert_ajustado, lmc.estq_abert) as estq_abert
             FROM lmc_movimentacao lmc
             LEFT JOIN sped_produtos p ON lmc.id_sped_arquivo = p.id_sped_arquivo AND lmc.cod_item = p.cod_item
-            WHERE lmc.id_sped_arquivo = $1 
-              AND (COALESCE(lmc.estq_abert_ajustado, lmc.estq_abert) + COALESCE(lmc.vol_entr_ajustado, lmc.vol_entr)) > 0 
-              AND (ABS(COALESCE(lmc.vol_escr_ajustado, lmc.estq_escr) - COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico)) / (COALESCE(lmc.estq_abert_ajustado, lmc.estq_abert) + COALESCE(lmc.vol_entr_ajustado, lmc.vol_entr))) > 0.006;
+            WHERE lmc.id_sped_arquivo = $1
+              AND COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico) > 0
+              AND (ABS(COALESCE(lmc.vol_escr_ajustado, lmc.estq_escr) - COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico)) / COALESCE(lmc.fech_fisico_ajustado, lmc.fech_fisico)) > 0.006;
         `;
         const resVariacao = await dbClient.query(variacaoQuery, [arquivoId]);
         for (const row of resVariacao.rows) {
             const estqEscrNum = parseFloat(row.estq_escr);
             const fechFisicoNum = parseFloat(row.fech_fisico);
-            const baseCalculoNum = parseFloat(row.base_calculo);
-            const variacao = fechFisicoNum - estqEscrNum; // Negativo = Perda, Positivo = Ganho
-            const percentual = (Math.abs(variacao) / baseCalculoNum) * 100;
+            const variacao = fechFisicoNum - estqEscrNum;
+            const percentual = (Math.abs(variacao) / fechFisicoNum) * 100;
+            const limiteLitros = fechFisicoNum * 0.006;
+            const excessoLitros = Math.abs(variacao) - limiteLitros;
             erros.push({
                 tipo_erro: 'CRITICAL',
                 regra_id: 'CRIT-1310-02',
                 titulo_erro: 'Variação de Estoque Acima da Tolerância (0,60%)',
-                descricao_erro: `Combustível: **${row.nome_combustivel}** (Tanque ${row.num_tanque}) em ${new Date(row.data_mov).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}: Variação de **${percentual.toFixed(2)}%** excede o limite legal da ANP.`,
+                descricao_erro: `Combustível: **${row.nome_combustivel}** (Tanque ${row.num_tanque}) em ${new Date(row.data_mov).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}: Variação de **${percentual.toFixed(2)}%** sobre o fechamento físico excede o limite ANP. Excesso: ${excessoLitros.toFixed(3)} L acima do permitido (${limiteLitros.toFixed(3)} L).`,
                 sugestao_correcao: 'Esta é uma infração grave. Verificar medições, possíveis vazamentos ou aferições e justificar a perda/ganho imediatamente.',
                 linha_arquivo: 0,
-                conteudo_linha: `Est. Escritural: ${estqEscrNum.toFixed(3)} L | Fech. Físico: ${fechFisicoNum.toFixed(3)} L | Diferença: ${variacao.toFixed(3)} L`,
+                conteudo_linha: `Est. Abertura: ${parseFloat(row.estq_abert).toFixed(3)} L | Vol. Disponível: ${parseFloat(row.vol_disponivel).toFixed(3)} L | Saídas: ${parseFloat(row.vol_saidas).toFixed(3)} L | Escritural: ${estqEscrNum.toFixed(3)} L | Fech. Físico: ${fechFisicoNum.toFixed(3)} L | Perda/Ganho: ${variacao.toFixed(3)} L | % ANP: ${percentual.toFixed(4)}% | Limite: ${limiteLitros.toFixed(3)} L`,
                 data_erro: row.data_mov, cod_item_erro: row.cod_item, num_tanque_erro: row.num_tanque
             });
         }
@@ -2841,17 +2844,20 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 // Se não, usa o que está no arquivo (C8).
                 const escrFinal = (row.vol_saidas_ajustado !== null) ? escrCalculadoBase : escrSpedOriginal;
 
-                // DIFERENÇA = FÍSICO - ESCRITURAL (Igual ao Validador HTML)
+                // DIFERENÇA = FÍSICO - ESCRITURAL
                 const diffLitre = fisico - escrFinal;
 
-                // % ANP = (MOD(DIF) / (ABERT+ENTR)) * 100
-                const volumeBase = abertOriginal + entr;
-                const varPerc = volumeBase > 0 ? (Math.abs(diffLitre) / volumeBase) * 100 : 0;
+                // % ANP = ABS(Perda/Ganho) / Fechamento Físico × 100
+                const varPerc = fisico > 0 ? (Math.abs(diffLitre) / fisico) * 100 : 0;
+                const limiteLitros = fisico > 0 ? parseFloat((fisico * 0.006).toFixed(3)) : 0;
+                const excessoLitros = parseFloat(Math.max(0, Math.abs(diffLitre) - limiteLitros).toFixed(3));
+                const volDisponivel = abertOriginal + entr;
 
                 let status = 'CONFORME';
-                if (varPerc > 0.60) status = 'FORA LIMITE';
+                if (fisico <= 0) status = 'ERRO DE BASE / FECHAMENTO FÍSICO ZERADO';
+                else if (varPerc > 0.60) status = 'FORA LIMITE';
                 if (cap > 0 && fisico > cap) status = 'EXCESSO';
-                if (escrFinal < -0.01 || fisico < -0.01) status = 'NEGATIVO'; // máxima prioridade
+                if (escrFinal < -0.01 || fisico < -0.01) status = 'NEGATIVO';
 
                 lmcFinal.push({
                     ...row,
@@ -2859,10 +2865,14 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                     vol_saidas_final: saida,
                     fech_fisico_final: fisico,
                     estq_escr_final: escrFinal,
+                    vol_disponivel: volDisponivel,
                     val_perda: perda_orig,
                     val_ganho: ganho_orig,
                     variacao_litros: diffLitre,
                     variacao_percentual: varPerc,
+                    variacao_percentual_disponivel: volDisponivel > 0 ? parseFloat(((Math.abs(diffLitre) / volDisponivel) * 100).toFixed(4)) : 0,
+                    limite_litros: limiteLitros,
+                    excesso_litros: excessoLitros,
                     excesso: cap > 0 && fisico > cap ? parseFloat((fisico - cap).toFixed(3)) : 0,
                     status_anp: status
                 });
