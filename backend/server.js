@@ -5153,6 +5153,22 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             mapAjustes.set(key, r);
         });
 
+        // 1.1b Mapa base: fech_fisico do banco para TODOS os registros (garante FECH_FISICO correto
+        //       mesmo em arquivos onde o original tem VAL_AJ_PERDA = ESTQ_ESCR → FECH = 0)
+        const allLmcFech = await dbClient.query(`
+            SELECT data_mov, cod_item,
+                   COALESCE(fech_fisico_ajustado::numeric, fech_fisico::numeric, 0) AS fech_fisico
+            FROM lmc_movimentacao WHERE id_sped_arquivo = $1
+        `, [arquivoId]);
+        const mapBaseFisico = new Map();
+        allLmcFech.rows.forEach(r => {
+            const d = new Date(r.data_mov);
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            mapBaseFisico.set(`${y}-${m}-${day}_${r.cod_item}`, parseFloat(r.fech_fisico || 0));
+        });
+
         // 1.2 Buscar configs de capacidades e ajustes C100/C190 para este arquivo
         const configs = await dbClient.query('SELECT cod_item, capacidade FROM lmc_tanques_config WHERE cnpj = $1', [arqInfo.rows[0].cnpj_empresa]);
         const mapCapacidades = new Map(); // Mantido vazio por compatibilidade
@@ -5592,6 +5608,38 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                             novo: { abert: novoAbert, saida: novoSaida, perda: novoPerda, ganho: novoGanho, entr: entr }
                         };
                         continue; // Importante: não faz res.write aqui
+                    } else if (mapBaseFisico.has(key)) {
+                        // Sem ajuste do usuário, mas o banco tem fech_fisico correto.
+                        // Corrige o padrão bugado onde VAL_AJ_PERDA = ESTQ_ESCR → FECH = 0.
+                        const fisicoBase = mapBaseFisico.get(key);
+                        const fisicoOrig = parseFloat((fields[11] || '0').replace(',', '.'));
+                        if (fisicoOrig === 0 && fisicoBase > 0) {
+                            const escr = parseFloat((fields[8] || '0').replace(',', '.'));
+                            // Deriva PERDA/GANHO reais a partir do fech_fisico do banco
+                            // para que a fórmula do PVA bata: FECH = ESCR - PERDA + GANHO
+                            let corrigidoPerda = 0;
+                            let corrigidoGanho = 0;
+                            if (fisicoBase <= escr) {
+                                corrigidoPerda = Number((escr - fisicoBase).toFixed(3));
+                            } else {
+                                corrigidoGanho = Number((fisicoBase - escr).toFixed(3));
+                            }
+                            fields[9] = corrigidoPerda.toFixed(3).replace('.', ',');
+                            fields[10] = corrigidoGanho.toFixed(3).replace('.', ',');
+                            fields[11] = fisicoBase.toFixed(3).replace('.', ',');
+                            if (fields.length < 13) while (fields.length < 13) fields.push('');
+                            else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
+                            changesApplied++;
+                            const abert = parseFloat((fields[4] || '0').replace(',', '.'));
+                            const entr = parseFloat((fields[5] || '0').replace(',', '.'));
+                            const saida = parseFloat((fields[7] || '0').replace(',', '.'));
+                            pending1300 = {
+                                line: fields.join('|'),
+                                orig: { abert, saida, entr, codItem },
+                                novo: { abert, saida, perda: corrigidoPerda, ganho: corrigidoGanho, entr }
+                            };
+                            continue;
+                        }
                     }
                 }
             }
