@@ -5275,6 +5275,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let pending1310s = [];
         let pending1320s = {}; // Dicionário de Bicos { "idxAfericao": [array of fields...], ... }
         let layoutVersion = '019'; // Default para 2025 e anteriores
+        // Correção 3: propagar continuidade — ABERT do dia N = FECH exportado do dia N-1
+        const ultimoFechExportado = new Map(); // cod_item -> fech_fisico
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
@@ -5300,6 +5302,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (pending1310s.length === 0) {
                 // Se não há tanques/filhos, escreve a global diretamente
                 pushLine(pending1300.line);
+                // Correção 3: armazenar FECH exportado para propagação
+                if (pending1300.orig && pending1300.orig.codItem) {
+                    const flds = pending1300.line.split('|');
+                    const fExportado = parseFloat((flds[11] || '0').replace(',', '.'));
+                    if (fExportado > 0) ultimoFechExportado.set(pending1300.orig.codItem, fExportado);
+                }
                 pending1300 = null;
                 return;
             }
@@ -5322,6 +5330,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 let pAbert = orig.abert > 0 ? (tOrigAbert / orig.abert) : (1 / pending1310s.length);
                 let pSaida = orig.saida > 0 ? (tOrigSaida / orig.saida) : (1 / pending1310s.length);
                 let pEntr = orig.entr > 0 ? (tOrigEntr / orig.entr) : (1 / pending1310s.length);
+                // Correção 2: proporção inválida = tanques originais corrompidos (encerrantes como estoque)
+                if (pAbert < 0 || pAbert > 1) pAbert = 1 / pending1310s.length;
+                if (pSaida < 0 || pSaida > 1) pSaida = 1 / pending1310s.length;
+                if (pEntr < 0 || pEntr > 1) pEntr = 1 / pending1310s.length;
 
                 let nAbert, nSaida, nPerda, nGanho, nEntr;
 
@@ -5384,6 +5396,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     realPerda = Number((realEscr - realFisico).toFixed(3));
                     realGanho = 0;
                 }
+                // Recalcular FECH para que a fórmula feche: FECH = ESCR - PERDA + GANHO
+                realFisico = Number((realEscr - realPerda + realGanho).toFixed(3));
             }
 
             // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
@@ -5399,6 +5413,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             pushLine(fields1300.join('|'));
 
+            // Correção 3: armazenar FECH exportado para propagação de continuidade
+            if (pending1300.orig && pending1300.orig.codItem && realFisico > 0) {
+                ultimoFechExportado.set(pending1300.orig.codItem, realFisico);
+            }
+
             // PASS 3: Imprime os tanques 1310 e a cascata de Bicos 1320 atrelados
             for (let i = 0; i < pending1310s.length; i++) {
                 let tk = pending1310s[i];
@@ -5412,14 +5431,29 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     capTanque = mapCapacidadesPorItem.get(pending1300.orig.codItem) || 0;
                 }
 
+                // Saneador 1310: PERDA/GANHO negativos nos tanques filhos
+                let tkPerda = curated.nPerda;
+                let tkGanho = curated.nGanho;
+                let tkFisico = curated.nFisico;
+                if (tkPerda < 0 || tkGanho < 0) {
+                    if (tkFisico >= curated.nEscr) {
+                        tkPerda = 0;
+                        tkGanho = Number((tkFisico - curated.nEscr).toFixed(3));
+                    } else {
+                        tkPerda = Number((curated.nEscr - tkFisico).toFixed(3));
+                        tkGanho = 0;
+                    }
+                    tkFisico = Number((curated.nEscr - tkPerda + tkGanho).toFixed(3));
+                }
+
                 tk[3] = curated.nAbert.toFixed(3).replace('.', ',');
                 tk[4] = curated.nEntr.toFixed(3).replace('.', ',');
                 tk[5] = curated.nDisp.toFixed(3).replace('.', ',');
                 tk[6] = curated.nSaida.toFixed(3).replace('.', ',');
                 tk[7] = curated.nEscr.toFixed(3).replace('.', ',');
-                tk[8] = curated.nPerda.toFixed(3).replace('.', ',');
-                tk[9] = curated.nGanho.toFixed(3).replace('.', ',');
-                tk[10] = curated.nFisico.toFixed(3).replace('.', ',');
+                tk[8] = tkPerda.toFixed(3).replace('.', ',');
+                tk[9] = tkGanho.toFixed(3).replace('.', ',');
+                tk[10] = tkFisico.toFixed(3).replace('.', ',');
 
                 if (layoutVersion === '020') {
                     const capOrigTk = tk[11] || ''; // Preserva o valor original do arquivo como fallback
@@ -5577,6 +5611,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         if (novoAbert < 0) {
                             novoAbert = 0.5;
                         }
+                        // Correção 3: propagar continuidade — ABERT = FECH do dia anterior exportado
+                        const fechAnterior = ultimoFechExportado.get(codItem);
+                        if (fechAnterior !== undefined && fechAnterior > 0) {
+                            novoAbert = Number(fechAnterior.toFixed(3));
+                        }
                         fields[4] = novoAbert.toFixed(3).replace('.', ',');
 
                         let entr = Number(oldEntr.toFixed(3));
@@ -5627,15 +5666,27 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         const fisicoBase = mapBaseFisico.get(key);
                         const fisicoOrig = parseFloat((fields[11] || '0').replace(',', '.'));
                         if (fisicoOrig === 0 && fisicoBase > 0) {
-                            const escr = parseFloat((fields[8] || '0').replace(',', '.'));
+                            // Correção 3: propagar continuidade
+                            let abertCorr = parseFloat((fields[4] || '0').replace(',', '.'));
+                            const fechAntBase = ultimoFechExportado.get(codItem);
+                            if (fechAntBase !== undefined && fechAntBase > 0) {
+                                abertCorr = Number(fechAntBase.toFixed(3));
+                                fields[4] = abertCorr.toFixed(3).replace('.', ',');
+                            }
+                            const entrCorr = parseFloat((fields[5] || '0').replace(',', '.'));
+                            const dispCorr = Number((abertCorr + entrCorr).toFixed(3));
+                            fields[6] = dispCorr.toFixed(3).replace('.', ',');
+                            const saidaCorr = parseFloat((fields[7] || '0').replace(',', '.'));
+                            const escrCorr = Number((dispCorr - saidaCorr).toFixed(3));
+                            fields[8] = escrCorr.toFixed(3).replace('.', ',');
                             // Deriva PERDA/GANHO reais a partir do fech_fisico do banco
                             // para que a fórmula do PVA bata: FECH = ESCR - PERDA + GANHO
                             let corrigidoPerda = 0;
                             let corrigidoGanho = 0;
-                            if (fisicoBase <= escr) {
-                                corrigidoPerda = Number((escr - fisicoBase).toFixed(3));
+                            if (fisicoBase <= escrCorr) {
+                                corrigidoPerda = Number((escrCorr - fisicoBase).toFixed(3));
                             } else {
-                                corrigidoGanho = Number((fisicoBase - escr).toFixed(3));
+                                corrigidoGanho = Number((fisicoBase - escrCorr).toFixed(3));
                             }
                             fields[9] = corrigidoPerda.toFixed(3).replace('.', ',');
                             fields[10] = corrigidoGanho.toFixed(3).replace('.', ',');
@@ -5643,9 +5694,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                             if (fields.length < 13) while (fields.length < 13) fields.push('');
                             else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
                             changesApplied++;
-                            const abert = parseFloat((fields[4] || '0').replace(',', '.'));
-                            const entr = parseFloat((fields[5] || '0').replace(',', '.'));
-                            const saida = parseFloat((fields[7] || '0').replace(',', '.'));
+                            const abert = abertCorr;
+                            const entr = entrCorr;
+                            const saida = saidaCorr;
                             pending1300 = {
                                 line: fields.join('|'),
                                 orig: { abert, saida, entr, codItem },
