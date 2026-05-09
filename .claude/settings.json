@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"Syntax check exit: $?\")",
+      "Bash(node -e \":*)",
+      "Bash(1 node:*)",
+      "Bash(curl -s http://localhost:3001/api/arquivos)",
+      "Bash(curl -s http://localhost:3000/api/arquivos)",
+      "Bash(curl -s http://localhost:15435/api/arquivos)",
+      "Bash(head -10 grep -n \"dt_doc.*dhEmi\\\\|dhEmi.*dt_doc\\\\|dEmi\\\\|1656\" \"/Users/esmael/Library/CloudStorage/GoogleDrive-esmaelsousa@gmail.com/Meu Drive/audisped/backend/server.js\")",
+      "Bash(PGPASSWORD='@820439' /Applications/Postgres.app/Contents/Versions/latest/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \"SELECT c.id, c.num_doc, c.dt_doc, c.cod_sit, c.id_sped_arquivo, c.chv_nfe, s.periodo_apuracao FROM documentos_c100 c JOIN sped_arquivos s ON s.id = c.id_sped_arquivo WHERE c.num_doc = ''66812'' ORDER BY c.id;\")",
+      "Read(//opt/**)",
+      "Bash(PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \"SELECT c.id, c.num_doc, c.dt_doc, c.cod_sit, c.id_sped_arquivo, c.chv_nfe, s.periodo_apuracao FROM documentos_c100 c JOIN sped_arquivos s ON s.id = c.id_sped_arquivo WHERE c.num_doc = ''66812'' ORDER BY c.id;\")",
+      "Bash(PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \":*)",
+      "Bash(__NEW_LINE_d7921a5b345b7528__ PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \":*)",
+      "Bash(__NEW_LINE_f1cc354f27425cf0__ PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \":*)",
+      "Bash(__NEW_LINE_9c1f46598493f6b1__ PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \":*)",
+      "Bash(PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \"\\\\d lmc_movimentacao\")",
+      "Bash(__NEW_LINE_f17d12882a569563__ PGPASSWORD='@820439' /Library/PostgreSQL/16/bin/psql -U postgres -d audisped_db -h localhost -p 5432 -c \":*)"
+    ]
+  }
+}

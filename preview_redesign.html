@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audisped — Preview Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --naval:   #0F172A;
+    --naval2:  #1E293B;
+    --slate7:  #334155;
+    --slate6:  #475569;
+    --slate5:  #64748B;
+    --slate4:  #94A3B8;
+    --slate3:  #CBD5E1;
+    --slate2:  #E2E8F0;
+    --slate1:  #F1F5F9;
+    --surface: #F8FAFC;
+    --accent:  #2563EB;
+    --accent2: #1D4ED8;
+    --white:   #FFFFFF;
+    --red:     #DC2626;
+    --green:   #16A34A;
+    --yellow:  #CA8A04;
+    --radius:  4px;
+  }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #111827; color: #1e293b; font-size: 13px; line-height: 1.5; }
+
+  /* ─── NAV TABS ─────────────────────────────────────────── */
+  .nav-tabs { display: flex; gap: 4px; padding: 16px 24px 0; background: #111827; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid #374151; }
+  .nav-tab  { padding: 8px 16px; color: #9CA3AF; font-size: 12px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap; }
+  .nav-tab:hover  { color: #E5E7EB; }
+  .nav-tab.active { color: #fff; border-bottom-color: #2563EB; }
+  .screen { display: none; }
+  .screen.active { display: flex; }
+
+  /* ─── SHELL ─────────────────────────────────────────────── */
+  .shell { display: flex; height: calc(100vh - 45px); width: 100%; overflow: hidden; }
+
+  /* ─── SIDEBAR ───────────────────────────────────────────── */
+  .sidebar { width: 224px; min-width: 224px; background: var(--naval); display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.06); overflow-y: auto; }
+  .sidebar-logo { height: 48px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .sidebar-logo span { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+  .sidebar-logo small { font-size: 10px; color: #475569; margin-left: 6px; font-weight: 400; }
+  .sidebar-section { padding: 12px 8px 4px; }
+  .sidebar-label { font-size: 10px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .06em; padding: 0 8px; margin-bottom: 2px; }
+  .sidebar-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; color: #94A3B8; font-size: 12px; font-weight: 400; cursor: pointer; border-left: 2px solid transparent; transition: all .1s; border-radius: 0; }
+  .sidebar-item:hover { color: #E2E8F0; background: rgba(255,255,255,.04); }
+  .sidebar-item.active { color: #fff; background: rgba(37,99,235,.12); border-left-color: #2563EB; }
+  .sidebar-item svg { opacity: .7; flex-shrink: 0; }
+  .sidebar-item.active svg { opacity: 1; }
+  .sidebar-divider { height: 1px; background: rgba(255,255,255,.05); margin: 6px 0; }
+  .sidebar-footer { margin-top: auto; padding: 10px 8px; border-top: 1px solid rgba(255,255,255,.06); }
+  .sidebar-user { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .sidebar-user-name { font-size: 11px; font-weight: 500; color: #CBD5E1; }
+  .sidebar-user-role { font-size: 10px; color: #475569; }
+  .sped-indicator { margin: 0 8px 8px; background: rgba(37,99,235,.1); border: 1px solid rgba(37,99,235,.2); padding: 8px 10px; }
+  .sped-indicator-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: .05em; }
+  .sped-indicator-value { font-size: 11px; font-weight: 600; color: #93C5FD; margin-top: 1px; }
+
+  /* ─── MAIN ──────────────────────────────────────────────── */
+  .main { flex: 1; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
+  .page-header { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--slate2); background: var(--white); flex-shrink: 0; }
+  .page-title { font-size: 13px; font-weight: 600; color: var(--naval); }
+  .page-sub { font-size: 11px; color: var(--slate5); margin-top: 1px; }
+  .page-actions { display: flex; align-items: center; gap: 8px; }
+  .page-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+  /* ─── BUTTONS ───────────────────────────────────────────── */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; cursor: pointer; transition: background .1s; border-radius: var(--radius); font-family: inherit; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary { background: var(--white); color: var(--slate7); border: 1px solid var(--slate2); }
+  .btn-secondary:hover { background: var(--slate1); border-color: var(--slate3); }
+  .btn-ghost { background: transparent; color: var(--slate6); border: 1px solid transparent; }
+  .btn-ghost:hover { background: var(--slate1); }
+  .btn-danger { background: #FEF2F2; color: var(--red); border: 1px solid #FECACA; }
+  .btn-sm { padding: 4px 8px; font-size: 11px; }
+  .btn-icon { padding: 5px; width: 28px; height: 28px; justify-content: center; }
+
+  /* ─── BADGES ────────────────────────────────────────────── */
+  .badge { display: inline-flex; align-items: center; padding: 2px 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; border-radius: 2px; }
+  .badge-green  { background: #DCFCE7; color: #15803D; }
+  .badge-red    { background: #FEE2E2; color: #B91C1C; }
+  .badge-yellow { background: #FEF9C3; color: #854D0E; }
+  .badge-blue   { background: #DBEAFE; color: #1D4ED8; }
+  .badge-slate  { background: var(--slate1); color: var(--slate6); }
+
+  /* ─── CARDS / PANELS ────────────────────────────────────── */
+  .panel { background: var(--white); border: 1px solid var(--slate2); }
+  .panel-header { padding: 12px 16px; border-bottom: 1px solid var(--slate2); display: flex; align-items: center; justify-content: space-between; }
+  .panel-title { font-size: 12px; font-weight: 600; color: var(--naval); }
+  .panel-body { padding: 16px; }
+
+  /* ─── STAT CARDS ────────────────────────────────────────── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--slate2); border: 1px solid var(--slate2); margin-bottom: 16px; }
+  .stat-card { background: var(--white); padding: 14px 16px; border-top: 2px solid transparent; }
+  .stat-card.blue  { border-top-color: #2563EB; }
+  .stat-card.green { border-top-color: #16A34A; }
+  .stat-card.yellow{ border-top-color: #CA8A04; }
+  .stat-card.red   { border-top-color: #DC2626; }
+  .stat-label { font-size: 10px; font-weight: 600; color: var(--slate5); text-transform: uppercase; letter-spacing: .05em; }
+  .stat-value { font-size: 20px; font-weight: 700; color: var(--naval); margin-top: 4px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .stat-meta  { font-size: 10px; color: var(--slate4); margin-top: 2px; }
+
+  /* ─── TABLE ─────────────────────────────────────────────── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table thead th { padding: 0 12px; height: 32px; font-size: 10px; font-weight: 600; color: var(--slate5); text-transform: uppercase; letter-spacing: .05em; text-align: left; background: var(--slate1); border-bottom: 1px solid var(--slate2); white-space: nowrap; }
+  .data-table tbody tr { border-bottom: 1px solid var(--slate2); transition: background .08s; }
+  .data-table tbody tr:hover { background: #F8FAFC; }
+  .data-table tbody tr:last-child { border-bottom: none; }
+  .data-table td { padding: 0 12px; height: 36px; font-size: 12px; color: var(--slate7); font-variant-numeric: tabular-nums; }
+  .data-table td.primary { font-weight: 500; color: var(--naval); }
+  .data-table td.muted { color: var(--slate4); }
+  .group-row td { background: var(--slate1); font-size: 10px; font-weight: 700; color: var(--slate5); text-transform: uppercase; letter-spacing: .06em; }
+
+  /* ─── INPUTS ────────────────────────────────────────────── */
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-label { font-size: 10px; font-weight: 600; color: var(--slate5); text-transform: uppercase; letter-spacing: .05em; }
+  .form-input { height: 32px; padding: 0 10px; border: 1px solid var(--slate3); background: var(--white); font-size: 12px; color: var(--naval); font-family: inherit; outline: none; border-radius: var(--radius); }
+  .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .form-input::placeholder { color: var(--slate4); }
+  textarea.form-input { height: auto; padding: 8px 10px; resize: none; }
+  .form-select { height: 32px; padding: 0 10px; border: 1px solid var(--slate3); background: var(--white); font-size: 12px; color: var(--naval); font-family: inherit; outline: none; border-radius: var(--radius); cursor: pointer; }
+
+  /* ─── SEARCH BAR ────────────────────────────────────────── */
+  .search-bar { display: flex; align-items: center; gap: 0; border: 1px solid var(--slate2); background: var(--white); border-radius: var(--radius); overflow: hidden; }
+  .search-bar svg { margin-left: 10px; color: var(--slate4); flex-shrink: 0; }
+  .search-bar input { flex: 1; height: 32px; border: none; padding: 0 10px; font-size: 12px; font-family: inherit; outline: none; color: var(--naval); background: transparent; }
+
+  /* ─── TOOLBAR ───────────────────────────────────────────── */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .toolbar-right { margin-left: auto; display: flex; gap: 8px; }
+
+  /* ─── UPLOAD ZONE ───────────────────────────────────────── */
+  .upload-zone { border: 2px dashed var(--slate3); padding: 32px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; transition: border-color .15s; }
+  .upload-zone:hover { border-color: var(--accent); }
+  .upload-zone-icon { width: 40px; height: 40px; background: var(--slate1); display: flex; align-items: center; justify-content: center; color: var(--slate4); }
+  .upload-zone-title { font-size: 13px; font-weight: 500; color: var(--naval); }
+  .upload-zone-sub { font-size: 11px; color: var(--slate5); }
+
+  /* ─── TERMINAL ──────────────────────────────────────────── */
+  .terminal { background: #0D1117; border: 1px solid #21262D; padding: 12px 14px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.7; height: 160px; overflow-y: auto; }
+  .terminal-line { display: block; }
+  .t-dim  { color: #484F58; }
+  .t-ok   { color: #3FB950; }
+  .t-warn { color: #D29922; }
+  .t-err  { color: #F85149; }
+  .t-info { color: #58A6FF; }
+  .t-white{ color: #E6EDF3; }
+
+  /* ─── LOGIN SCREEN ──────────────────────────────────────── */
+  .login-screen { width: 100%; height: calc(100vh - 45px); display: flex; align-items: center; justify-content: center; background: var(--surface); }
+  .login-box { width: 360px; background: var(--white); border: 1px solid var(--slate2); }
+  .login-header { padding: 24px 24px 16px; border-bottom: 1px solid var(--slate2); }
+  .login-logo { font-size: 16px; font-weight: 800; color: var(--naval); letter-spacing: -.4px; }
+  .login-tagline { font-size: 11px; color: var(--slate5); margin-top: 2px; }
+  .login-tabs { display: flex; border-bottom: 1px solid var(--slate2); }
+  .login-tab { flex: 1; padding: 10px; font-size: 12px; font-weight: 500; color: var(--slate5); text-align: center; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .login-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .login-body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .login-footer { padding: 12px 24px; background: var(--slate1); border-top: 1px solid var(--slate2); font-size: 10px; color: var(--slate4); }
+
+  /* ─── HOME / COMPANY LIST ───────────────────────────────── */
+  .company-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--slate2); border: 1px solid var(--slate2); }
+  .company-card { background: var(--white); padding: 16px; cursor: pointer; transition: background .1s; display: flex; flex-direction: column; gap: 6px; }
+  .company-card:hover { background: #F8FAFC; }
+  .company-card-name { font-size: 13px; font-weight: 600; color: var(--naval); }
+  .company-card-cnpj { font-size: 11px; color: var(--slate5); font-variant-numeric: tabular-nums; }
+  .company-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+  /* ─── MODALS ────────────────────────────────────────────── */
+  .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: var(--white); border: 1px solid var(--slate2); width: 440px; box-shadow: 0 20px 40px rgba(0,0,0,.15); }
+  .modal-header { padding: 14px 16px; border-bottom: 1px solid var(--slate2); display: flex; align-items: center; justify-content: space-between; }
+  .modal-title { font-size: 13px; font-weight: 600; color: var(--naval); }
+  .modal-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--slate2); display: flex; justify-content: flex-end; gap: 8px; background: var(--slate1); }
+
+  /* ─── MISC ──────────────────────────────────────────────── */
+  .divider { height: 1px; background: var(--slate2); margin: 12px 0; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; background: var(--slate1); border: 1px solid var(--slate2); font-size: 10px; font-weight: 500; color: var(--slate6); border-radius: 2px; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px; gap: 8px; color: var(--slate5); }
+  .empty-state-icon { width: 40px; height: 40px; background: var(--slate1); display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+  .progress-bar { height: 3px; background: var(--slate2); overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--slate3); border-radius: 2px; }
+
+  /* icons inline svg */
+  .icon { display: inline-flex; align-items: center; justify-content: center; }
+
+  .section-gap { margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<!-- NAV TABS -->
+<div class="nav-tabs">
+  <div class="nav-tab active" onclick="show('home')">1. Empresas</div>
+  <div class="nav-tab" onclick="show('dashboard')">3. Dashboard Hub</div>
+  <div class="nav-tab" onclick="show('explorador')">4. Explorador</div>
+  <div class="nav-tab" onclick="show('analisador')">5. Analisador</div>
+  <div class="nav-tab" onclick="show('injetor')">6. Injetor XML</div>
+  <div class="nav-tab" onclick="show('lmc')">7. LMC</div>
+  <div class="nav-tab" onclick="show('cfop')">8. CFOPs</div>
+  <div class="nav-tab" onclick="show('modal')">9. Modal / Forms</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 1 — LOGIN
+════════════════════════════════════════════════════════════ -->
+<div id="s-login" class="screen" style="display:none">
+  <div class="login-screen">
+    <div class="login-box">
+      <div class="login-header">
+        <div class="login-logo">AUDISPED</div>
+        <div class="login-tagline">Auditoria Fiscal Inteligente</div>
+      </div>
+      <div class="login-tabs">
+        <div class="login-tab active">Entrar</div>
+        <div class="login-tab">Criar conta</div>
+      </div>
+      <div class="login-body">
+        <div class="form-group">
+          <label class="form-label">E-mail</label>
+          <input class="form-input" type="email" placeholder="voce@empresa.com.br" value="auditor@posto.com.br">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <input class="form-input" type="password" placeholder="••••••••" value="••••••••••">
+        </div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;height:36px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Entrar
+        </button>
+        <div style="font-size:10px;color:var(--slate4);text-align:center;">Esqueceu a senha? <span style="color:var(--accent);cursor:pointer;">Recuperar acesso</span></div>
+      </div>
+      <div class="login-footer">Audisped v2.4.1 · Dados protegidos por JWT · TLS 1.3</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 2 — HOME / EMPRESAS
+════════════════════════════════════════════════════════════ -->
+<div id="s-home" class="screen active">
+  <div class="shell">
+    <div style="flex:1;display:flex;flex-direction:column;background:var(--surface);">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Empresas</div>
+          <div class="page-sub">Selecione para acessar o painel fiscal</div>
+        </div>
+        <div class="page-actions">
+          <div class="search-bar" style="width:220px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input placeholder="Buscar empresa ou CNPJ..." value="posto">
+          </div>
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nova empresa
+          </button>
+        </div>
+      </div>
+      <div class="page-content">
+        <div style="font-size:11px;color:var(--slate5);margin-bottom:10px;">3 resultados para "posto"</div>
+        <div class="company-grid">
+          <div class="company-card" style="border-left:2px solid var(--accent);">
+            <div class="company-card-name">POSTO PREÇO BOM II</div>
+            <div class="company-card-cnpj">14.018.702/0001-07</div>
+            <div class="company-card-meta">
+              <span class="badge badge-green">Ativo</span>
+              <span class="tag">Combustível</span>
+              <span style="font-size:10px;color:var(--slate4);margin-left:auto;">06/2024</span>
+            </div>
+          </div>
+          <div class="company-card">
+            <div class="company-card-name">POSTO CENTRAL LTDA</div>
+            <div class="company-card-cnpj">22.341.897/0001-44</div>
+            <div class="company-card-meta">
+              <span class="badge badge-green">Ativo</span>
+              <span class="tag">Combustível</span>
+              <span style="font-size:10px;color:var(--slate4);margin-left:auto;">05/2024</span>
+            </div>
+          </div>
+          <div class="company-card">
+            <div class="company-card-name">DISTRIBUIDORA NORTE</div>
+            <div class="company-card-cnpj">08.765.432/0001-99</div>
+            <div class="company-card-meta">
+              <span class="badge badge-yellow">Pendente</span>
+              <span class="tag">Varejo</span>
+              <span style="font-size:10px;color:var(--slate4);margin-left:auto;">04/2024</span>
+            </div>
+          </div>
+          <div class="company-card">
+            <div class="company-card-name">MARCOS AURELIO ARAUJO</div>
+            <div class="company-card-cnpj">14.018.702/0001-07</div>
+            <div class="company-card-meta">
+              <span class="badge badge-red">Erro SPED</span>
+              <span class="tag">Combustível</span>
+              <span style="font-size:10px;color:var(--slate4);margin-left:auto;">06/2024</span>
+            </div>
+          </div>
+          <div class="company-card">
+            <div class="company-card-name">ROTA BR COMBUSTÍVEIS</div>
+            <div class="company-card-cnpj">31.244.009/0001-12</div>
+            <div class="company-card-meta">
+              <span class="badge badge-green">Ativo</span>
+              <span class="tag">Combustível</span>
+              <span style="font-size:10px;color:var(--slate4);margin-left:auto;">06/2024</span>
+            </div>
+          </div>
+          <div class="company-card" style="display:flex;align-items:center;justify-content:center;border:2px dashed var(--slate2);cursor:pointer;min-height:90px;flex-direction:column;gap:6px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--slate3)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span style="font-size:11px;color:var(--slate4);">Adicionar empresa</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 3 — DASHBOARD HUB
+════════════════════════════════════════════════════════════ -->
+<div id="s-dashboard" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Principal</div>
+        <div class="sidebar-item active">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Painel
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          Arquivos SPED
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Analisador
+        </div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Ferramentas</div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Injetor NF-e
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          Injetor CT-e
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          LMC
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Rentabilidade
+        </div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Configuração</div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+          CFOPs
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Perfil
+        </div>
+      </div>
+      <div class="sped-indicator">
+        <div class="sped-indicator-label">SPED Ativo</div>
+        <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+        <div style="font-size:10px;color:#475569;margin-top:1px;">Jun 2024 · ID #650</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="avatar">ES</div>
+          <div>
+            <div class="sidebar-user-name">Esmael Sousa</div>
+            <div class="sidebar-user-role">Auditor</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Dashboard — POSTO PREÇO BOM II</div>
+          <div class="page-sub">CNPJ 14.018.702/0001-07 · Período Jun/2024</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge badge-green">SPED Carregado</span>
+          <button class="btn btn-secondary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Exportar SPED
+          </button>
+          <button class="btn btn-primary btn-sm">Analisar</button>
+        </div>
+      </div>
+      <div class="page-content">
+        <div class="stats-row">
+          <div class="stat-card blue">
+            <div class="stat-label">Entradas</div>
+            <div class="stat-value">R$ 289.4k</div>
+            <div class="stat-meta">142 notas fiscais</div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-label">Saídas</div>
+            <div class="stat-value">R$ 312.8k</div>
+            <div class="stat-meta">1.847 cupons</div>
+          </div>
+          <div class="stat-card yellow">
+            <div class="stat-label">ICMS ST</div>
+            <div class="stat-value">R$ 24.1k</div>
+            <div class="stat-meta">CFOP 1652 / CST 060</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-label">Pendências</div>
+            <div class="stat-value">3</div>
+            <div class="stat-meta">Requer atenção</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Módulos</div>
+              <span style="font-size:10px;color:var(--slate5);">SPED #650 · Jun/2024</span>
+            </div>
+            <div style="border-bottom:1px solid var(--slate2);">
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
+                <div style="width:32px;height:32px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;color:#2563EB;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:12px;font-weight:600;color:var(--naval);">Injetor NF-e XML</div>
+                  <div style="font-size:11px;color:var(--slate5);">Injetar notas no arquivo SPED</div>
+                </div>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--slate4)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
+                <div style="width:32px;height:32px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;color:#16A34A;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:12px;font-weight:600;color:var(--naval);">LMC — Livro de Combustíveis</div>
+                  <div style="font-size:11px;color:var(--slate5);">Movimentação de combustíveis</div>
+                </div>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--slate4)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
+                <div style="width:32px;height:32px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;color:#EA580C;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:12px;font-weight:600;color:var(--naval);">Auditoria Avançada</div>
+                  <div style="font-size:11px;color:var(--slate5);">Análise com validação PVA</div>
+                </div>
+                <span class="badge badge-red" style="margin-right:4px;">3 erros</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--slate4)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
+                <div style="width:32px;height:32px;background:#FAF5FF;display:flex;align-items:center;justify-content:center;color:#7C3AED;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:12px;font-weight:600;color:var(--naval);">Rentabilidade</div>
+                  <div style="font-size:11px;color:var(--slate5);">Análise por grupo de produto</div>
+                </div>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--slate4)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Últimos Arquivos SPED</div>
+              <button class="btn btn-ghost btn-sm">Ver todos</button>
+            </div>
+            <table class="data-table">
+              <thead><tr>
+                <th>Período</th><th>Status</th><th>Ações</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td class="primary">Jun/2024</td>
+                  <td><span class="badge badge-yellow">Analisando</span></td>
+                  <td><button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="primary">Mai/2024</td>
+                  <td><span class="badge badge-green">Validado</span></td>
+                  <td><button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="primary">Abr/2024</td>
+                  <td><span class="badge badge-green">Validado</span></td>
+                  <td><button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 4 — EXPLORADOR
+════════════════════════════════════════════════════════════ -->
+<div id="s-explorador" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Painel
+        </div>
+        <div class="sidebar-item active">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          Arquivos SPED
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/></svg>
+          Analisador
+        </div>
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Ferramentas</div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Injetor NF-e
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          LMC
+        </div>
+      </div>
+      <div class="sped-indicator">
+        <div class="sped-indicator-label">Empresa</div>
+        <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="avatar">ES</div>
+          <div>
+            <div class="sidebar-user-name">Esmael Sousa</div>
+            <div class="sidebar-user-role">Auditor</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Arquivos SPED — POSTO PREÇO BOM II</div>
+          <div class="page-sub">CNPJ 14.018.702/0001-07 · 8 arquivos</div>
+        </div>
+        <div class="page-actions">
+          <div class="search-bar" style="width:180px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input placeholder="Filtrar período...">
+          </div>
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo upload
+          </button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:40px;padding-left:16px;">#</th>
+            <th>Período</th>
+            <th>Arquivo</th>
+            <th>Enviado em</th>
+            <th>Tamanho</th>
+            <th>Status</th>
+            <th style="width:120px;">Ações</th>
+          </tr></thead>
+          <tbody>
+            <tr class="group-row"><td colspan="7" style="padding-left:16px;">2024</td></tr>
+            <tr>
+              <td class="muted" style="padding-left:16px;">650</td>
+              <td class="primary">Jun/2024</td>
+              <td><span class="tag">SPED-ICMS-IPI</span></td>
+              <td class="muted">28/03/2024</td>
+              <td class="muted">4.2 MB</td>
+              <td><span class="badge badge-yellow">Analisando</span></td>
+              <td>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-secondary btn-sm">Abrir</button>
+                  <button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="muted" style="padding-left:16px;">621</td>
+              <td class="primary">Mai/2024</td>
+              <td><span class="tag">SPED-ICMS-IPI</span></td>
+              <td class="muted">15/02/2024</td>
+              <td class="muted">3.8 MB</td>
+              <td><span class="badge badge-green">Validado</span></td>
+              <td>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-secondary btn-sm">Abrir</button>
+                  <button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="muted" style="padding-left:16px;">598</td>
+              <td class="primary">Abr/2024</td>
+              <td><span class="tag">SPED-ICMS-IPI</span></td>
+              <td class="muted">10/01/2024</td>
+              <td class="muted">4.1 MB</td>
+              <td><span class="badge badge-green">Validado</span></td>
+              <td>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-secondary btn-sm">Abrir</button>
+                  <button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                </div>
+              </td>
+            </tr>
+            <tr class="group-row"><td colspan="7" style="padding-left:16px;">2023</td></tr>
+            <tr>
+              <td class="muted" style="padding-left:16px;">544</td>
+              <td class="primary">Dez/2023</td>
+              <td><span class="tag">SPED-ICMS-IPI</span></td>
+              <td class="muted">12/12/2023</td>
+              <td class="muted">3.6 MB</td>
+              <td><span class="badge badge-green">Validado</span></td>
+              <td>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-secondary btn-sm">Abrir</button>
+                  <button class="btn btn-ghost btn-sm btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 5 — ANALISADOR
+════════════════════════════════════════════════════════════ -->
+<div id="s-analisador" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Painel
+        </div>
+        <div class="sidebar-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/></svg>
+          Arquivos SPED
+        </div>
+        <div class="sidebar-item active">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Analisador
+        </div>
+      </div>
+      <div class="sped-indicator">
+        <div class="sped-indicator-label">SPED Ativo</div>
+        <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+        <div style="font-size:10px;color:#475569;">Jun 2024 · ID #650</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="avatar">ES</div>
+          <div><div class="sidebar-user-name">Esmael Sousa</div><div class="sidebar-user-role">Auditor</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Auditoria Avançada</div>
+          <div class="page-sub">SPED #650 · Jun/2024 · 3 pendências detectadas</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge badge-red">3 erros</span>
+          <button class="btn btn-secondary btn-sm">Ver relatório</button>
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Executar análise
+          </button>
+        </div>
+      </div>
+      <div class="page-content" style="display:grid;grid-template-rows:auto 1fr auto;gap:12px;height:100%;overflow:hidden;padding-bottom:0;">
+        <div class="stats-row" style="margin-bottom:0;">
+          <div class="stat-card blue"><div class="stat-label">Registros C100</div><div class="stat-value">1.247</div><div class="stat-meta">NF-e analisadas</div></div>
+          <div class="stat-card green"><div class="stat-label">Registros C170</div><div class="stat-value">4.891</div><div class="stat-meta">Itens processados</div></div>
+          <div class="stat-card yellow"><div class="stat-label">Avisos</div><div class="stat-value">7</div><div class="stat-meta">Revisão recomendada</div></div>
+          <div class="stat-card red"><div class="stat-label">Erros</div><div class="stat-value">3</div><div class="stat-meta">Bloqueantes PVA</div></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;overflow:hidden;">
+          <div class="panel" style="display:flex;flex-direction:column;overflow:hidden;">
+            <div class="panel-header"><div class="panel-title">Pendências detectadas</div></div>
+            <div style="overflow-y:auto;flex:1;">
+              <div style="padding:12px 16px;border-bottom:1px solid var(--slate2);display:flex;gap:10px;align-items:flex-start;">
+                <div style="width:3px;background:#DC2626;align-self:stretch;flex-shrink:0;margin-top:2px;"></div>
+                <div>
+                  <div style="font-size:11px;font-weight:600;color:var(--naval);">C170 · Linha 18262 — Campo inválido</div>
+                  <div style="font-size:11px;color:var(--slate5);margin-top:2px;">IND_MOV="0,00" deve ser "0" — desalinhamento de campos</div>
+                  <div style="margin-top:6px;display:flex;gap:6px;">
+                    <span class="badge badge-red">Bloqueante</span>
+                    <span class="tag">CST_ICMS</span>
+                    <span class="tag">CFOP 1652</span>
+                  </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;">Corrigir</button>
+              </div>
+              <div style="padding:12px 16px;border-bottom:1px solid var(--slate2);display:flex;gap:10px;align-items:flex-start;">
+                <div style="width:3px;background:#DC2626;align-self:stretch;flex-shrink:0;margin-top:2px;"></div>
+                <div>
+                  <div style="font-size:11px;font-weight:600;color:var(--naval);">0150 — Participante ausente</div>
+                  <div style="font-size:11px;color:var(--slate5);margin-top:2px;">CNPJ 03.106.213/0001-90 referenciado em 1601 mas não cadastrado</div>
+                  <div style="margin-top:6px;display:flex;gap:6px;">
+                    <span class="badge badge-red">Bloqueante</span>
+                    <span class="tag">VIBRA ENERGIA</span>
+                  </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;">Corrigir</button>
+              </div>
+              <div style="padding:12px 16px;display:flex;gap:10px;align-items:flex-start;">
+                <div style="width:3px;background:#CA8A04;align-self:stretch;flex-shrink:0;margin-top:2px;"></div>
+                <div>
+                  <div style="font-size:11px;font-weight:600;color:var(--naval);">C100 NF 188633 — COD_SIT</div>
+                  <div style="font-size:11px;color:var(--slate5);margin-top:2px;">COD_SIT=07 com DT_E_S dentro do período — deve ser 00</div>
+                  <div style="margin-top:6px;display:flex;gap:6px;">
+                    <span class="badge badge-yellow">Aviso</span>
+                    <span class="tag">NF 188633</span>
+                  </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;">Corrigir</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="display:flex;flex-direction:column;overflow:hidden;">
+            <div class="panel-header"><div class="panel-title">Log de análise</div><span class="badge badge-green">Concluído</span></div>
+            <div class="terminal" style="flex:1;height:auto;">
+              <span class="terminal-line"><span class="t-dim">[09:14:22]</span> <span class="t-info">Iniciando análise SPED #650...</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:22]</span> <span class="t-white">Carregando registros 0000 → 9999</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:23]</span> <span class="t-ok">✓ Bloco 0: 47 participantes carregados</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:24]</span> <span class="t-ok">✓ Bloco C: 1.247 NF-e processadas</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:25]</span> <span class="t-warn">⚠ C170 linha 18262: IND_MOV inválido "0,00"</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:25]</span> <span class="t-err">✗ 0150: CNPJ 03106213000190 não encontrado</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:26]</span> <span class="t-ok">✓ Bloco E: apuração ICMS validada</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:26]</span> <span class="t-ok">✓ Bloco H: estoque inicial/final OK</span></span>
+              <span class="terminal-line"><span class="t-dim">[09:14:27]</span> <span class="t-white">Análise concluída — 3 pendências, 7 avisos</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 6 — INJETOR XML
+════════════════════════════════════════════════════════════ -->
+<div id="s-injetor" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Painel</div>
+        <div class="sidebar-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/></svg>Arquivos SPED</div>
+        <div class="sidebar-item active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Injetor NF-e</div>
+      </div>
+      <div class="sped-indicator">
+        <div class="sped-indicator-label">SPED Ativo</div>
+        <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+        <div style="font-size:10px;color:#475569;">Jun 2024 · ID #650</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user"><div class="avatar">ES</div><div><div class="sidebar-user-name">Esmael Sousa</div><div class="sidebar-user-role">Auditor</div></div></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Injetor NF-e XML</div>
+          <div class="page-sub">Injetar notas fiscais no SPED #650</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm">Limpar seleção</button>
+          <button class="btn btn-primary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Injetar (4 notas)
+          </button>
+        </div>
+      </div>
+      <div class="page-content" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div class="panel section-gap">
+            <div class="panel-header"><div class="panel-title">Upload de XML</div></div>
+            <div class="panel-body">
+              <div class="upload-zone">
+                <div class="upload-zone-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+                <div class="upload-zone-title">Arraste os XMLs aqui</div>
+                <div class="upload-zone-sub">ou clique para selecionar · NFe, NFCe</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Configurações de injeção</div></div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:12px;">
+              <div class="two-col">
+                <div class="form-group">
+                  <label class="form-label">CFOP Entradas</label>
+                  <select class="form-select"><option>1652 — Combustíveis ST</option><option>1102 — Compra comerc.</option></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">CST ICMS</label>
+                  <select class="form-select"><option>060 — ICMS ST anterior</option><option>000 — Tributado normal</option></select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Modo de injeção</label>
+                <select class="form-select"><option>Substituir itens existentes</option><option>Apenas adicionar novos</option></select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel" style="display:flex;flex-direction:column;">
+          <div class="panel-header">
+            <div class="panel-title">Notas para injetar</div>
+            <span class="badge badge-blue">4 selecionadas</span>
+          </div>
+          <table class="data-table" style="flex:1;">
+            <thead><tr><th><input type="checkbox" checked></th><th>NF-e</th><th>Emitente</th><th>Valor</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><input type="checkbox" checked></td><td class="primary">188.633</td><td>VIBRA ENERGIA</td><td>R$ 26.189</td><td><span class="badge badge-green">OK</span></td></tr>
+              <tr><td><input type="checkbox" checked></td><td class="primary">188.634</td><td>VIBRA ENERGIA</td><td>R$ 18.440</td><td><span class="badge badge-green">OK</span></td></tr>
+              <tr><td><input type="checkbox" checked></td><td class="primary">054.221</td><td>IPIRANGA</td><td>R$ 31.750</td><td><span class="badge badge-green">OK</span></td></tr>
+              <tr><td><input type="checkbox"></td><td class="primary">012.887</td><td>RAÍZEN</td><td>R$ 42.100</td><td><span class="badge badge-yellow">Duplicada</span></td></tr>
+            </tbody>
+          </table>
+          <div style="padding:10px 16px;border-top:1px solid var(--slate2);background:var(--slate1);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:var(--slate5);">Total selecionado</span>
+            <span style="font-size:13px;font-weight:700;color:var(--naval);font-variant-numeric:tabular-nums;">R$ 76.379,00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 7 — LMC
+════════════════════════════════════════════════════════════ -->
+<div id="s-lmc" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Painel</div>
+        <div class="sidebar-item active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>LMC</div>
+      </div>
+      <div class="sped-indicator">
+        <div class="sped-indicator-label">SPED Ativo</div>
+        <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+        <div style="font-size:10px;color:#475569;">Jun 2024 · ID #650</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user"><div class="avatar">ES</div><div><div class="sidebar-user-name">Esmael Sousa</div><div class="sidebar-user-role">Auditor</div></div></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">LMC — Livro de Movimentação de Combustíveis</div>
+          <div class="page-sub">Jun/2024 · 4 produtos · Saldo integrado</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-secondary btn-sm">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+            Sincronizar
+          </button>
+          <button class="btn btn-primary btn-sm">Exportar LMC</button>
+        </div>
+      </div>
+      <div class="page-content">
+        <div class="stats-row section-gap">
+          <div class="stat-card blue"><div class="stat-label">Gasolina Comum</div><div class="stat-value">18.240 L</div><div class="stat-meta">Estoque atual</div></div>
+          <div class="stat-card green"><div class="stat-label">Etanol</div><div class="stat-value">9.880 L</div><div class="stat-meta">Estoque atual</div></div>
+          <div class="stat-card yellow"><div class="stat-label">Diesel S10</div><div class="stat-value">32.100 L</div><div class="stat-meta">Estoque atual</div></div>
+          <div class="stat-card red"><div class="stat-label">Diesel S500</div><div class="stat-value">0 L</div><div class="stat-meta">Sem estoque</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Movimentações — Gasolina Comum</div>
+            <div style="display:flex;gap:8px;">
+              <select class="form-select" style="height:28px;font-size:11px;padding:0 8px;">
+                <option>Gasolina Comum</option><option>Etanol</option><option>Diesel S10</option>
+              </select>
+              <select class="form-select" style="height:28px;font-size:11px;padding:0 8px;">
+                <option>Jun/2024</option><option>Mai/2024</option>
+              </select>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Data</th><th>Tipo</th><th>Fornecedor / Origem</th><th>Entrada (L)</th><th>Saída (L)</th><th>Saldo (L)</th></tr></thead>
+            <tbody>
+              <tr><td class="muted">01/06/2024</td><td><span class="badge badge-slate">Saldo anterior</span></td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="primary">14.200,000</td></tr>
+              <tr><td class="muted">03/06/2024</td><td><span class="badge badge-blue">Entrada NF</span></td><td>VIBRA ENERGIA · NF 188.633</td><td style="color:#16A34A;font-weight:500;">+ 8.000,000</td><td class="muted">—</td><td class="primary">22.200,000</td></tr>
+              <tr><td class="muted">05/06/2024</td><td><span class="badge badge-slate">Venda PDV</span></td><td class="muted">Cupons fiscais</td><td class="muted">—</td><td style="color:#DC2626;font-weight:500;">− 3.960,000</td><td class="primary">18.240,000</td></tr>
+              <tr><td class="muted">08/06/2024</td><td><span class="badge badge-blue">Entrada NF</span></td><td>VIBRA ENERGIA · NF 188.634</td><td style="color:#16A34A;font-weight:500;">+ 6.000,000</td><td class="muted">—</td><td class="primary">24.240,000</td></tr>
+              <tr><td class="muted">12/06/2024</td><td><span class="badge badge-slate">Venda PDV</span></td><td class="muted">Cupons fiscais</td><td class="muted">—</td><td style="color:#DC2626;font-weight:500;">− 6.000,000</td><td class="primary">18.240,000</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 8 — CFOPs
+════════════════════════════════════════════════════════════ -->
+<div id="s-cfop" class="screen">
+  <div class="shell">
+    <div class="sidebar">
+      <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+      <div class="sidebar-section">
+        <div class="sidebar-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Painel</div>
+        <div class="sidebar-item active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>CFOPs</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-user"><div class="avatar">ES</div><div><div class="sidebar-user-name">Esmael Sousa</div></div></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="page-header">
+        <div><div class="page-title">Gestão de CFOPs</div><div class="page-sub">Códigos fiscais de operações e prestações</div></div>
+        <div class="page-actions">
+          <div class="search-bar" style="width:200px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input placeholder="Buscar CFOP..."></div>
+          <button class="btn btn-primary btn-sm"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Novo CFOP</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr><th>Código</th><th>Descrição</th><th>Tipo</th><th>CST padrão</th><th>Ativo</th><th style="width:80px;">Ações</th></tr></thead>
+          <tbody>
+            <tr class="group-row"><td colspan="6" style="padding-left:16px;">Entradas</td></tr>
+            <tr>
+              <td class="primary" style="font-variant-numeric:tabular-nums;font-weight:700;">1102</td>
+              <td>Compra para comercialização</td>
+              <td><span class="badge badge-blue">Entrada</span></td>
+              <td class="muted">000</td>
+              <td><span class="badge badge-green">Sim</span></td>
+              <td><div style="display:flex;gap:4px;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td class="primary" style="font-variant-numeric:tabular-nums;font-weight:700;">1652</td>
+              <td>Aquisição de combustíveis para comercialização</td>
+              <td><span class="badge badge-blue">Entrada</span></td>
+              <td class="muted">060</td>
+              <td><span class="badge badge-green">Sim</span></td>
+              <td><div style="display:flex;gap:4px;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button><button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button></div></td>
+            </tr>
+            <tr class="group-row"><td colspan="6" style="padding-left:16px;">Saídas</td></tr>
+            <tr>
+              <td class="primary" style="font-variant-numeric:tabular-nums;font-weight:700;">5102</td>
+              <td>Venda de mercadoria adquirida ou recebida de terceiros</td>
+              <td><span class="badge badge-green">Saída</span></td>
+              <td class="muted">500</td>
+              <td><span class="badge badge-green">Sim</span></td>
+              <td><div style="display:flex;gap:4px;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/></svg></button><button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/></svg></button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCREEN 9 — MODAL + FORMS
+════════════════════════════════════════════════════════════ -->
+<div id="s-modal" class="screen">
+  <div class="shell" style="position:relative;">
+    <div class="main" style="filter:blur(1px);pointer-events:none;">
+      <div class="page-header"><div class="page-title">Editar Nota Fiscal</div></div>
+      <div class="page-content"></div>
+    </div>
+    <div class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Editar NF-e · 188.633</div>
+          <button class="btn btn-ghost btn-sm btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <div class="modal-body">
+          <div class="two-col">
+            <div class="form-group">
+              <label class="form-label">Número NF</label>
+              <input class="form-input" value="188633">
+            </div>
+            <div class="form-group">
+              <label class="form-label">COD_SIT</label>
+              <select class="form-select"><option>00 — Regular</option><option>07 — Extemporâneo</option></select>
+            </div>
+          </div>
+          <div class="two-col">
+            <div class="form-group">
+              <label class="form-label">Data Emissão</label>
+              <input class="form-input" type="date" value="2024-06-01">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Data Entrada/Saída</label>
+              <input class="form-input" type="date" value="2024-06-30">
+            </div>
+          </div>
+          <div class="two-col">
+            <div class="form-group">
+              <label class="form-label">CFOP</label>
+              <select class="form-select"><option>1652 — Combustíveis ST</option><option>1102 — Compra comerc.</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">CST ICMS</label>
+              <select class="form-select"><option selected>060 — ICMS ST anterior</option><option>000 — Tributado</option></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Valor Total</label>
+            <input class="form-input" value="26189,00">
+          </div>
+          <div style="background:var(--slate1);border:1px solid var(--slate2);padding:10px 12px;font-size:11px;color:var(--slate6);">
+            <strong style="color:var(--naval);">Atenção:</strong> Alterações serão aplicadas diretamente no arquivo SPED e no banco de dados.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary">Cancelar</button>
+          <button class="btn btn-primary">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('s-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>
