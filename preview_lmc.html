@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audisped — LMC Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --naval:   #0F172A;
+    --naval2:  #1E293B;
+    --slate7:  #334155;
+    --slate6:  #475569;
+    --slate5:  #64748B;
+    --slate4:  #94A3B8;
+    --slate3:  #CBD5E1;
+    --slate2:  #E2E8F0;
+    --slate1:  #F1F5F9;
+    --surface: #F8FAFC;
+    --accent:  #2563EB;
+    --accent2: #1D4ED8;
+    --white:   #FFFFFF;
+    --red:     #DC2626;
+    --green:   #16A34A;
+    --yellow:  #CA8A04;
+    --radius:  4px;
+  }
+  html, body { height: 100%; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--surface); color: #1e293b; font-size: 13px; line-height: 1.5; }
+
+  .shell { display: flex; height: 100vh; overflow: hidden; }
+
+  /* ─── SIDEBAR ─────────────────────────── */
+  .sidebar { width: 224px; min-width: 224px; background: var(--naval); display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.06); }
+  .sidebar-logo { height: 48px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .sidebar-logo span { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+  .sidebar-logo small { font-size: 10px; color: #475569; margin-left: 6px; }
+  .sidebar-section { padding: 12px 8px 4px; }
+  .sidebar-label { font-size: 10px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: .06em; padding: 0 8px; margin-bottom: 4px; }
+  .sidebar-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; color: #94A3B8; font-size: 12px; cursor: pointer; border-left: 2px solid transparent; transition: all .1s; }
+  .sidebar-item:hover { color: #E2E8F0; background: rgba(255,255,255,.04); }
+  .sidebar-item.active { color: #fff; background: rgba(37,99,235,.12); border-left-color: #2563EB; }
+  .sidebar-item svg { opacity: .7; flex-shrink: 0; }
+  .sidebar-item.active svg { opacity: 1; }
+  .sidebar-divider { height: 1px; background: rgba(255,255,255,.05); margin: 6px 0; }
+  .sidebar-footer { margin-top: auto; padding: 10px 8px; border-top: 1px solid rgba(255,255,255,.06); }
+  .sidebar-user { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .sidebar-user-name { font-size: 11px; font-weight: 500; color: #CBD5E1; }
+  .sidebar-user-role { font-size: 10px; color: #475569; }
+  .sped-indicator { margin: 0 8px 8px; background: rgba(37,99,235,.1); border: 1px solid rgba(37,99,235,.2); padding: 8px 10px; }
+  .sped-indicator-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: .05em; }
+  .sped-indicator-value { font-size: 11px; font-weight: 600; color: #93C5FD; margin-top: 1px; }
+
+  /* ─── MAIN ────────────────────────────── */
+  .main { flex: 1; display: flex; flex-direction: column; background: var(--surface); overflow: hidden; }
+  .page-header { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--slate2); background: var(--white); flex-shrink: 0; }
+  .page-title { font-size: 13px; font-weight: 600; color: var(--naval); }
+  .page-sub { font-size: 11px; color: var(--slate5); margin-top: 1px; }
+  .page-actions { display: flex; align-items: center; gap: 8px; }
+  .page-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ─── BUTTONS ─────────────────────────── */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; cursor: pointer; transition: background .1s; border-radius: var(--radius); font-family: inherit; }
+  .btn-primary   { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary { background: var(--white); color: var(--slate7); border: 1px solid var(--slate2); }
+  .btn-secondary:hover { background: var(--slate1); }
+  .btn-ghost     { background: transparent; color: var(--slate6); border: 1px solid transparent; }
+  .btn-ghost:hover { background: var(--slate1); }
+  .btn-sm  { padding: 4px 8px; font-size: 11px; }
+  .btn-icon { padding: 5px; width: 26px; height: 26px; justify-content: center; }
+
+  /* ─── BADGES / TAGS ───────────────────── */
+  .badge { display: inline-flex; align-items: center; padding: 2px 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; border-radius: 2px; }
+  .badge-green  { background: #DCFCE7; color: #15803D; }
+  .badge-red    { background: #FEE2E2; color: #B91C1C; }
+  .badge-yellow { background: #FEF9C3; color: #854D0E; }
+  .badge-blue   { background: #DBEAFE; color: #1D4ED8; }
+  .badge-slate  { background: var(--slate1); color: var(--slate6); }
+  .tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; background: var(--slate1); border: 1px solid var(--slate2); font-size: 10px; font-weight: 500; color: var(--slate6); border-radius: 2px; }
+
+  /* ─── STAT CARDS ──────────────────────── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--slate2); border: 1px solid var(--slate2); flex-shrink: 0; }
+  .stat-card { background: var(--white); padding: 14px 16px; border-top: 3px solid transparent; cursor: pointer; transition: background .1s; }
+  .stat-card:hover { background: #F8FAFC; }
+  .stat-card.active-card { background: #EFF6FF; }
+  .stat-card.gasolina  { border-top-color: #2563EB; }
+  .stat-card.etanol    { border-top-color: #16A34A; }
+  .stat-card.diesels10 { border-top-color: #CA8A04; }
+  .stat-card.diesel500 { border-top-color: #9CA3AF; }
+  .stat-label { font-size: 10px; font-weight: 600; color: var(--slate5); text-transform: uppercase; letter-spacing: .05em; }
+  .stat-value { font-size: 20px; font-weight: 700; color: var(--naval); margin-top: 4px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .stat-meta  { font-size: 10px; color: var(--slate4); margin-top: 2px; }
+  .stat-diff  { font-size: 10px; margin-top: 4px; font-weight: 500; }
+  .stat-diff.pos { color: var(--green); }
+  .stat-diff.neg { color: var(--red); }
+  .stat-diff.zero { color: var(--slate4); }
+
+  /* ─── PRODUTO TABS ────────────────────── */
+  .prod-tabs { display: flex; border-bottom: 1px solid var(--slate2); background: var(--white); flex-shrink: 0; }
+  .prod-tab { display: flex; align-items: center; gap: 6px; padding: 9px 16px; font-size: 11px; font-weight: 500; color: var(--slate5); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; transition: all .1s; }
+  .prod-tab:hover { color: var(--slate7); }
+  .prod-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .prod-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ─── TOOLBAR ─────────────────────────── */
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--white); border-bottom: 1px solid var(--slate2); flex-shrink: 0; }
+  .toolbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .form-select { height: 30px; padding: 0 10px; border: 1px solid var(--slate3); background: var(--white); font-size: 11px; color: var(--naval); font-family: inherit; outline: none; border-radius: var(--radius); cursor: pointer; }
+  .search-wrap { display: flex; align-items: center; border: 1px solid var(--slate2); background: var(--white); border-radius: var(--radius); overflow: hidden; }
+  .search-wrap svg { margin-left: 8px; color: var(--slate4); flex-shrink: 0; }
+  .search-wrap input { height: 28px; border: none; padding: 0 8px; font-size: 11px; font-family: inherit; outline: none; color: var(--naval); background: transparent; width: 180px; }
+
+  /* ─── TABLE ───────────────────────────── */
+  .panel { background: var(--white); border: 1px solid var(--slate2); }
+  .panel-header { padding: 10px 14px; border-bottom: 1px solid var(--slate2); display: flex; align-items: center; justify-content: space-between; }
+  .panel-title { font-size: 12px; font-weight: 600; color: var(--naval); }
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table thead th { padding: 0 14px; height: 30px; font-size: 10px; font-weight: 600; color: var(--slate5); text-transform: uppercase; letter-spacing: .05em; text-align: left; background: var(--slate1); border-bottom: 1px solid var(--slate2); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+  .data-table thead th.right { text-align: right; }
+  .data-table tbody tr { border-bottom: 1px solid var(--slate2); transition: background .07s; }
+  .data-table tbody tr:hover { background: #F8FAFC; }
+  .data-table tbody tr.group-row td { background: #F1F5F9; font-size: 10px; font-weight: 700; color: var(--slate5); text-transform: uppercase; letter-spacing: .06em; }
+  .data-table td { padding: 0 14px; height: 36px; font-size: 11px; color: var(--slate7); font-variant-numeric: tabular-nums; }
+  .data-table td.primary { font-weight: 600; color: var(--naval); }
+  .data-table td.muted   { color: var(--slate4); }
+  .data-table td.right   { text-align: right; }
+  .data-table td.entrada { color: #16A34A; font-weight: 600; text-align: right; }
+  .data-table td.saida   { color: #DC2626; font-weight: 600; text-align: right; }
+  .data-table td.saldo   { font-weight: 700; color: var(--naval); text-align: right; }
+
+  /* ─── SUMÁRIO LATERAL ─────────────────── */
+  .summary-panel { width: 260px; min-width: 260px; background: var(--white); border-left: 1px solid var(--slate2); display: flex; flex-direction: column; overflow-y: auto; }
+  .summary-section { padding: 14px 16px; border-bottom: 1px solid var(--slate2); }
+  .summary-title { font-size: 11px; font-weight: 600; color: var(--naval); margin-bottom: 10px; }
+  .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--slate1); }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-key { font-size: 11px; color: var(--slate5); }
+  .summary-val { font-size: 11px; font-weight: 600; color: var(--naval); font-variant-numeric: tabular-nums; }
+  .summary-val.green { color: var(--green); }
+  .summary-val.red   { color: var(--red); }
+
+  /* ─── BARRA VOLUME ────────────────────── */
+  .vol-bar-wrap { margin-top: 6px; }
+  .vol-bar-label { display: flex; justify-content: space-between; font-size: 10px; color: var(--slate5); margin-bottom: 3px; }
+  .vol-bar { height: 5px; background: var(--slate2); border-radius: 3px; overflow: hidden; }
+  .vol-fill { height: 100%; border-radius: 3px; }
+
+  /* ─── ALERTA BANDA ────────────────────── */
+  .alert-band { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 11px; border-bottom: 1px solid var(--slate2); flex-shrink: 0; }
+  .alert-band.info   { background: #EFF6FF; color: #1D4ED8; border-top: 1px solid #BFDBFE; }
+  .alert-band.warn   { background: #FFFBEB; color: #92400E; border-top: 1px solid #FDE68A; }
+  .alert-band.ok     { background: #F0FDF4; color: #15803D; border-top: 1px solid #BBF7D0; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--slate3); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <div class="sidebar">
+    <div class="sidebar-logo"><span>AUDISPED</span><small>fiscal</small></div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Menu</div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Painel
+      </div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/></svg>
+        Arquivos SPED
+      </div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Explorador
+      </div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Analisador
+      </div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Injetor XML
+      </div>
+      <div class="sidebar-item active">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        LMC
+      </div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        CFOPs
+      </div>
+    </div>
+    <div class="sped-indicator">
+      <div class="sped-indicator-label">SPED Ativo</div>
+      <div class="sped-indicator-value">POSTO PREÇO BOM II</div>
+      <div style="font-size:10px;color:#475569;margin-top:2px;">Jun 2024 · ID #650</div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="avatar">ES</div>
+        <div><div class="sidebar-user-name">Esmael Sousa</div><div class="sidebar-user-role">Auditor</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN ═══ -->
+  <div class="main">
+
+    <!-- Header -->
+    <div class="page-header">
+      <div>
+        <div class="page-title">LMC — Livro de Movimentação de Combustíveis</div>
+        <div class="page-sub">Jun/2024 · Posto Preço Bom II · 4 produtos · Saldo integrado com SPED</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+          Sincronizar SPED
+        </button>
+        <button class="btn btn-secondary btn-sm">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar PDF
+        </button>
+        <button class="btn btn-primary btn-sm">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Lançamento manual
+        </button>
+      </div>
+    </div>
+
+    <!-- Conteúdo -->
+    <div class="page-content">
+
+      <!-- Alert band -->
+      <div class="alert-band ok">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Saldos conferidos com o SPED · Última sincronização: hoje às 09:14 · Sem divergências no Bloco H
+      </div>
+
+      <!-- Stats — clicáveis por produto -->
+      <div class="stats-row">
+        <div class="stat-card gasolina active-card" onclick="switchProd(this,'Gasolina Comum','#2563EB')">
+          <div class="stat-label">Gasolina Comum</div>
+          <div class="stat-value">18.240 L</div>
+          <div class="stat-meta">Estoque atual</div>
+          <div class="stat-diff pos">▲ +6.040 L vs mês ant.</div>
+        </div>
+        <div class="stat-card etanol" onclick="switchProd(this,'Etanol','#16A34A')">
+          <div class="stat-label">Etanol Hidratado</div>
+          <div class="stat-value">9.880 L</div>
+          <div class="stat-meta">Estoque atual</div>
+          <div class="stat-diff neg">▼ −1.120 L vs mês ant.</div>
+        </div>
+        <div class="stat-card diesels10" onclick="switchProd(this,'Diesel S10','#CA8A04')">
+          <div class="stat-label">Diesel S10</div>
+          <div class="stat-value">32.100 L</div>
+          <div class="stat-meta">Estoque atual</div>
+          <div class="stat-diff pos">▲ +4.600 L vs mês ant.</div>
+        </div>
+        <div class="stat-card diesel500" onclick="switchProd(this,'Diesel S500','#9CA3AF')">
+          <div class="stat-label">Diesel S500</div>
+          <div class="stat-value">0 L</div>
+          <div class="stat-meta">Sem estoque</div>
+          <div class="stat-diff zero">— sem movimentação</div>
+        </div>
+      </div>
+
+      <!-- Produto Tabs -->
+      <div class="prod-tabs">
+        <div class="prod-tab active" id="tab-gas">
+          <span class="prod-dot" style="background:#2563EB;"></span>Gasolina Comum
+        </div>
+        <div class="prod-tab" id="tab-eta">
+          <span class="prod-dot" style="background:#16A34A;"></span>Etanol Hidratado
+        </div>
+        <div class="prod-tab" id="tab-s10">
+          <span class="prod-dot" style="background:#CA8A04;"></span>Diesel S10
+        </div>
+        <div class="prod-tab" id="tab-s500" style="color:var(--slate4);">
+          <span class="prod-dot" style="background:#9CA3AF;"></span>Diesel S500
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input placeholder="Buscar NF, fornecedor, data...">
+        </div>
+        <select class="form-select">
+          <option>Jun/2024</option>
+          <option>Mai/2024</option>
+          <option>Abr/2024</option>
+          <option>Mar/2024</option>
+        </select>
+        <select class="form-select">
+          <option>Todos os tipos</option>
+          <option>Entradas NF</option>
+          <option>Vendas PDV</option>
+          <option>Ajustes</option>
+        </select>
+        <div class="toolbar-right">
+          <span style="font-size:11px;color:var(--slate5);">12 lançamentos</span>
+          <button class="btn btn-secondary btn-sm">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Colunas
+          </button>
+        </div>
+      </div>
+
+      <!-- Área tabela + sumário -->
+      <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+
+        <!-- Tabela de movimentações -->
+        <div style="flex:1;overflow-y:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:90px;">Data</th>
+                <th>Tipo</th>
+                <th>Fornecedor / Descrição</th>
+                <th>Doc. Fiscal</th>
+                <th class="right">Entrada (L)</th>
+                <th class="right">Saída (L)</th>
+                <th class="right">Saldo (L)</th>
+                <th style="width:60px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Saldo inicial -->
+              <tr class="group-row">
+                <td colspan="8" style="padding-left:14px;">Saldo inicial — 01/06/2024</td>
+              </tr>
+              <tr>
+                <td class="muted">01/06/2024</td>
+                <td><span class="badge badge-slate">Saldo anterior</span></td>
+                <td class="muted">Fechamento Mai/2024</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="muted right">—</td>
+                <td class="saldo">14.200,000</td>
+                <td></td>
+              </tr>
+
+              <!-- Semana 1 -->
+              <tr class="group-row">
+                <td colspan="8" style="padding-left:14px;">Semana 1 — 03 a 09/06</td>
+              </tr>
+              <tr>
+                <td class="muted">03/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">VIBRA ENERGIA S.A.</td>
+                <td><span class="tag">NF 188.633</span></td>
+                <td class="entrada">+ 8.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">22.200,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+              <tr>
+                <td class="muted">05/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 3.960,000</td>
+                <td class="saldo">18.240,000</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td class="muted">08/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">VIBRA ENERGIA S.A.</td>
+                <td><span class="tag">NF 188.634</span></td>
+                <td class="entrada">+ 6.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">24.240,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+              <tr>
+                <td class="muted">09/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2, 3</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 6.000,000</td>
+                <td class="saldo">18.240,000</td>
+                <td></td>
+              </tr>
+
+              <!-- Semana 2 -->
+              <tr class="group-row">
+                <td colspan="8" style="padding-left:14px;">Semana 2 — 10 a 16/06</td>
+              </tr>
+              <tr>
+                <td class="muted">12/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">PETROBRAS DISTRIBUIDORA</td>
+                <td><span class="tag">NF 54.201</span></td>
+                <td class="entrada">+ 10.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">28.240,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+              <tr>
+                <td class="muted">13/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 5.400,000</td>
+                <td class="saldo">22.840,000</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td class="muted">15/06/2024</td>
+                <td><span class="badge badge-yellow" style="background:#FEF3C7;color:#92400E;">Ajuste</span></td>
+                <td class="primary">Diferença de medição — tanque 1</td>
+                <td class="muted">Aferição INMETRO</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 120,000</td>
+                <td class="saldo">22.720,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></td>
+              </tr>
+
+              <!-- Semana 3 -->
+              <tr class="group-row">
+                <td colspan="8" style="padding-left:14px;">Semana 3 — 17 a 23/06</td>
+              </tr>
+              <tr>
+                <td class="muted">18/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">VIBRA ENERGIA S.A.</td>
+                <td><span class="tag">NF 188.701</span></td>
+                <td class="entrada">+ 8.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">30.720,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+              <tr>
+                <td class="muted">20/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2, 3</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 7.280,000</td>
+                <td class="saldo">23.440,000</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td class="muted">22/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">PETROBRAS DISTRIBUIDORA</td>
+                <td><span class="tag">NF 54.290</span></td>
+                <td class="entrada">+ 6.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">29.440,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+
+              <!-- Semana 4 -->
+              <tr class="group-row">
+                <td colspan="8" style="padding-left:14px;">Semana 4 — 24 a 30/06</td>
+              </tr>
+              <tr>
+                <td class="muted">26/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 8.200,000</td>
+                <td class="saldo">21.240,000</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td class="muted">28/06/2024</td>
+                <td><span class="badge badge-blue">Entrada NF</span></td>
+                <td class="primary">VIBRA ENERGIA S.A.</td>
+                <td><span class="tag">NF 188.788</span></td>
+                <td class="entrada">+ 4.000,000</td>
+                <td class="muted right">—</td>
+                <td class="saldo">25.240,000</td>
+                <td style="text-align:center;"><button class="btn btn-ghost btn-sm btn-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></td>
+              </tr>
+              <tr>
+                <td class="muted">30/06/2024</td>
+                <td><span class="badge badge-slate">Venda PDV</span></td>
+                <td class="muted">Cupons fiscais — bomba 1, 2, 3</td>
+                <td class="muted">—</td>
+                <td class="muted right">—</td>
+                <td class="saida">− 7.000,000</td>
+                <td class="saldo" style="color:#16A34A;">18.240,000</td>
+                <td></td>
+              </tr>
+
+              <!-- Fechamento -->
+              <tr style="background:#F0FDF4;">
+                <td colspan="2" style="font-size:11px;font-weight:700;color:#15803D;padding:0 14px;">Saldo final · 30/06/2024</td>
+                <td colspan="2" class="muted">Conferido com Bloco H do SPED</td>
+                <td class="entrada" style="text-align:right;">+ 42.000,000</td>
+                <td class="saida" style="text-align:right;">− 37.960,000</td>
+                <td style="font-size:13px;font-weight:700;color:#15803D;text-align:right;font-variant-numeric:tabular-nums;">18.240,000</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Painel de sumário -->
+        <div class="summary-panel">
+          <div class="summary-section">
+            <div class="summary-title">Resumo — Gasolina Comum</div>
+            <div class="summary-row">
+              <span class="summary-key">Saldo inicial</span>
+              <span class="summary-val">14.200,000 L</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-key">Total entradas</span>
+              <span class="summary-val green">+ 42.000,000 L</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-key">Total saídas</span>
+              <span class="summary-val red">− 37.960,000 L</span>
+            </div>
+            <div class="summary-row" style="border-top:2px solid var(--slate2);margin-top:4px;padding-top:8px;">
+              <span class="summary-key" style="font-weight:600;color:var(--naval);">Saldo final</span>
+              <span class="summary-val" style="color:#15803D;font-size:13px;">18.240,000 L</span>
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Capacidade do tanque</div>
+            <div class="vol-bar-wrap">
+              <div class="vol-bar-label"><span>0 L</span><span>30.000 L</span></div>
+              <div class="vol-bar">
+                <div class="vol-fill" style="width:61%;background:#2563EB;"></div>
+              </div>
+              <div style="font-size:11px;color:var(--slate5);margin-top:4px;">18.240 L de 30.000 L <strong style="color:var(--naval);">(61%)</strong></div>
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Fornecedores do mês</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                  <span style="font-size:11px;color:var(--slate6);">VIBRA ENERGIA</span>
+                  <span style="font-size:11px;font-weight:600;color:var(--naval);">26.000 L</span>
+                </div>
+                <div class="vol-bar"><div class="vol-fill" style="width:62%;background:#60A5FA;"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                  <span style="font-size:11px;color:var(--slate6);">PETROBRAS DIST.</span>
+                  <span style="font-size:11px;font-weight:600;color:var(--naval);">16.000 L</span>
+                </div>
+                <div class="vol-bar"><div class="vol-fill" style="width:38%;background:#818CF8;"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <div class="summary-title">Status SPED</div>
+            <div class="summary-row">
+              <span class="summary-key">Bloco H (estoque)</span>
+              <span class="badge badge-green">OK</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-key">NF-e vinculadas</span>
+              <span class="summary-val">5 notas</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-key">Ajustes manuais</span>
+              <span class="summary-val" style="color:var(--yellow);">1 ajuste</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-key">Divergência</span>
+              <span class="badge badge-green">Nenhuma</span>
+            </div>
+          </div>
+
+          <div class="summary-section" style="border-bottom:none;">
+            <div class="summary-title">Ações rápidas</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="btn btn-secondary btn-sm" style="justify-content:flex-start;gap:6px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Lançamento manual
+              </button>
+              <button class="btn btn-secondary btn-sm" style="justify-content:flex-start;gap:6px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/></svg>
+                Exportar CSV
+              </button>
+              <button class="btn btn-secondary btn-sm" style="justify-content:flex-start;gap:6px;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+                Reconferir com SPED
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchProd(card, name, color) {
+    document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active-card'));
+    card.classList.add('active-card');
+    document.querySelectorAll('.prod-tab').forEach(t => t.classList.remove('active'));
+  }
+</script>
+</body>
+</html>
