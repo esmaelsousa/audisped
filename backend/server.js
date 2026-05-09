@@ -846,10 +846,11 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov) 
         JOIN documentos_itens_c170 i ON i.id_documento_c100 = c.id
         WHERE c.id_sped_arquivo = $1
           AND c.ind_oper = '0'
-          AND c.dt_doc = $2
+          AND COALESCE(c.dt_e_s, c.dt_doc) = $2
           AND i.cod_item = $3
-          AND (i.cfop LIKE '165%' OR i.cfop LIKE '265%' OR i.cfop LIKE '065%'
-               OR i.cfop LIKE '65%' OR i.cfop LIKE '116%' OR i.cfop LIKE '216%')
+          AND (i.cfop LIKE '110%' OR i.cfop LIKE '210%'
+               OR i.cfop LIKE '165%' OR i.cfop LIKE '265%' OR i.cfop LIKE '065%'
+               OR i.cfop LIKE '116%' OR i.cfop LIKE '216%')
     `, [id_arquivo, data_mov, cod_item]);
 
     const totalNfs = parseFloat(somaRes.rows[0].total_nfs) || 0;
@@ -2725,7 +2726,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
             notas_entrada AS (
                 SELECT
                     COALESCE(ncm_map.cod_item, item.cod_item) as cod_item,
-                    c100.dt_doc as data_entrada,
+                    COALESCE(c100.dt_e_s, c100.dt_doc) as data_entrada,
                     SUM(item.qtd) as volume_nota,
                     json_agg(
                         json_build_object(
@@ -2743,10 +2744,11 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 WHERE c100.id_sped_arquivo = $1
                   AND c100.ind_oper = '0'
                   AND (
+                      item.cfop LIKE '110%' OR
+                      item.cfop LIKE '210%' OR
                       item.cfop LIKE '165%' OR
                       item.cfop LIKE '265%' OR
                       item.cfop LIKE '065%' OR
-                      item.cfop LIKE '65%' OR
                       item.cfop LIKE '116%' OR
                       item.cfop LIKE '216%' OR
                       -- NCM filter restrito aos itens já cadastrados no LMC para evitar
@@ -2756,7 +2758,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                            SELECT cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1
                        ))
                   )
-                GROUP BY COALESCE(ncm_map.cod_item, item.cod_item), c100.dt_doc
+                GROUP BY COALESCE(ncm_map.cod_item, item.cod_item), COALESCE(c100.dt_e_s, c100.dt_doc)
             ),
             lmc_entrada AS (
                 SELECT 
@@ -2838,11 +2840,9 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 // O Escritural para auditoria usa o C8 literal do SPED se não houver ajuste manual.
                 // Se houver ajuste (rateio), recalculamos: ABERT + ENTR - NOVA_SAIDA
                 const escrCalculadoBase = abertOriginal + entr - saida;
-                const escrSpedOriginal = parseFloat(row.estq_escr || 0);
 
-                // ESCRITURAL FINAL: Se houver ajuste manual de saída, gera novo estoque. 
-                // Se não, usa o que está no arquivo (C8).
-                const escrFinal = (row.vol_saidas_ajustado !== null) ? escrCalculadoBase : escrSpedOriginal;
+                // ESCRITURAL FINAL: sempre recalculado (ABERT + ENTR - SAÍDA)
+                const escrFinal = escrCalculadoBase;
 
                 // DIFERENÇA = FÍSICO - ESCRITURAL
                 const diffLitre = fisico - escrFinal;
@@ -2855,7 +2855,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
 
                 let status = 'CONFORME';
                 if (fisico <= 0) status = 'ERRO DE BASE / FECHAMENTO FÍSICO ZERADO';
-                else if (varPerc > 0.60) status = 'FORA LIMITE';
+                else if (varPerc >= 0.61) status = 'FORA LIMITE';
                 if (cap > 0 && fisico > cap) status = 'EXCESSO';
                 if (escrFinal < -0.01 || fisico < -0.01) status = 'NEGATIVO';
 
@@ -2940,11 +2940,6 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
     }
 });
 
-// --- ROTA DE OTIMIZAÇÃO MATEMÁTICA LMC COM RUÍDO ORGÂNICO ---
-function getRandomNoise(margin) {
-    return (Math.random() * 2 * margin) - margin;
-}
-
 // ─── HELPER: calcula a distribuição de sincronização sem salvar no banco ────────
 async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo_estoque) {
     // 1. Capacidade configurada
@@ -3000,49 +2995,15 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         data_mov_normalized: normalizeDate(r.data_mov)
     }));
 
-    const totalEntradas = dailyItems.reduce((s, r) => s + parseFloat(r.vol_entr || 0), 0);
     const totalVendasOrig = dailyItems.reduce((s, r) => s + parseFloat(r.vol_saidas || 0), 0);
     const fechamentoAntes = dailyItems[dailyItems.length - 1];
     const aberturaAntes = parseFloat(dailyItems[0].estq_abert || 0);
     const ajustes = [];
 
-    // 4. Sanidade: abertura não pode ser negativa
-    let aberturaInicialConsolidada = Math.max(0.5, novo_estoque);
-    if (novo_estoque < 0) ajustes.push('Abertura negativa detectada — ajustada para 0,5 L.');
+    // 4. Abertura inicial (sem mínimo artificial — tanque pode estar vazio)
+    let aberturaInicialConsolidada = Math.max(0, novo_estoque);
 
-    // 5. Meta de fechamento = físico real do último dia do SPED (medição de bujão)
-    //    Isso garante que o físico permaneça dentro da capacidade do tanque.
-    //    As SAÍDAS absorvem o excesso da nova abertura — NFC-e modelo 65 não tem
-    //    quantidade em litros, então o ajuste é fiscalmente defensável.
-    const fisicoRealUltimoDia = parseFloat(fechamentoAntes.fech_fisico || 0);
-    let targetFechamento = fisicoRealUltimoDia;
-
-    // 6. Travas sobre o FECHAMENTO alvo
-    //    6a. Não pode exceder a capacidade do tanque (segurança física)
-    const vendaMaximaPossivel = aberturaInicialConsolidada + totalEntradas - 0.5;
-    if (capacidadeTotal > 0 && targetFechamento > capacidadeTotal * 0.98) {
-        targetFechamento = capacidadeTotal * 0.98;
-        ajustes.push(`Fechamento limitado a ${targetFechamento.toFixed(3)} L para não exceder a capacidade do tanque (${capacidadeTotal.toFixed(0)} L).`);
-    }
-    //    6b. Não pode ser negativo
-    if (targetFechamento < 0.5) {
-        targetFechamento = 0.5;
-        ajustes.push('Fechamento mínimo ajustado para 0,5 L.');
-    }
-
-    // 7. Converte fechamento alvo em META DE VENDAS para o motor iterativo
-    //    targetReal = saídas totais necessárias para que:
-    //    abertura_nova + entradas - targetReal = targetFechamento
-    //    Regra LMC: escritural de cada dia NÃO pode ficar negativo.
-    //    O motor iterativo e o saneador garantem isso dia a dia.
-    let targetReal = aberturaInicialConsolidada + totalEntradas - targetFechamento;
-    if (targetReal > vendaMaximaPossivel) targetReal = vendaMaximaPossivel;
-    if (targetReal < 0) targetReal = 0;
-
-    // 8. Saneador: duas regras por dia
-    //    a) escritural NÃO pode ficar negativo (regra LMC)
-    //    b) escritural NÃO pode exceder capacidade do tanque (física)
-    //    Se abertura+entradas > capacidade → DEVE vender o excedente naquele dia
+    // 5. Inicializa estrutura de cálculo por dia
     let calcs = dailyItemsNormalized.map(row => ({
         data_mov: row.data_mov,
         data_mov_normalized: row.data_mov_normalized,
@@ -3056,114 +3017,34 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         abertCalc: 0, escrCalc: 0, fisicoCalc: 0
     }));
 
-    let tempStock = aberturaInicialConsolidada;
+    // 6. Cascata direta: garante ANP ≤ 0,60% em cada dia
+    //    Para cada dia calcula a saída que alinharia o escritural ao físico original
+    //    (escr = fisicoOrig + perdaOrig - ganhoOrig), depois aplica o cap ANP.
+    //    Propaga via fisicoCalc real — não há descasamento entre abertura e estoque.
+    let stockAtual = aberturaInicialConsolidada;
     for (let i = 0; i < calcs.length; i++) {
-        const disponivel = tempStock + calcs[i].entradasOrig;
-        // Limite superior: escritural ≤ 99% da capacidade (física do tanque)
-        const minObrigatorio = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
-        // Limite inferior: escritural ≥ 0.5 L (não pode vender mais do que tem)
-        const maxPermitido = Math.max(minObrigatorio, disponivel - 0.5);
-        calcs[i].saidaCalc = Math.max(calcs[i].saidaCalc, minObrigatorio);
-        calcs[i].saidaCalc = Math.min(calcs[i].saidaCalc, maxPermitido);
-        tempStock = disponivel - calcs[i].saidaCalc;
-    }
+        const c = calcs[i];
+        c.abertCalc = stockAtual;
+        const volDisp = c.abertCalc + c.entradasOrig;
 
-    // Após saneador: se as saídas mínimas obrigatórias já excedem targetReal,
-    // sobe targetReal para cobrir (a física do tanque é lei — não dá para vender menos)
-    const totalMinObrigatorio = calcs.reduce((s, c) => s + c.saidaCalc, 0);
-    if (totalMinObrigatorio > targetReal) {
-        targetReal = Math.min(totalMinObrigatorio, vendaMaximaPossivel);
-        ajustes.push(`Saída mínima obrigatória (${totalMinObrigatorio.toFixed(3)} L) excedeu a meta — ajustada para respeitar a capacidade do tanque.`);
-    }
+        // Escr alvo: valor que reproduziria o físico original com as perdas/ganhos originais
+        const escrAlvo = Math.max(0, c.fisicoOrig + c.perdaOrig - c.ganhoOrig);
+        // Saída mínima obrigatória se tanque ultrapassaria capacidade
+        const minObrig = capacidadeTotal > 0 ? Math.max(0, volDisp - capacidadeTotal * 0.99) : 0;
+        const saidaAlvo = Math.max(minObrig, volDisp - escrAlvo);
+        c.saidaCalc = Math.max(0, Math.min(saidaAlvo, volDisp));
+        c.escrCalc  = Math.max(0, volDisp - c.saidaCalc);
 
-    // Motor iterativo de distribuição
-    // PROTEÇÃO 1: Visibilidade total de convergência
-    let iter = 0;
-    const MAX_ITER = 100;
-    const CONVERGENCE_THRESHOLD = 0.5;
-    let iteracaoConvergence = null;
+        // Cap ANP: % = |diff|/físico ≤ 0,60% (garantido matematicamente)
+        const capPerda = c.escrCalc * (0.006 / 1.006);
+        const capGanho = c.escrCalc * (0.006 / 0.994);
+        const perdaNova = Math.min(c.perdaOrig, capPerda);
+        const ganhoNovo = Math.min(c.ganhoOrig, capGanho);
+        c.fisicoCalc = Math.max(0, c.escrCalc + ganhoNovo - perdaNova);
+        if (capacidadeTotal > 0 && c.fisicoCalc > capacidadeTotal * 0.99)
+            c.fisicoCalc = capacidadeTotal * 0.99;
 
-    while (iter++ < MAX_ITER) {
-        const totalCalc = calcs.reduce((s, c) => s + c.saidaCalc, 0);
-        const diff = targetReal - totalCalc;
-
-        if (Math.abs(diff) <= CONVERGENCE_THRESHOLD) {
-            iteracaoConvergence = iter;
-            logger.info(`[MOTOR CASCATA] ✓ Convergência alcançada em ${iter} iteração(ões). Diferença final: ${Math.abs(diff).toFixed(3)}L <= ${CONVERGENCE_THRESHOLD}L (meta=${targetReal.toFixed(3)}L, real=${totalCalc.toFixed(3)}L)`);
-            break;
-        }
-
-        // Cascata com restrição de capacidade embutida:
-        // a cada dia força saída mínima se abertura+entradas ultrapassar o tanque
-        let runningAb = aberturaInicialConsolidada;
-        calcs.forEach(c => {
-            c.abertCalc = runningAb;
-            const disponivel = c.abertCalc + c.entradasOrig;
-            if (capacidadeTotal > 0) {
-                const minVenda = Math.max(0, disponivel - capacidadeTotal * 0.99);
-                if (c.saidaCalc < minVenda) c.saidaCalc = Math.min(minVenda, disponivel - 0.5);
-            }
-            c.escrCalc = disponivel - c.saidaCalc;
-            c.fisicoCalc = c.escrCalc;
-            runningAb = c.fisicoCalc;
-        });
-
-        const minFuturo = [];
-        let minV = Infinity;
-        for (let i = calcs.length - 1; i >= 0; i--) {
-            if (calcs[i].fisicoCalc < minV) minV = calcs[i].fisicoCalc;
-            minFuturo[i] = minV;
-        }
-
-        if (diff > 0) {
-            // Distribui mais saídas nos dias com maior "headroom" futuro (sem zerar o tanque)
-            const elig = calcs.map((c, i) => ({ c, min: minFuturo[i] })).filter(x => x.min > 0.01);
-            if (!elig.length) break;
-            const tot = elig.reduce((s, x) => s + (x.min - 0.01), 0);
-            if (tot <= 0) break;
-            elig.forEach(x => { x.c.saidaCalc += Math.min(diff * (x.min - 0.01) / tot, x.min - 0.01); });
-        } else {
-            // Reduz saídas proporcionalmente (respeitando mínimos obrigatórios por capacidade)
-            const elig = calcs.filter(c => {
-                const disponivel = c.abertCalc + c.entradasOrig;
-                const minVenda = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
-                return c.saidaCalc > minVenda + 0.001;
-            });
-            if (!elig.length) break;
-            const tot = elig.reduce((s, c) => s + c.saidaCalc, 0);
-            if (tot <= 0) break;
-            const da = Math.abs(diff);
-            elig.forEach(c => {
-                const disponivel = c.abertCalc + c.entradasOrig;
-                const minVenda = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
-                const reducao = Math.min(da * c.saidaCalc / tot, c.saidaCalc - minVenda - 0.001);
-                if (reducao > 0) c.saidaCalc -= reducao;
-            });
-        }
-    }
-
-    // Aviso se motor não convergiu
-    if (!iteracaoConvergence) {
-        const totalFinal = calcs.reduce((s, c) => s + c.saidaCalc, 0);
-        const diffFinal = targetReal - totalFinal;
-        logger.warn(`[MOTOR CASCATA] ⚠️  Sem convergência em ${MAX_ITER} iterações. Diferença final: ${Math.abs(diffFinal).toFixed(3)}L (meta=${targetReal.toFixed(3)}L, real=${totalFinal.toFixed(3)}L). Resultado aproximado.`);
-        ajustes.push(`Atenção: Otimização não convergiu completamente (diferença de ${Math.abs(diffFinal).toFixed(3)}L). Resultado é aproximado.`);
-    }
-
-    // Passe pós-motor: reaplica limites da cascata em ordem cronológica.
-    // O motor distribui saídas em múltiplos dias simultaneamente sem recomputar
-    // a cascata entre eles — isso pode gerar escritural negativo em dias com
-    // estoque baixo. Este passe corrige, garantindo:
-    //   a) saidaCalc ≤ disponivel - 0.5  (escritural ≥ 0.5, regra LMC)
-    //   b) saidaCalc ≥ disponivel - cap  (escritural ≤ capacidade, física do tanque)
-    let stockPos = aberturaInicialConsolidada;
-    for (let i = 0; i < calcs.length; i++) {
-        const disponivel = stockPos + calcs[i].entradasOrig;
-        const minObrig   = capacidadeTotal > 0 ? Math.max(0, disponivel - capacidadeTotal * 0.99) : 0;
-        const maxPermit  = Math.max(minObrig, disponivel - 0.5);
-        calcs[i].saidaCalc = Math.max(calcs[i].saidaCalc, minObrig);
-        calcs[i].saidaCalc = Math.min(calcs[i].saidaCalc, maxPermit);
-        stockPos = disponivel - calcs[i].saidaCalc;
+        stockAtual = c.fisicoCalc;
     }
 
     // 9. Fase final: cascata com ruído ANP e rateio por tanque
@@ -3188,24 +3069,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
             logger.warn(`[CASCATA SANIDADE] Aviso: Nenhuma saída registrada para ${dayCalc.data_mov_normalized} (cod_item=${cod_item}). Distribuindo rateio igualmente entre ${rowsDoDia.length} tanque(s).`);
         }
 
-        dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
-        dayCalc.escrCalc = dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc;
-
-        // Perda/ganho: preserva o % original do SPED aplicado sobre a nova base
-        // Isso mantém o padrão real de comportamento do tanque (evaporação, temperatura)
-        // sem inventar valores — e com base maior o % tende a ser menor ou igual ao original
-        const volBase = dayCalc.abertCalc + dayCalc.entradasOrig;
-        const baseOrig = dayCalc.abertOrig + dayCalc.entradasOrig;
-        const pctPerda = baseOrig > 0 ? dayCalc.perdaOrig / baseOrig : 0;
-        const pctGanho = baseOrig > 0 ? dayCalc.ganhoOrig / baseOrig : 0;
-        // Cap ANP 0,6% — garante que nunca ultrapasse mesmo se SPED original estiver no limite
-        const perdaNova = Math.min(pctPerda * volBase, volBase * 0.006);
-        const ganhoNovo = Math.min(pctGanho * volBase, volBase * 0.006);
-        const difReal   = ganhoNovo - perdaNova;
-
-        dayCalc.fisicoCalc = Math.max(0.5, dayCalc.escrCalc + difReal);
-        if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal * 0.99)
-            dayCalc.fisicoCalc = capacidadeTotal * 0.99;
+        // abertCalc, saidaCalc, escrCalc e fisicoCalc já calculados pela cascata direta acima.
 
         // Rateio por tanque: distribui o fisicoCalc consolidado proporcionalmente
         // pelo físico original de cada tanque. Isso garante que SUM(fAjustado) == dayCalc.fisicoCalc,
@@ -3276,7 +3140,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
             fechamento_antes: parseFloat((parseFloat(fechamentoAntes.fech_fisico) || 0).toFixed(3)),
             fechamento_depois: parseFloat(fechamentoDepois.toFixed(3)),
             capacidade:       capacidadeTotal,
-            target_calculado: parseFloat(targetReal.toFixed(3))
+            target_calculado: parseFloat(totalVendasDepois.toFixed(3))
         },
         ajustes,
         dias,
@@ -3396,10 +3260,10 @@ app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
-    const { id_arquivo, cod_item, volume_alvo } = req.body;
+    const { id_arquivo, cod_item, volume_alvo, auto } = req.body;
 
-    if (!id_arquivo || !cod_item || !volume_alvo) {
-        return res.status(400).json({ error: "Parâmetros incompletos (id_arquivo, cod_item, volume_alvo)" });
+    if (!id_arquivo || !cod_item) {
+        return res.status(400).json({ error: "Parâmetros incompletos (id_arquivo, cod_item)" });
     }
 
     const dbClient = await pool.connect();
@@ -3417,13 +3281,16 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
 
         // 2. Buscar LMC agrupado por dia (Consolidado)
         const resLmcConsolidado = await dbClient.query(`
-            SELECT 
+            SELECT
                 data_mov,
-                SUM(vol_entr) as vol_entr,
-                SUM(vol_saidas) as vol_saidas,
-                SUM(estq_abert) as estq_abert,
-                SUM(estq_abert_ajustado) as estq_abert_ajustado
-            FROM lmc_movimentacao 
+                SUM(vol_entr)            as vol_entr,
+                SUM(vol_saidas)          as vol_saidas,
+                SUM(estq_abert)          as estq_abert,
+                SUM(estq_abert_ajustado) as estq_abert_ajustado,
+                SUM(fech_fisico)         as fech_fisico,
+                SUM(val_perda)           as val_perda,
+                SUM(val_ganho)           as val_ganho
+            FROM lmc_movimentacao
             WHERE id_sped_arquivo = $1 AND cod_item = $2
             GROUP BY data_mov
             ORDER BY data_mov ASC
@@ -3462,8 +3329,6 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         }));
 
         // 4. Calcular Otimização no Consolidado Diário
-        const volumeAntigoTotal = dailyItemsNormalized.reduce((acc, i) => acc + parseFloat(i.vol_saidas || 0), 0);
-        const limitRatio = 0.0050;
 
         let aberturaInicialConsolidada = parseFloat(dailyItemsNormalized[0].estq_abert_ajustado ?? dailyItemsNormalized[0].estq_abert ?? 0);
 
@@ -3478,12 +3343,13 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         let calcs = dailyItemsNormalized.map(row => ({
             data_mov: row.data_mov,
             data_mov_normalized: row.data_mov_normalized,
-            entradasOrig: parseFloat(row.vol_entr || 0),
-            saidaOrig: parseFloat(row.vol_saidas || 0),
-            saidaCalc: parseFloat(row.vol_saidas || 0),
-            abertCalc: 0,
-            escrCalc: 0,
-            fisicoCalc: 0
+            entradasOrig: parseFloat(row.vol_entr   || 0),
+            saidaOrig:    parseFloat(row.vol_saidas || 0),
+            saidaCalc:    parseFloat(row.vol_saidas || 0),
+            fisicoOrig:   parseFloat(row.fech_fisico || 0),
+            perdaOrig:    parseFloat(row.val_perda   || 0),
+            ganhoOrig:    parseFloat(row.val_ganho   || 0),
+            abertCalc: 0, escrCalc: 0, fisicoCalc: 0
         }));
 
         // 4.0 MOTOR V7: Curandeiro Analítico (Saneador Profilático)
@@ -3504,8 +3370,12 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         // Calculamos quanto de combustível entra no mês e quanto cabe no tanque.
         // Se a venda for muito baixa, o tanque transborda (teoria).
 
-        let targetReal = parseFloat(volume_alvo);
-        let infoTrava = "";
+        // Auto-mode: usa soma das vendas originais do SPED quando não há volume_alvo
+        const totalVendasOriginais = calcs.reduce((s, c) => s + c.saidaOrig, 0);
+        let targetReal = (auto || !volume_alvo)
+            ? totalVendasOriginais
+            : parseFloat(volume_alvo);
+        let infoTrava = auto ? "Auto-otimização: volume alvo calculado automaticamente das vendas originais." : "";
 
         if (capacidadeTotal > 0) {
             let totalEntradasMes = calcs.reduce((acc, c) => acc + c.entradasOrig, 0);
@@ -3516,7 +3386,6 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
             // Venda Mínima = Abertura Inicial + Total Entradas - (Capacidade Tanque * (1 + Margem))
             // Mas precisamos checar o PICO acumulado, não só o final do mês.
 
-            let picoAcumulado = 0;
             let currentTempStock = aberturaInicialConsolidada;
             let totalVendaMinimaNecessaria = 0;
 
@@ -3614,19 +3483,19 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
             let totalSaidaOriginalDia = rowsDoDia.reduce((acc, r) => acc + parseFloat(r.vol_saidas || 0), 0);
             let totalFisicoOriginalDia = rowsDoDia.reduce((acc, r) => acc + parseFloat(r.fech_fisico || 0), 0);
 
-            // Re-calcula escritural consolidado para o dia com base na abertura real acumulada
+            // Recalcula cascata com abertura real acumulada via fisicoCalc anterior
             dayCalc.abertCalc = i === 0 ? aberturaInicialConsolidada : calcs[i - 1].fisicoCalc;
-            dayCalc.escrCalc = dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc;
+            dayCalc.escrCalc  = Math.max(0, dayCalc.abertCalc + dayCalc.entradasOrig - dayCalc.saidaCalc);
 
-            // Aplica ruído no consolidado do dia proporcional ao volume disponível
-            let volBase = dayCalc.abertCalc + dayCalc.entradasOrig;
-            let maxDiffANP = volBase * 0.0055;
-            let ruido = getRandomNoise(volBase * 0.003); // Ruído leve para parecer orgânico
-            if (ruido > maxDiffANP) ruido = maxDiffANP;
-            if (ruido < -maxDiffANP) ruido = -maxDiffANP;
-
-            dayCalc.fisicoCalc = Math.max(0.5, dayCalc.escrCalc + ruido);
-            if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal) {
+            // Cap ANP correto: % = |diff|/físico ≤ 0,60%
+            // capPerda: perdaNova/(escrCalc − perdaNova) ≤ 0.006 → cap = escrCalc × 0.006/1.006
+            // capGanho: ganhoNovo/(escrCalc + ganhoNovo) ≤ 0.006 → cap = escrCalc × 0.006/0.994
+            const capPerdaOtim = dayCalc.escrCalc * (0.006 / 1.006);
+            const capGanhoOtim = dayCalc.escrCalc * (0.006 / 0.994);
+            const perdaNovaOtim = Math.min(dayCalc.perdaOrig, capPerdaOtim);
+            const ganhoNovoOtim = Math.min(dayCalc.ganhoOrig, capGanhoOtim);
+            dayCalc.fisicoCalc = Math.max(0, dayCalc.escrCalc + ganhoNovoOtim - perdaNovaOtim);
+            if (capacidadeTotal > 0 && dayCalc.fisicoCalc > capacidadeTotal * 0.99) {
                 dayCalc.fisicoCalc = capacidadeTotal * 0.99;
             }
 
@@ -5116,16 +4985,22 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
             const maxSaida = Math.max(0, novaAbertura + entradas - 0.5);
             saida = Math.min(saida, maxSaida);
 
-            // ANP: preserva o % de perda/ganho original, limitado a 0,6%
+            // ANP: escritural calculado antes do cap para usar como base correta
+            const escritural  = Math.max(0, novaAbertura + entradas - saida);
+
+            // Cap correto para % = |diff| / físico ≤ 0,60%:
+            //   perda: perdaNova / (escritural − perdaNova) ≤ 0.006 → cap = escritural × 0.006/1.006
+            //   ganho: ganhoNovo / (escritural + ganhoNovo) ≤ 0.006 → cap = escritural × 0.006/0.994
             const baseOrig = parseFloat(row.estq_abert_orig) + parseFloat(row.vol_entr_orig);
             const volBase  = novaAbertura + entradas;
             const pctPerda = baseOrig > 0 ? parseFloat(row.val_perda || 0) / baseOrig : 0;
             const pctGanho = baseOrig > 0 ? parseFloat(row.val_ganho || 0) / baseOrig : 0;
-            const perdaNova = Math.min(pctPerda * volBase, volBase * 0.006);
-            const ganhoNovo = Math.min(pctGanho * volBase, volBase * 0.006);
+            const capPerda = escritural * (0.006 / 1.006);
+            const capGanho = escritural * (0.006 / 0.994);
+            const perdaNova = Math.min(pctPerda * volBase, capPerda);
+            const ganhoNovo = Math.min(pctGanho * volBase, capGanho);
 
-            const escritural  = Math.max(0, novaAbertura + entradas - saida);
-            const novoFisico  = Math.max(0.5, escritural + (ganhoNovo - perdaNova));
+            const novoFisico  = Math.max(0, escritural + (ganhoNovo - perdaNova));
 
             await dbClient.query(`
                 UPDATE lmc_movimentacao

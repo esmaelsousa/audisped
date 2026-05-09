@@ -113,7 +113,9 @@ async function confirmarSincronizacao() {
         await axios.post(`${API_BASE_URL}/api/lmc/confirmar-sincronizacao`, { itens },
             { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         showSyncModal.value = false;
+        const fuelAnterior = selectedFuel.value;
         await loadData(currentArquivoId.value);
+        if (fuelAnterior) selectedFuel.value = fuelAnterior;
     } catch (e) {
         alert('Erro ao confirmar: ' + (e.response?.data?.error || e.message));
     } finally {
@@ -178,8 +180,14 @@ const COMBUSTIVEIS_KEYWORDS = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESE
 const combustiveis = computed(() => {
     const list = [];
     const map = new Set();
+    // Só inclui cod_item que tenha ao menos 1 linha real no 1300 (has_lmc_row = true)
+    // Impede que aditivos/lubrificantes cujo nome contém "GASOLINA" ou "DIESEL" apareçam no seletor
+    const codItensComLmc = new Set(lmcData.value.filter(i => i.has_lmc_row === true).map(i => i.cod_item));
     lmcData.value
-        .filter(item => COMBUSTIVEIS_KEYWORDS.some(k => (item.nome_combustivel || '').toUpperCase().includes(k)))
+        .filter(item =>
+            COMBUSTIVEIS_KEYWORDS.some(k => (item.nome_combustivel || '').toUpperCase().includes(k)) &&
+            codItensComLmc.has(item.cod_item)
+        )
         .forEach(item => {
             if (!map.has(item.cod_item)) {
                 map.add(item.cod_item);
@@ -210,7 +218,6 @@ async function recalcularTudo() {
                 const aberturaSped = parseFloat(row.estq_abert || 0);
                 const entradas = parseFloat(row.vol_entr_lmc || 0);
                 const saidaSped = parseFloat(row.vol_saidas || 0);
-                const escrituralSped = parseFloat(row.estq_escr || 0);
                 const fisicoSped = parseFloat(row.fech_fisico || 0);
 
                 // Linhas fantasmas (só NF sem LMC correspondente): exibe dados mas não entra na cascata
@@ -222,27 +229,35 @@ async function recalcularTudo() {
                 }
 
                 // MOTOR 1: RAIO-X
-                const volumeBase = aberturaSped + entradas;
-                const difTeoricaRaioX = fisicoSped - (aberturaSped + entradas - saidaSped);
-                const percentualRaioX = volumeBase > 0 ? (Math.abs(difTeoricaRaioX) / volumeBase) * 100 : 0;
                 const escrRaioX = aberturaSped + entradas - saidaSped;
+                const difTeoricaRaioX = fisicoSped - escrRaioX;
+                const percentualRaioX = fisicoSped > 0 ? (Math.abs(difTeoricaRaioX) / fisicoSped) * 100 : 0;
                 row.raiox = {
                     estq_abert: aberturaSped,
                     vol_entr: entradas,
                     vol_saidas: saidaSped,
-                    estq_escr: escrituralSped,
+                    estq_escr: escrRaioX,
                     fech_fisico: fisicoSped,
                     dif: difTeoricaRaioX,
                     percentual: percentualRaioX,
-                    ultrapassou_limite: percentualRaioX > 0.601,
+                    ultrapassou_limite: fisicoSped > 0 && percentualRaioX >= 0.61,
                     is_negativo: escrRaioX < -0.01 || fisicoSped < -0.01
                 };
 
                 // MOTOR 2: LABORATÓRIO (Cascata Dinâmica)
                 const entrLab = row.vol_entr_ajustado !== null ? parseFloat(row.vol_entr_ajustado) : entradas;
-                const aberturaLab0 = row.estq_abert_ajustado !== null ? parseFloat(row.estq_abert_ajustado) : aberturaSped;
-                const aberturaLab = (runningAberturaLab === null) ? aberturaLab0 : (runningAberturaLab ?? aberturaSped);
-                // Usa vol_saidas_ajustado do banco como base quando disponível (evita falso positivo no banner "Distribuição inconsistente")
+
+                // Preferir abertura salva pelo banco (pós-Redistribuir/Otimizar).
+                // runningAberturaLab só é usado quando não há âncora do banco, para propagar
+                // edições manuais. Isso evita falso drift em cenários de múltiplos tanques
+                // ou após Otimizar/Redistribuir ter gravado valores corretos.
+                const abertAjDB = (row.estq_abert_ajustado !== null && row.estq_abert_ajustado !== undefined)
+                    ? parseFloat(row.estq_abert_ajustado)
+                    : null;
+                const aberturaLab = abertAjDB !== null
+                    ? abertAjDB
+                    : (runningAberturaLab !== null ? runningAberturaLab : aberturaSped);
+
                 const saidaBaseDB = (row.vol_saidas_ajustado !== null && row.vol_saidas_ajustado !== undefined)
                     ? parseFloat(row.vol_saidas_ajustado)
                     : saidaSped;
@@ -250,47 +265,56 @@ async function recalcularTudo() {
                 const volumeBaseLab = aberturaLab + entrLab;
                 const escrLab = Math.max(0, aberturaLab + entrLab - saidaLab);
 
-                // Detecta se algo mudou neste dia ou veio em cascata de um dia anterior
-                const saidaEditada = parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3);
-                const aberturaAlterada = runningAberturaLab !== null && Math.abs(aberturaLab - (parseFloat(row.estq_abert_ajustado ?? aberturaSped))).toFixed(3) > 0.001;
-                if (saidaEditada || aberturaAlterada) cascadeModified = true;
+                const saidaManualEdit = Math.abs(saidaLab - saidaBaseDB) > 0.001;
+                const fisicoBaseDB = (row.fech_fisico_ajustado !== null && row.fech_fisico_ajustado !== undefined)
+                    ? parseFloat(row.fech_fisico_ajustado)
+                    : fisicoSped;
+                const fisicoManualEdit = Math.abs(parseFloat(row.fisico_edit_value ?? fisicoBaseDB) - fisicoBaseDB) > 0.001;
+                // aberturaAlterada: só verifica quando não há âncora do banco — evita falso positivo
+                // ao comparar runningAberturaLab (de outro tanque ou dia) com estq_abert_ajustado.
+                const aberturaAlterada = abertAjDB === null
+                    && runningAberturaLab !== null
+                    && Math.abs(runningAberturaLab - aberturaSped) > 0.001;
+                if (saidaManualEdit || fisicoManualEdit || aberturaAlterada) cascadeModified = true;
 
                 let fisicoLab;
                 if (cascadeModified) {
-                    // Recalcula o físico a partir do novo escritural mantendo % ANP original (cap 0,6%)
-                    const baseOrig = aberturaSped + entradas;
-                    const pctPerda = baseOrig > 0 ? parseFloat(row.val_perda || 0) / baseOrig : 0;
-                    const pctGanho = baseOrig > 0 ? parseFloat(row.val_ganho || 0) / baseOrig : 0;
-                    const perdaNova = Math.min(pctPerda * volumeBaseLab, volumeBaseLab * 0.006);
-                    const ganhoNovo = Math.min(pctGanho * volumeBaseLab, volumeBaseLab * 0.006);
-                    fisicoLab = Math.max(0.5, escrLab + ganhoNovo - perdaNova);
-                    // Sincroniza o campo de entrada do físico para refletir o valor recalculado
+                    // Cascata manual: recalcula físico usando perda/ganho ajustados (ou originais) escalados
+                    // Cap correto para % = |diff| / físico ≤ 0,60%:
+                    //   perda: perdaNova / (escrLab − perdaNova) ≤ 0.006 → cap = escrLab × 0.006/1.006
+                    //   ganho: ganhoNovo / (escrLab + ganhoNovo) ≤ 0.006 → cap = escrLab × 0.006/0.994
+                    const perdaRef = parseFloat((row.val_perda_ajustado ?? row.val_perda) || 0);
+                    const ganhoRef = parseFloat((row.val_ganho_ajustado ?? row.val_ganho) || 0);
+                    const baseOriginal = Math.max(0.001, aberturaSped + entradas);
+                    const fator = volumeBaseLab / baseOriginal;
+                    const capPerda = escrLab * (0.006 / 1.006);
+                    const capGanho = escrLab * (0.006 / 0.994);
+                    const perdaNova = Math.min(perdaRef * fator, capPerda);
+                    const ganhoNovo = Math.min(ganhoRef * fator, capGanho);
+                    fisicoLab = Math.max(0, escrLab + ganhoNovo - perdaNova);
                     row.fisico_edit_value = parseFloat(fisicoLab.toFixed(3));
                 } else {
-                    // Usa fech_fisico_ajustado do banco quando disponível e não há edição manual
-                    const fisicoBaseDB = (row.fech_fisico_ajustado !== null && row.fech_fisico_ajustado !== undefined)
-                        ? parseFloat(row.fech_fisico_ajustado)
-                        : fisicoSped;
+                    // Banco já calculou: honra fech_fisico_ajustado diretamente
                     fisicoLab = parseFloat(row.fisico_edit_value ?? fisicoBaseDB);
                 }
 
                 const difBruta = fisicoLab - escrLab;
                 const perdaLab = difBruta < 0 ? Math.abs(difBruta) : 0;
                 const ganhoLab = difBruta > 0 ? difBruta : 0;
-                const percentualLab = volumeBaseLab > 0 ? (Math.abs(difBruta) / volumeBaseLab) * 100 : 0;
+                const percentualLab = fisicoLab > 0 ? (Math.abs(difBruta) / fisicoLab) * 100 : 0;
                 row.lab = {
                     estq_abert: aberturaLab,
                     vol_entr: entrLab,
                     vol_saidas: saidaLab,
-                    estq_escr: fisicoLab,
+                    estq_escr: escrLab,
                     fech_fisico: fisicoLab,
                     val_perda: perdaLab,
                     val_ganho: ganhoLab,
                     dif: difBruta,
                     percentual: percentualLab,
-                    ultrapassou_limite: percentualLab > 0.601,
+                    ultrapassou_limite: fisicoLab > 0 && percentualLab >= 0.61,
                     is_negativo: escrLab < -0.01 || fisicoLab < -0.01,
-                    is_saida_edited: saidaEditada,
+                    is_saida_edited: parseFloat(saidaLab).toFixed(3) !== saidaSped.toFixed(3),
                     is_fisico_edited: parseFloat(fisicoLab).toFixed(3) !== fisicoSped.toFixed(3),
                     is_entr_edited: parseFloat(entrLab).toFixed(3) !== entradas.toFixed(3)
                 };
@@ -312,14 +336,17 @@ const movimentacaoAtiva = computed(() => {
         .sort((a,b) => new Date(a.data_movimento) - new Date(b.data_movimento));
 });
 
-// Detecta inconsistência: fisicoLab foi ajustado mas está muito divergente (sync com código antigo)
+// Detecta inconsistência: a cascata do frontend produz abertura diferente do que o banco salvou.
+// Isso indica que os ajustes automáticos (Corrigir/Otimizador) estão dessincronizados com as
+// edições manuais subsequentes do usuário.
 const distribuicaoInconsistente = computed(() => {
     if (viewMode.value !== 'lab' || !movimentacaoAtiva.value.length) return false;
-    // Verifica se algum dia tem fech_fisico_ajustado setado mas com diferença > 1%
     return movimentacaoAtiva.value.some(row => {
-        const temAjuste = row.fech_fisico_ajustado !== null;
-        const percentual = row.lab?.percentual || 0;
-        return temAjuste && percentual > 1.0;
+        if (!row.lab || row.has_lmc_row === false) return false;
+        if (row.estq_abert_ajustado === null || row.estq_abert_ajustado === undefined) return false;
+        const abertSalva = parseFloat(row.estq_abert_ajustado);
+        const abertLab = parseFloat(row.lab?.estq_abert || 0);
+        return Math.abs(abertSalva - abertLab) > 1.0; // divergência > 1L
     });
 });
 
@@ -341,12 +368,34 @@ async function corrigirDistribuicao() {
     }
 }
 
+async function rodarAutoOtimizador() {
+    savingMacro.value = true;
+    try {
+        const arquivoId = route.params.id || arquivoInfo.value?.id;
+        const response = await axios.post(`${API_BASE_URL}/api/lmc/otimizador-matematico`, {
+            id_arquivo: arquivoId,
+            cod_item: selectedFuel.value,
+            auto: true
+        });
+        if (response.data.success) {
+            otimizadorMsg.value = "Auto-Otimizado: todos os dias ≤ 0,60% ANP. " + (response.data.message || '');
+            viewMode.value = 'lab';
+            await loadData(arquivoId);
+        }
+    } catch (error) {
+        console.error("Erro no auto-otimizador:", error);
+        alert("Falha ao processar auto-otimização.");
+    } finally {
+        savingMacro.value = false;
+    }
+}
+
 async function rodarOtimizador() {
     if (!volumeAlvo.value || volumeAlvo.value <= 0) {
         alert("Informe um volume meta válido.");
         return;
     }
-    
+
     savingMacro.value = true;
     try {
         const arquivoId = route.params.id || arquivoInfo.value?.id;
@@ -355,12 +404,12 @@ async function rodarOtimizador() {
             cod_item: selectedFuel.value,
             volume_alvo: volumeAlvo.value
         });
-        
+
         if (response.data.success) {
             otimizadorMsg.value = response.data.message + (response.data.estouro_tanque ? " ⚠️ O teto do tanque foi atingido em alguns dias." : "");
             showOptimizerModal.value = false;
-            viewMode.value = 'lab'; // Força visualização dos cálculos
-            await loadData(arquivoId); // Recarrega tudo do banco
+            viewMode.value = 'lab';
+            await loadData(arquivoId);
         }
     } catch (error) {
         console.error("Erro no otimizador:", error);
@@ -376,11 +425,12 @@ const totais = computed(() => {
         const isLab = viewMode.value === 'lab';
         calc.comprasTotal += isLab ? (row.lab?.vol_entr || 0) : parseFloat(row.vol_entr_lmc || 0);
         calc.nfsTotal += parseFloat(row.volume_nota || 0);
-        calc.vendasDeclaradas += parseFloat(row.vol_saidas || 0); 
-        calc.vendasAjustadas += row.lab?.vol_saidas || 0; 
+        calc.vendasDeclaradas += parseFloat(row.vol_saidas || 0);
+        calc.vendasAjustadas += row.lab?.vol_saidas || 0;
         calc.perdasTotal += isLab ? (row.lab?.val_perda || 0) : parseFloat(row.val_perda || 0);
         calc.ganhosTotal += isLab ? (row.lab?.val_ganho || 0) : parseFloat(row.val_ganho || 0);
     });
+    calc.variacaoLiquida = calc.perdasTotal - calc.ganhosTotal;
     return calc;
 });
 
@@ -610,11 +660,16 @@ async function exportarSped() {
         </h1>
         <p class="text-slate-500 font-medium mt-1">Inspeção interativa de recálculo de inventário e camuflagem de Quebra ANP.</p>
       </div>
-      <div v-if="arquivoInfo" class="text-right">
-        <p class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Período Auditado</p>
-        <p class="text-lg font-mono text-slate-700 font-bold bg-slate-100 px-3 py-1 rounded-lg mt-1">
-          {{ arquivoInfo.periodo }}
+      <div v-if="arquivoInfo" class="flex flex-col items-end gap-1 max-w-sm">
+        <p class="text-xl font-black text-slate-800 leading-tight text-right">
+          {{ arquivoInfo?.empresa || empresaSelecionada?.nome_empresa || '—' }}
         </p>
+        <p class="text-xs font-mono text-slate-400 tracking-widest">
+          CNPJ {{ arquivoInfo?.cnpj || empresaSelecionada?.cnpj || '' }}
+        </p>
+        <span class="mt-1 inline-block text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full">
+          {{ arquivoInfo.periodo }}
+        </span>
       </div>
     </header>
 
@@ -643,20 +698,21 @@ async function exportarSped() {
                    <h3 class="font-black text-sm text-white uppercase tracking-wider">Distribuição Inteligente</h3>
                    <p class="text-[10px] text-slate-400 font-medium leading-tight">Rateio proporcional ANP (±0.35%) e camuflagem de quebras no Banco de Dados.</p>
                 </div>
-                <div class="h-8 w-px bg-slate-700 mx-2"></div>
-                <div class="flex flex-col leading-tight">
-                    <span class="text-xs font-black text-white truncate max-w-[220px]">{{ arquivoInfo?.empresa || empresaSelecionada?.nome_empresa || '—' }}</span>
-                    <span class="text-[10px] font-mono text-slate-400">{{ arquivoInfo?.cnpj || empresaSelecionada?.cnpj || '' }}</span>
-                    <span class="text-[10px] font-bold text-brand-accent">{{ arquivoInfo?.periodo || '' }}</span>
-                </div>
             </div>
 
             <div class="flex items-center gap-2">
+                <button @click="rodarAutoOtimizador" :disabled="savingMacro"
+                    title="Distribui automaticamente as vendas do mês garantindo todos os dias ≤ 0,60% ANP"
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-black transition-all disabled:opacity-50 flex items-center gap-2 shadow-md shadow-emerald-900/20">
+                    <Loader2 v-if="savingMacro" class="w-3 h-3 animate-spin" />
+                    <RefreshCw v-else class="w-3 h-3" />
+                    AUTO
+                </button>
                 <div class="relative group">
-                    <input type="number" v-model="volumeAlvo" placeholder="Meta Volume (L)" 
+                    <input type="number" v-model="volumeAlvo" placeholder="Meta Volume (L)"
                         class="w-32 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-white text-xs font-mono font-bold outline-none focus:ring-1 focus:ring-brand-accent transition-all text-right" />
                 </div>
-                <button @click="rodarOtimizador" :disabled="savingMacro" 
+                <button @click="rodarOtimizador" :disabled="savingMacro"
                     class="bg-brand-accent hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-black transition-all disabled:opacity-50 flex items-center gap-2">
                     <Loader2 v-if="savingMacro" class="w-3 h-3 animate-spin" />
                     OTIMIZAR 1300
@@ -675,24 +731,40 @@ async function exportarSped() {
         </div>
 
         <!-- Totais Dashboards - COMPACT CARDS -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-blue-200 transition-colors">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Recebido LMC</p>
-                <p class="text-lg font-black text-blue-600 mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] font-bold">L</span></p>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <!-- Card destaque: compras do combustível selecionado -->
+            <div class="bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-3 rounded-xl shadow-md shadow-emerald-200 col-span-1 relative overflow-hidden">
+                <div class="absolute -right-3 -top-3 w-14 h-14 bg-white/10 rounded-full"></div>
+                <p class="text-[8px] font-black text-emerald-200 uppercase tracking-tight truncate">
+                    Compras · {{ combustiveis.find(c => c.cod_item === selectedFuel)?.nome || '—' }}
+                </p>
+                <p class="text-xl font-black text-white mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] font-bold text-emerald-200">L</span></p>
+                <p v-if="Math.abs(totais.comprasTotal - totais.nfsTotal) > 0.01" class="text-[8px] font-black text-amber-300 mt-0.5">
+                    ⚠ NF-e: {{ fNum(totais.nfsTotal) }} L
+                </p>
+                <p v-else class="text-[8px] font-bold text-emerald-200/70 mt-0.5">✓ NF-e conferida</p>
             </div>
-            <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-red-200 transition-colors">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Perdas (SPED)</p>
-                <p class="text-lg font-black text-red-500 mt-1 break-all">-{{ fNum(totais.perdasTotal) }} <span class="text-[10px] font-bold">L</span></p>
-            </div>
-            <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-emerald-200 transition-colors">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Ganhos (SPED)</p>
-                <p class="text-lg font-black text-emerald-500 mt-1 break-all">+{{ fNum(totais.ganhosTotal) }} <span class="text-[10px] font-bold">L</span></p>
+            <!-- Card variação líquida (perdas - ganhos) -->
+            <div class="bg-white px-4 py-3 rounded-xl border shadow-sm transition-colors"
+                 :class="totais.variacaoLiquida > 0 ? 'border-red-200 hover:border-red-300' : totais.variacaoLiquida < 0 ? 'border-emerald-200 hover:border-emerald-300' : 'border-slate-200'">
+                <p class="text-[9px] font-black uppercase tracking-tight"
+                   :class="totais.variacaoLiquida > 0 ? 'text-red-400' : totais.variacaoLiquida < 0 ? 'text-emerald-500' : 'text-slate-400'">
+                    {{ viewMode === 'lab' ? 'Variação Lab.' : 'Variação RX' }}
+                </p>
+                <p class="text-lg font-black mt-1 break-all"
+                   :class="totais.variacaoLiquida > 0 ? 'text-red-500' : totais.variacaoLiquida < 0 ? 'text-emerald-500' : 'text-slate-400'">
+                    {{ totais.variacaoLiquida > 0 ? '-' : totais.variacaoLiquida < 0 ? '+' : '' }}{{ fNum(Math.abs(totais.variacaoLiquida)) }}
+                    <span class="text-[10px] font-bold">L</span>
+                </p>
+                <p class="text-[8px] text-slate-400 mt-0.5 font-bold">
+                    {{ totais.variacaoLiquida > 0 ? 'Perda líquida' : totais.variacaoLiquida < 0 ? 'Ganho líquido' : 'Sem variação' }}
+                </p>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-brand-accent transition-colors">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight text-brand-accent">XMLs (ANP)</p>
+                <p class="text-[9px] font-black text-brand-accent uppercase tracking-tight">NF-e Entradas</p>
                 <div class="flex items-center gap-1.5 mt-1">
                     <p class="text-lg font-black text-slate-700 break-all">{{ fNum(totais.nfsTotal) }} <span class="text-[10px] font-bold text-slate-400">L</span></p>
-                    <AlertTriangle v-if="totais.nfsTotal !== totais.comprasTotal" class="w-3.5 h-3.5 text-amber-500" />
+                    <AlertTriangle v-if="Math.abs(totais.nfsTotal - totais.comprasTotal) > 0.01" class="w-3.5 h-3.5 text-amber-500" />
                 </div>
             </div>
             <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-orange-200 transition-colors">
@@ -705,7 +777,7 @@ async function exportarSped() {
                 </div>
                 <p class="text-[9px] font-black text-indigo-400 uppercase tracking-tight">Vendas Auditoria</p>
                 <p class="text-lg font-black text-indigo-600 mt-1 break-all">{{ fNum(totais.vendasAjustadas) }} <span class="text-[10px] font-bold">L</span></p>
-                <p v-if="totais.vendasAjustadas !== totais.vendasDeclaradas" class="text-[8px] font-black text-indigo-400/70 mt-1 uppercase">
+                <p v-if="Math.abs(totais.vendasAjustadas - totais.vendasDeclaradas) > 0.01" class="text-[8px] font-black text-indigo-400/70 mt-1 uppercase">
                     Δ: {{ fNum(totais.vendasAjustadas - totais.vendasDeclaradas) }} L
                 </p>
             </div>
@@ -831,7 +903,7 @@ async function exportarSped() {
                 <div>
                     <p class="text-sm font-black text-red-700">Distribuição inconsistente detectada</p>
                     <p class="text-xs text-red-600 mt-0.5">
-                        O estoque físico não condiz com a abertura ajustada. Clique em Corrigir para recalcular.
+                        A cascata calculada diverge dos ajustes salvos. Clique em Corrigir para redistribuir as vendas e realinhar o físico.
                     </p>
                 </div>
             </div>
@@ -849,15 +921,15 @@ async function exportarSped() {
                 <table class="w-full text-left border-collapse min-w-[900px]">
                     <thead>
                         <tr class="bg-slate-900 text-[8px] font-black uppercase text-slate-400 tracking-[0.15em]">
-                            <th class="py-2 px-2 sticky left-0 bg-slate-900 z-10 border-b border-slate-700 text-white">Data Mov.</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right" title="Estoque propagado em cascata">Abertura (L)</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-center bg-blue-900/20 text-brand-accent border-r border-slate-700">Audit. Notas</th>
-                            <th class="py-2 px-2 border-b border-slate-700 bg-orange-900/20 border-r border-slate-700 text-center text-orange-400">Saída (Edição)</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right bg-slate-800 border-r border-slate-700">Estq. Escritural</th>
-                            <th class="py-2 px-2 border-b border-slate-700 bg-slate-900/50 border-r border-slate-700 text-center">ANP Perda/Ganho</th>
-                            <th class="py-2 px-2 border-b border-slate-700 bg-indigo-900/20 text-center text-indigo-400 border-r border-slate-700">Tanque Físico</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right font-bold text-white">Diferença</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-center border-l border-slate-700">% Margem</th>
+                            <th class="py-2 px-2 sticky left-0 bg-slate-900 z-10 border-b border-slate-700 text-white">Data</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right text-slate-300" title="Estoque de abertura do dia">Est. Inicial</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right text-emerald-400 border-r border-slate-700" title="Entradas LMC · badge ⚠ quando NF-e difere">Entradas <span class="text-yellow-400">⚠NF</span></th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right text-cyan-400 border-r border-slate-700" title="Est. Inicial + Entradas">Estq. Disponível</th>
+                            <th class="py-2 px-2 border-b border-slate-700 bg-orange-900/20 border-r border-slate-700 text-center text-orange-400">Saídas</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-right bg-slate-800 border-r border-slate-700 text-slate-300">Escritural</th>
+                            <th class="py-2 px-2 border-b border-slate-700 bg-indigo-900/20 text-center text-indigo-400 border-r border-slate-700">Est. Físico</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-center border-r border-slate-700">Perda / Ganho</th>
+                            <th class="py-2 px-2 border-b border-slate-700 text-center border-l border-slate-700">% ANP</th>
                         </tr>
                     </thead>
                     <tbody class="text-sm font-medium text-slate-600 divide-y divide-slate-100">
@@ -876,24 +948,32 @@ async function exportarSped() {
 
                                 <td class="py-1.5 px-2 text-right font-mono text-slate-500 font-semibold bg-slate-50/30">
                                     {{ fNum(row[viewMode].estq_abert) }}
-                                    <span v-if="viewMode === 'lab' && parseFloat(row.lab.estq_abert) !== parseFloat(row.estq_abert)" 
+                                    <span v-if="viewMode === 'lab' && parseFloat(row.lab.estq_abert) !== parseFloat(row.estq_abert)"
                                           class="text-[9px] text-orange-400 block -mt-0.5 leading-none" title="Diferente da abertura original">
                                           Real: {{ fNum(row.estq_abert) }}
                                     </span>
                                 </td>
-                                
-                                
-                                <td class="py-1.5 px-2 text-center font-mono bg-blue-50/10 border-r border-blue-100 relative group">
-                                    <div class="flex flex-col items-center justify-center gap-1">
-                                        <span :class="{'text-red-500 font-black': parseFloat(row.vol_entr_lmc) !== parseFloat(row.volume_nota)}">
-                                            {{ fNum(row.volume_nota) }}
+
+                                <td class="py-1.5 px-2 text-right font-mono text-emerald-600 font-semibold border-r border-slate-100">
+                                    <div class="flex flex-col items-end gap-0.5">
+                                        <span>{{ fNum(row[viewMode].vol_entr) }}</span>
+                                        <!-- Badge ⚠ quando NF-e difere do LMC -->
+                                        <span v-if="parseFloat(row.vol_entr_lmc) !== parseFloat(row.volume_nota)"
+                                              class="text-[8px] font-black text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 leading-tight"
+                                              :title="`NF-e: ${fNum(row.volume_nota)} L — LMC: ${fNum(row.vol_entr_lmc)} L`">
+                                            ⚠ NF: {{ fNum(row.volume_nota) }} L
                                         </span>
-                                        <button v-if="row.nfs_detalhadas && row.nfs_detalhadas.length > 0" 
+                                        <button v-if="row.nfs_detalhadas && row.nfs_detalhadas.length > 0"
                                                 @click="toggleDay(row.data_movimento)"
-                                                class="px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-all text-[9px] font-bold">
-                                            {{ expandedDays.has(row.data_movimento) ? '⬆ Ocultar NFs' : '⬇ Ler NFs' }}
+                                                class="px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-all text-[9px] font-bold self-center mt-0.5">
+                                            {{ expandedDays.has(row.data_movimento) ? '⬆ NFs' : '⬇ NFs' }}
                                         </button>
                                     </div>
+                                </td>
+
+                                <!-- Estoque Disponível = Inicial + Entradas -->
+                                <td class="py-1.5 px-2 text-right font-mono text-cyan-700 font-semibold border-r border-cyan-100 bg-cyan-50/20">
+                                    {{ fNum(row[viewMode].estq_abert + row[viewMode].vol_entr) }}
                                 </td>
 
                                 <!-- Input Editável de SAÍDA -->
@@ -935,22 +1015,6 @@ async function exportarSped() {
                                     </span>
                                 </td>
 
-                                <td class="py-1.5 px-2 text-center border-r border-slate-100 bg-slate-50/30">
-                                    <div class="flex flex-col gap-0.5">
-                                        <template v-if="viewMode === 'raiox'">
-                                            <div v-if="row.val_perda > 0" class="text-xs text-red-500 font-bold">-{{ fNum(row.val_perda) }} L</div>
-                                            <div v-if="row.val_ganho > 0" class="text-xs text-green-600 font-bold">+{{ fNum(row.val_ganho) }} L</div>
-                                            <div v-if="!row.val_perda && !row.val_ganho" class="text-slate-300">---</div>
-                                        </template>
-                                        <template v-else>
-                                            <div v-if="row.lab.val_perda > 0" class="text-xs text-red-600 font-black">-{{ fNum(row.lab.val_perda) }} L*</div>
-                                            <div v-if="row.lab.val_ganho > 0" class="text-xs text-emerald-600 font-black">+{{ fNum(row.lab.val_ganho) }} L*</div>
-                                            <div v-if="!row.lab.val_perda && !row.lab.val_ganho" class="text-slate-300">---</div>
-                                            <span v-if="row.lab.val_perda || row.lab.val_ganho" class="text-[8px] text-slate-400 font-bold">AJUSTE ANP</span>
-                                        </template>
-                                    </div>
-                                </td>
-                                
                                 <!-- Input Editável de FÍSICO -->
                                 <td class="py-1.5 px-2 bg-indigo-50/20 border-r border-indigo-100 align-middle">
                                     <div v-if="viewMode === 'raiox'" class="text-right font-mono font-bold text-slate-600">
@@ -979,19 +1043,30 @@ async function exportarSped() {
                                     </div>
                                 </td>
 
-                                <td class="py-1.5 px-2 text-right font-mono" :class="row[viewMode].dif < 0 ? 'text-red-500' : (row[viewMode].dif > 0 ? 'text-emerald-500' : '')">
-                                    {{ fNum(Math.abs(row[viewMode].dif)) }} {{ row[viewMode].dif < 0 ? ' ▼' : (row[viewMode].dif > 0 ? ' ▲' : '') }}
+                                <td class="py-1.5 px-2 text-center border-r border-slate-100">
+                                    <template v-if="Math.abs(row[viewMode].dif) < 0.001">
+                                        <span class="text-slate-300 font-mono text-xs">---</span>
+                                    </template>
+                                    <template v-else-if="row[viewMode].dif < 0">
+                                        <div class="text-xs text-red-500 font-black font-mono">-{{ fNum(Math.abs(row[viewMode].dif)) }} L</div>
+                                        <div class="text-[8px] text-red-400 font-bold uppercase leading-tight">Perda</div>
+                                    </template>
+                                    <template v-else>
+                                        <div class="text-xs text-emerald-600 font-black font-mono">+{{ fNum(row[viewMode].dif) }} L</div>
+                                        <div class="text-[8px] text-emerald-500 font-bold uppercase leading-tight">Ganho</div>
+                                    </template>
                                 </td>
                                 
                                 <td class="py-1.5 px-2 text-center border-l-2 border-slate-200">
                                     <span v-if="row[viewMode].is_negativo"
-                                        class="px-2 py-1 rounded-md text-[10px] font-black tracking-widest bg-purple-100 text-purple-700 border border-purple-300 shadow-sm animate-pulse">
+                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black tracking-widest bg-purple-100 text-purple-700 border border-purple-300 shadow-sm animate-pulse">
                                         NEGATIVO
                                     </span>
-                                    <span v-else class="px-2 py-1 rounded-md text-[10px] font-black tracking-widest"
+                                    <span v-else class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black tracking-widest"
                                         :class="row[viewMode].ultrapassou_limite
                                             ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm'
-                                            : 'bg-emerald-100 text-emerald-600 shadow-sm opacity-80'">
+                                            : 'bg-emerald-100 text-emerald-600 shadow-sm'">
+                                        <span class="text-[11px] leading-none">{{ row[viewMode].ultrapassou_limite ? '✗' : '✓' }}</span>
                                         {{ fNum(row[viewMode].percentual) }}%
                                     </span>
                                 </td>
