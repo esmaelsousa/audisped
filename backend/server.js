@@ -551,10 +551,19 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
 
         await dbClient.query('COMMIT');
         logger.info("Passo 7: Transação confirmada. Enviando resposta de sucesso.");
+
+        // Detecta lacunas no LMC (Registro 1300) — alerta não-bloqueante por produto.
+        const avisosLmc = validarCompletudeLmc1300(lmc, fileInfo.periodo_apuracao, produtos);
+        if (avisosLmc.tem_lacuna) {
+            const totLac = avisosLmc.produtos.filter(p => p.dias_faltantes.length > 0).length;
+            logger.warn(`LMC INCOMPLETO: ${totLac} produto(s) com dias faltantes em ${fileInfo.periodo_apuracao}.`);
+        }
+
         res.status(200).send({
             message: `Arquivo processado e salvo com sucesso!`,
             id_sped_arquivo: sped_arquivo_id,
-            fileInfo: { ...fileInfo, id_empresa } // Adiciona o id_empresa na resposta
+            fileInfo: { ...fileInfo, id_empresa }, // Adiciona o id_empresa na resposta
+            avisos_lmc: avisosLmc
         });
 
     } catch (error) {
@@ -780,6 +789,61 @@ function validarXmls(itens, cnpjSped, periodoSped, forcePeriodo) {
         }
     }
     return { bloqueados, avisos };
+}
+
+// Detecta lacunas no LMC (Registro 1300) — ex: SPED com lançamentos só até dia 27,
+// faltando 28, 29, 30, 31. Granularidade por produto (combustíveis distintos podem
+// ter movimentação em dias diferentes). Retorna estrutura para alerta não-bloqueante.
+// periodoApuracao formato: "YYYY-MM-DD a YYYY-MM-DD" (gerado por parseSpedFile).
+function validarCompletudeLmc1300(lmcMap, periodoApuracao, produtos) {
+    const partes = String(periodoApuracao || '').split(' a ');
+    if (partes.length !== 2) return { tem_lacuna: false, produtos: [] };
+
+    const [yi, mi, di] = partes[0].split('-').map(Number);
+    const [yf, mf, df] = partes[1].split('-').map(Number);
+    if (!yi || !yf) return { tem_lacuna: false, produtos: [] };
+
+    const inicio = new Date(Date.UTC(yi, mi - 1, di));
+    const fim    = new Date(Date.UTC(yf, mf - 1, df));
+
+    const diasPeriodo = [];
+    for (let d = new Date(inicio); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
+        diasPeriodo.push(d.toISOString().slice(0, 10));
+    }
+
+    const descMap = new Map();
+    for (const p of (produtos || [])) descMap.set(p.cod_item, p.descr_item);
+
+    const resultadoProdutos = [];
+    let temLacuna = false;
+
+    for (const [codItem, daily] of (lmcMap || new Map()).entries()) {
+        const diasComLmc = new Set();
+        for (const dayData of daily.values()) {
+            if (dayData.date instanceof Date) {
+                diasComLmc.add(dayData.date.toISOString().slice(0, 10));
+            }
+        }
+
+        const diasFaltantes = diasPeriodo.filter(d => !diasComLmc.has(d));
+        if (diasFaltantes.length > 0) temLacuna = true;
+
+        resultadoProdutos.push({
+            cod_item: codItem,
+            descr_item: descMap.get(codItem) || codItem,
+            total_dias_periodo: diasPeriodo.length,
+            total_dias_com_lmc: diasComLmc.size,
+            dias_faltantes: diasFaltantes,
+            ultimo_dia_com_lmc: [...diasComLmc].sort().pop() || null
+        });
+    }
+
+    return {
+        tem_lacuna: temLacuna,
+        periodo: periodoApuracao,
+        total_dias_periodo: diasPeriodo.length,
+        produtos: resultadoProdutos
+    };
 }
 
 // --- HELPERS LMC PÓS-INJEÇÃO DE XML ---
@@ -2640,37 +2704,39 @@ app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
             -- fechamento final apos otimizacao. Se nao houve otimizacao, usa o valor bruto do SPED.
             -- Filtra pela data de fechamento do periodo para suportar arquivos anuais com
             -- multiplos registros 1300 por produto.
+            -- TRIM defensivo: alguns SPEDs gravam COD_ITEM como CHAR fixo com padding,
+            -- o que quebraria o JOIN cross-arquivo abaixo (ver caso arquivo 1190 / mar 2022).
             fechamento_ant AS (
-                SELECT DISTINCT ON (m.cod_item)
-                    m.cod_item,
+                SELECT DISTINCT ON (TRIM(m.cod_item))
+                    TRIM(m.cod_item) AS cod_item,
                     COALESCE(m.fech_fisico_ajustado::numeric, m.fech_fisico::numeric) AS fechamento
                 FROM lmc_movimentacao m
                 CROSS JOIN arquivo_anterior aa
                 WHERE m.id_sped_arquivo = aa.id
                   AND m.data_mov::date <= SPLIT_PART(aa.periodo_apuracao, ' a ', 2)::date
-                ORDER BY m.cod_item, m.data_mov DESC
+                ORDER BY TRIM(m.cod_item), m.data_mov DESC
             ),
             -- Abertura do mes atual: primeiro registro dentro do periodo do arquivo atual.
             abertura_atual AS (
-                SELECT DISTINCT ON (sub.cod_item)
-                    sub.cod_item,
+                SELECT DISTINCT ON (TRIM(sub.cod_item))
+                    TRIM(sub.cod_item) AS cod_item,
                     COALESCE(sub.estq_abert_ajustado::numeric, sub.estq_abert::numeric, 0) AS abertura
                 FROM lmc_movimentacao sub
                 CROSS JOIN atual
                 WHERE sub.id_sped_arquivo = $1
                   AND sub.data_mov::date >= SPLIT_PART(atual.periodo_apuracao, ' ', 1)::date
-                ORDER BY sub.cod_item, sub.data_mov ASC
+                ORDER BY TRIM(sub.cod_item), sub.data_mov ASC
             )
             SELECT
                 a.cod_item,
-                p.descr_item AS nome,
+                TRIM(p.descr_item) AS nome,
                 ROUND(f.fechamento::numeric, 3) AS fechamento_anterior,
                 ROUND(a.abertura::numeric, 3) AS abertura_atual,
                 ROUND((a.abertura - f.fechamento)::numeric, 3) AS diferenca,
                 (SELECT periodo_apuracao FROM arquivo_anterior) AS periodo_anterior
             FROM abertura_atual a
             JOIN fechamento_ant f ON a.cod_item = f.cod_item
-            LEFT JOIN sped_produtos p ON p.cod_item = a.cod_item AND p.id_sped_arquivo = $1
+            LEFT JOIN sped_produtos p ON TRIM(p.cod_item) = a.cod_item AND p.id_sped_arquivo = $1
             WHERE f.fechamento IS NOT NULL
               AND ABS(a.abertura - f.fechamento) > 0.1
             ORDER BY ABS(a.abertura - f.fechamento) DESC
@@ -2698,6 +2764,81 @@ app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
         res.status(500).json({ error: e.message });
     } finally {
         dbClient.release();
+    }
+});
+
+// --- DIAGNÓSTICO DE COMPLETUDE DO LMC (Registro 1300) ---
+// Detecta dias do período de apuração que não têm lançamento 1300, por produto.
+// Usado para alertar quando o SPED foi gerado com LMC incompleto (ex.: parou no dia 27).
+app.get('/api/lmc/diagnostico-completude/:id', authMiddleware, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (!id) return res.status(400).json({ message: 'ID inválido.' });
+
+        const arqRes = await pool.query(
+            `SELECT periodo_apuracao FROM sped_arquivos WHERE id = $1`, [id]
+        );
+        if (arqRes.rowCount === 0) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+
+        const periodo = String(arqRes.rows[0].periodo_apuracao || '');
+        const partes = periodo.split(' a ');
+        if (partes.length !== 2) return res.json({ tem_lacuna: false, periodo, produtos: [] });
+
+        const dataIni = partes[0].trim();
+        const dataFim = partes[1].trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dataIni) || !/^\d{4}-\d{2}-\d{2}$/.test(dataFim)) {
+            return res.json({ tem_lacuna: false, periodo, produtos: [] });
+        }
+
+        // Lista dias com 1300 por produto (linha consolidada num_tanque='0').
+        const dq = await pool.query(`
+            SELECT
+                TRIM(lmc.cod_item) AS cod_item,
+                COALESCE(TRIM(p.descr_item), TRIM(lmc.cod_item)) AS descr_item,
+                ARRAY_AGG(DISTINCT TO_CHAR(lmc.data_mov::date, 'YYYY-MM-DD')
+                          ORDER BY TO_CHAR(lmc.data_mov::date, 'YYYY-MM-DD')) AS dias_com_lmc
+            FROM lmc_movimentacao lmc
+            LEFT JOIN sped_produtos p
+              ON TRIM(p.cod_item) = TRIM(lmc.cod_item) AND p.id_sped_arquivo = lmc.id_sped_arquivo
+            WHERE lmc.id_sped_arquivo = $1
+              AND lmc.num_tanque = '0'
+            GROUP BY TRIM(lmc.cod_item), TRIM(p.descr_item)
+        `, [id]);
+
+        // Gera lista de dias do período (UTC para evitar fuso).
+        const [yi, mi, di] = dataIni.split('-').map(Number);
+        const [yf, mf, df] = dataFim.split('-').map(Number);
+        const inicio = new Date(Date.UTC(yi, mi - 1, di));
+        const fim    = new Date(Date.UTC(yf, mf - 1, df));
+        const diasPeriodo = [];
+        for (let d = new Date(inicio); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
+            diasPeriodo.push(d.toISOString().slice(0, 10));
+        }
+
+        let temLacuna = false;
+        const produtos = dq.rows.map(row => {
+            const setLmc = new Set(row.dias_com_lmc || []);
+            const faltantes = diasPeriodo.filter(d => !setLmc.has(d));
+            if (faltantes.length > 0) temLacuna = true;
+            return {
+                cod_item: row.cod_item,
+                descr_item: row.descr_item,
+                total_dias_periodo: diasPeriodo.length,
+                total_dias_com_lmc: setLmc.size,
+                dias_faltantes: faltantes,
+                ultimo_dia_com_lmc: [...setLmc].sort().pop() || null
+            };
+        });
+
+        res.json({
+            tem_lacuna: temLacuna,
+            periodo,
+            total_dias_periodo: diasPeriodo.length,
+            produtos
+        });
+    } catch (err) {
+        logger.error('Erro em /api/lmc/diagnostico-completude:', err);
+        res.status(500).json({ message: err.message });
     }
 });
 
@@ -2942,13 +3083,16 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
 
 // ─── HELPER: calcula a distribuição de sincronização sem salvar no banco ────────
 async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo_estoque) {
+    // TRIM defensivo: o frontend envia cod_item normalizado, mas o banco pode ter
+    // padding em arquivos legados (CHAR fixo de 60). Compara TRIM-em-TRIM em todas as queries.
+    const codTrim = String(cod_item || '').trim();
     // 1. Capacidade configurada
     const capRes = await dbClient.query(`
         SELECT SUM(c.capacidade) as cap
         FROM lmc_tanques_config c
         JOIN sped_arquivos a ON REGEXP_REPLACE(a.cnpj_empresa,'[^0-9]','','g') = REGEXP_REPLACE(c.cnpj,'[^0-9]','','g')
-        WHERE a.id = $1 AND c.cod_item = $2
-    `, [id_arquivo, cod_item]);
+        WHERE a.id = $1 AND TRIM(c.cod_item) = $2
+    `, [id_arquivo, codTrim]);
     const capacidadeTotal = parseFloat(capRes.rows[0]?.cap || 0);
 
     // 2. Dados consolidados por dia (originais)
@@ -2961,9 +3105,9 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
                SUM(val_perda)   as val_perda,
                SUM(val_ganho)   as val_ganho
         FROM lmc_movimentacao
-        WHERE id_sped_arquivo = $1 AND cod_item = $2
+        WHERE id_sped_arquivo = $1 AND TRIM(cod_item) = $2
         GROUP BY data_mov ORDER BY data_mov ASC
-    `, [id_arquivo, cod_item]);
+    `, [id_arquivo, codTrim]);
 
     if (dailyItems.length === 0) throw new Error('Nenhum registro LMC encontrado.');
 
@@ -2972,9 +3116,9 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         SELECT id, data_mov, vol_saidas, vol_entr, estq_abert, fech_fisico,
                val_perda, val_ganho, num_tanque
         FROM lmc_movimentacao
-        WHERE id_sped_arquivo = $1 AND cod_item = $2
+        WHERE id_sped_arquivo = $1 AND TRIM(cod_item) = $2
         ORDER BY data_mov ASC, num_tanque ASC
-    `, [id_arquivo, cod_item]);
+    `, [id_arquivo, codTrim]);
 
     // Normalizar datas para comparação (converter para string ISO date para evitar diferenças de timezone)
     const normalizeDate = (d) => {
@@ -5214,30 +5358,77 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         const REG_CODITEM_POS2 = new Set(['H010','1300','G110','K200','K210','K220','K230','K235','K250','K255']);
         const REG_CODITEM_POS3 = new Set(['C170','C176','D170','D500','D201','D205']);
         const codItensArquivoExtra = new Set();
+        // Conta ocorrências de H010 por cod_item — usado para reescrever QTD do inventário
+        // apenas quando o produto tem 1 único H010 (evita quebrar splits por IND_PROP).
+        const h010CountByCod = new Map();
+        // Detecta presença de 0000 e dias com 1300 no arquivo de origem.
+        let temReg0000 = false;
+        const dias1300NoArquivo = new Set();
         {
-            const prescanStream = fs.createReadStream(pathOrig, { encoding: 'latin1' });
-            const prescanRl = readline.createInterface({ input: prescanStream, crlfDelay: Infinity });
-            for await (const pl of prescanRl) {
+            // Pré-scan via readFileSync: evita problema de file descriptor em FUSE/Google Drive
+            // onde dois createReadStream consecutivos ao mesmo arquivo fazem o segundo começar
+            // do meio, perdendo o bloco 0 (0000, 0001, 0200, etc.) do SPED exportado.
+            const prescanContent = fs.readFileSync(pathOrig, 'latin1');
+            const prescanLines = prescanContent.split(/\r?\n/);
+            for (const pl of prescanLines) {
                 if (pl.trim() === '') continue;
                 const pf = pl.split('|');
                 if (pf.length < 3) continue;
                 const reg = pf[1];
-                if (REG_CODITEM_POS2.has(reg) && pf[2]) codItensArquivoExtra.add(String(pf[2]));
-                if (REG_CODITEM_POS3.has(reg) && pf[3]) codItensArquivoExtra.add(String(pf[3]));
+                if (reg === '0000') temReg0000 = true;
+                // TRIM defensivo: SPEDs CHAR-fixo gravam cod_item com padding. Sem TRIM o set
+                // fica com versão padded e o filtro 0200 abaixo não reconhece o item, omitindo
+                // todos os 0200/0206 no arquivo exportado (rejeitado pelo PVA).
+                if (REG_CODITEM_POS2.has(reg) && pf[2]) codItensArquivoExtra.add(String(pf[2]).trim());
+                if (REG_CODITEM_POS3.has(reg) && pf[3]) codItensArquivoExtra.add(String(pf[3]).trim());
+                if (reg === 'H010' && pf[2]) {
+                    const k = String(pf[2]).trim();
+                    h010CountByCod.set(k, (h010CountByCod.get(k) || 0) + 1);
+                }
+                if (reg === '1300' && pf[3] && pf[3].length === 8) {
+                    const dt = pf[3];
+                    dias1300NoArquivo.add(`${dt.substring(4,8)}-${dt.substring(2,4)}-${dt.substring(0,2)}`);
+                }
             }
         }
 
+        // Bloqueio: arquivo de origem sem registro 0000 não pode gerar SPED válido.
+        // Devolve 422 com mensagem clara em vez de produzir um arquivo quebrado.
+        if (!temReg0000) {
+            logger.error(`[Export] Arquivo ${arquivoId} não contém registro 0000. Export abortado.`);
+            return res.status(422).send('Arquivo SPED de origem inválido: registro 0000 ausente. Reimporte o arquivo correto antes de exportar.');
+        }
+        // Aviso de lacuna no 1300 é emitido mais abaixo, após `periodoApuracao` ser definido.
+
+        // Mapa de fech_fisico final do LMC por cod_item (último dia do período).
+        // Usado para reescrever QTD/VL_ITEM do H010 e fechar a "Posição do Estoque"
+        // com o estoque final do LMC ajustado.
+        const fechFinalLmc = await dbClient.query(`
+            SELECT DISTINCT ON (TRIM(cod_item)) TRIM(cod_item) AS cod_item,
+                   COALESCE(fech_fisico_ajustado::numeric, fech_fisico::numeric, 0) AS fech
+            FROM lmc_movimentacao
+            WHERE id_sped_arquivo = $1
+            ORDER BY TRIM(cod_item), data_mov DESC
+        `, [arquivoId]);
+        const mapFechFinalLmc = new Map();
+        fechFinalLmc.rows.forEach(r => {
+            const f = parseFloat(r.fech);
+            if (f >= 0) mapFechFinalLmc.set(r.cod_item, f);
+        });
+
         const codItensReferenciados = new Set([
-            ...itensC170.rows.map(r => String(r.cod_item)),
-            ...itensLmc.rows.map(r => String(r.cod_item)),
+            ...itensC170.rows.map(r => String(r.cod_item).trim()),
+            ...itensLmc.rows.map(r => String(r.cod_item).trim()),
             ...codItensArquivoExtra
         ]);
         logger.info(`[Export 0200] ${codItensReferenciados.size} COD_ITEMs referenciados (DB+arquivo) para o arquivo ID ${arquivoId}.`);
 
         // 2. Processar o arquivo original e substituir pipes
         logger.info(`Iniciando exportação retificada: Arquivo ID ${arquivoId}, Path: ${pathOrig}`);
-        const fileStream = fs.createReadStream(pathOrig, { encoding: 'latin1' }); // SPED é ISO-8859-1 (latin1)
-        const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+        // Leitura via readFileSync + split: elimina bug de FUSE/Google Drive onde
+        // createReadStream começava do meio do arquivo (perdia bloco 0 inteiro).
+        const fileContent = fs.readFileSync(pathOrig, 'latin1');
+        const fileLines = fileContent.split(/\r?\n/);
 
         const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
         const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');
@@ -5256,6 +5447,27 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             : `${cnpjArq}_${periodoApuracao.replace(/[\s\/\\:*?"<>|]+/g, '_')}.txt`;
         res.setHeader('Content-disposition', `attachment; filename=${safeName}`);
         res.setHeader('Content-type', 'text/plain; charset=iso-8859-1');
+
+        // Detecta lacuna no 1300 do arquivo de origem (não bloqueia — apenas alerta no log
+        // e no header X-Export-Lmc-Lacuna). Usa dias1300NoArquivo coletado no pré-scan.
+        if (periodoApuracao && periodoApuracao.includes(' a ')) {
+            const [pIni, pFim] = periodoApuracao.split(' a ').map(s => s.trim());
+            if (/^\d{4}-\d{2}-\d{2}$/.test(pIni) && /^\d{4}-\d{2}-\d{2}$/.test(pFim)) {
+                const [yi, mi, di] = pIni.split('-').map(Number);
+                const [yf, mf, df] = pFim.split('-').map(Number);
+                const ini = new Date(Date.UTC(yi, mi - 1, di));
+                const fim = new Date(Date.UTC(yf, mf - 1, df));
+                const faltantes = [];
+                for (let d = new Date(ini); d <= fim; d.setUTCDate(d.getUTCDate() + 1)) {
+                    const iso = d.toISOString().slice(0, 10);
+                    if (!dias1300NoArquivo.has(iso)) faltantes.push(iso);
+                }
+                if (faltantes.length > 0) {
+                    logger.warn(`[Export] LMC INCOMPLETO no arquivo ${arquivoId}: ${faltantes.length} dia(s) sem 1300 (${faltantes.slice(0,5).join(', ')}${faltantes.length > 5 ? '…' : ''}).`);
+                    res.setHeader('X-Export-Lmc-Lacuna', JSON.stringify({ total: faltantes.length, dias: faltantes }));
+                }
+            }
+        }
 
         let linesProcessed = 0;
         let changesApplied = 0;
@@ -5277,6 +5489,45 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let layoutVersion = '019'; // Default para 2025 e anteriores
         // Correção 3: propagar continuidade — ABERT do dia N = FECH exportado do dia N-1
         const ultimoFechExportado = new Map(); // cod_item -> fech_fisico
+
+        // Correção 4: continuidade INTERMENSAL — ABERT do 1º dia do mês = FECH do último dia
+        // do mês anterior do mesmo CNPJ. Sem isso, o 1º registro 1300 fica desprotegido
+        // (ultimoFechExportado começa vazio) e exporta abert errada quando estq_abert_ajustado
+        // é NULL ou quando o SPED original tem salto na abertura.
+        // Aplica TRIM no cod_item para suportar arquivos com padding em CHAR fixo.
+        if (cnpjArq && periodoApuracao) {
+            const fechMesAnt = await dbClient.query(`
+                WITH atual AS (
+                    SELECT REGEXP_REPLACE($1,'[^0-9]','','g') AS cnpj_num,
+                           LEFT($2, 7) AS ym
+                ),
+                arquivo_anterior AS (
+                    SELECT sa.id, sa.periodo_apuracao
+                    FROM sped_arquivos sa, atual
+                    WHERE REGEXP_REPLACE(sa.cnpj_empresa,'[^0-9]','','g') = atual.cnpj_num
+                      AND sa.id <> $3
+                      AND sa.periodo_apuracao ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                      AND LEFT(sa.periodo_apuracao, 7) < atual.ym
+                    ORDER BY LEFT(sa.periodo_apuracao, 7) DESC
+                    LIMIT 1
+                )
+                SELECT DISTINCT ON (TRIM(m.cod_item))
+                    TRIM(m.cod_item) AS cod_item,
+                    COALESCE(m.fech_fisico_ajustado::numeric, m.fech_fisico::numeric, 0) AS fech
+                FROM lmc_movimentacao m
+                CROSS JOIN arquivo_anterior aa
+                WHERE m.id_sped_arquivo = aa.id
+                  AND m.data_mov::date <= SPLIT_PART(aa.periodo_apuracao, ' a ', 2)::date
+                ORDER BY TRIM(m.cod_item), m.data_mov DESC
+            `, [cnpjArq, periodoApuracao, arquivoId]);
+            fechMesAnt.rows.forEach(r => {
+                const f = parseFloat(r.fech);
+                if (f > 0) ultimoFechExportado.set(r.cod_item, f);
+            });
+            if (fechMesAnt.rowCount > 0) {
+                logger.info(`[Export 1300] Continuidade intermensal: pré-carregados ${fechMesAnt.rowCount} fechamentos do mês anterior para arquivo ${arquivoId}.`);
+            }
+        }
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
@@ -5400,6 +5651,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico = Number((realEscr - realPerda + realGanho).toFixed(3));
             }
 
+            // Escudo ANP final no 1300 mãe (após soma dos tanques): mesmo se cada 1310 estiver
+            // dentro do limite, a soma pode passar por arredondamento. Aplicado aqui antes do
+            // PASS 2 para que fields1300 saia consistente com o que o PVA exige.
+            {
+                const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, realPerda, realGanho);
+                realPerda  = blindMae.perda;
+                realGanho  = blindMae.ganho;
+                realFisico = blindMae.fisico;
+            }
+
             // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
             let fields1300 = pending1300.line.split('|');
             fields1300[4] = realAbert.toFixed(3).replace('.', ',');
@@ -5518,7 +5779,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         let last1300CodItem = null; // FIX: track the item code from the parent 1300 for direct 1310 processing
 
-        for await (const line of rl) {
+        // Escudo ANP final sobre o 1300 (mãe). Limite legal é 0,60%; usamos 0,55% como
+        // margem para arredondamento. Aplicado em todos os caminhos de export do 1300
+        // (mapAjustes, mapBaseFisico e flush com 1310). Sem isso, ajustes do laboratório
+        // ou correções derivadas podiam exportar perda/ganho > 0,60% e o PVA acusava
+        // "ANP acima do limite".
+        const escudoAnpMae = (abert, entr, escr, perda, ganho) => {
+            const base = (abert || 0) + (entr || 0);
+            const limite = base * 0.0055;
+            let p = perda || 0, g = ganho || 0;
+            if (base > 0) {
+                if (p > limite) p = Number(limite.toFixed(3));
+                if (g > limite) g = Number(limite.toFixed(3));
+            }
+            let f = Number(((escr || 0) - p + g).toFixed(3));
+            if (f < 0) f = 0;
+            return { perda: p, ganho: g, fisico: f };
+        };
+
+        for (const line of fileLines) {
             // Ignorar linhas em branco (alguns SPEDs têm \r\n\r\n entre linhas)
             if (line.trim() === '') continue;
             linesProcessed++;
@@ -5526,8 +5805,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             // --- BLOCO 0200 (FILTRAR ITENS SEM REFERÊNCIA) ---
             if (fields.length >= 2 && fields[1] === '0200') {
-                const codItem = fields[2];
-                if (codItensReferenciados.size > 0 && !codItensReferenciados.has(String(codItem))) {
+                // TRIM no comparador: cod_item no arquivo pode vir padded (CHAR fixo) e a Set
+                // está normalizada com TRIM. Sem isso, NENHUM 0200 é reconhecido e todos são
+                // omitidos do export, gerando arquivo sem cadastro de produtos.
+                const codItem = String(fields[2] || '').trim();
+                if (codItensReferenciados.size > 0 && !codItensReferenciados.has(codItem)) {
                     // Item não referenciado em nenhum outro bloco — omitir para evitar erro PVA
                     // Também marca para pular o filho 0206 imediatamente após
                     skipNext0206 = true;
@@ -5577,6 +5859,34 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (fields.length >= 2 && fields[1] === '0150') {
                 const cnpj0150 = (fields[5] || '').replace(/\D/g, '');
                 if (cnpj0150.length >= 11) set0150CnpjsPresentes.add(cnpj0150);
+                pushLine(line);
+                continue;
+            }
+
+            // --- BLOCO H010 (Posição do Estoque / Inventário) ---
+            // Reescreve QTD e VL_ITEM do inventário para casar com o fech_fisico final do LMC
+            // (estoque ajustado). Sem isso, o H010 sai com o valor original do SPED, divergindo
+            // dos ajustes feitos via Otimizador/Sincronizador no LMC.
+            // Layout H010: |H010|COD_ITEM|UNID|QTD|VL_UNIT|VL_ITEM|IND_PROP|...|
+            //                pos:  0   1     2    3    4      5       6        7+
+            if (fields.length >= 2 && fields[1] === 'H010') {
+                const codH010 = String(fields[2] || '').trim();
+                const fechAlvo = mapFechFinalLmc.get(codH010);
+                const ocorrencias = h010CountByCod.get(codH010) || 0;
+                if (fechAlvo !== undefined && ocorrencias === 1) {
+                    const qtdOriginal = parseFloat((fields[4] || '0').replace(',', '.'));
+                    if (Math.abs(qtdOriginal - fechAlvo) > 0.001) {
+                        const vlUnit = parseFloat((fields[5] || '0').replace(',', '.'));
+                        const novoQtd = Number(fechAlvo.toFixed(3));
+                        const novoVlItem = Number((novoQtd * vlUnit).toFixed(2));
+                        fields[4] = novoQtd.toFixed(3).replace('.', ',');
+                        fields[6] = novoVlItem.toFixed(2).replace('.', ',');
+                        changesApplied++;
+                        pushLine(fields.join('|'));
+                        continue;
+                    }
+                }
+                // Sem fech no LMC, ou múltiplos H010 (split por IND_PROP) — passa direto.
                 pushLine(line);
                 continue;
             }
@@ -5638,16 +5948,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                         let novoPerda = 0;
                         if (aj.val_perda_ajustado !== null) novoPerda = Number(parseFloat(aj.val_perda_ajustado).toFixed(3));
-                        fields[9] = novoPerda.toFixed(3).replace('.', ',');
 
                         let novoGanho = 0;
                         if (aj.val_ganho_ajustado !== null) novoGanho = Number(parseFloat(aj.val_ganho_ajustado).toFixed(3));
+
+                        // Escudo ANP final: blinda perda/ganho ≤ 0,55% sobre (abert+entr).
+                        const blindADJ = escudoAnpMae(novoAbert, entr, escr, novoPerda, novoGanho);
+                        novoPerda = blindADJ.perda;
+                        novoGanho = blindADJ.ganho;
+                        let fisico = blindADJ.fisico;
+
+                        fields[9]  = novoPerda.toFixed(3).replace('.', ',');
                         fields[10] = novoGanho.toFixed(3).replace('.', ',');
-
-                        let fisico = Number((escr - novoPerda + novoGanho).toFixed(3));
-                        // Saneador Final: O banco já protegeu, mas a aritmética flutuante no exportador pode errar a última casa decimal
-                        if (fisico < 0) fisico = Math.max(0, escr);
-
                         fields[11] = fisico.toFixed(3).replace('.', ',');
 
                         if (fields.length < 13) while (fields.length < 13) fields.push('');
@@ -5661,14 +5973,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         };
                         continue; // Importante: não faz res.write aqui
                     } else if (mapBaseFisico.has(key)) {
-                        // Sem ajuste do usuário, mas o banco tem fech_fisico correto.
-                        // Corrige o padrão bugado onde VAL_AJ_PERDA = ESTQ_ESCR → FECH = 0.
+                        // Sem ajuste do usuário, mas o banco tem fech_fisico (LMC base).
+                        // Cobre 2 padrões de bug:
+                        //  (a) VAL_AJ_PERDA = ESTQ_ESCR → FECH = 0 no SPED original.
+                        //  (b) Abertura do 1º dia do mês não bate com FECH do mês anterior
+                        //      (Correção 4: continuidade intermensal).
                         const fisicoBase = mapBaseFisico.get(key);
                         const fisicoOrig = parseFloat((fields[11] || '0').replace(',', '.'));
-                        if (fisicoOrig === 0 && fisicoBase > 0) {
-                            // Correção 3: propagar continuidade
+                        const fechAntBase = ultimoFechExportado.get(codItem);
+                        const fechFisicoZerado = (fisicoOrig === 0 && fisicoBase > 0);
+                        const aberturaSemContinuidade = (fechAntBase !== undefined && fechAntBase > 0 && Math.abs(oldAbert - fechAntBase) > 0.5);
+                        if (fechFisicoZerado || aberturaSemContinuidade) {
+                            // Correção 3+4: propagar continuidade
                             let abertCorr = parseFloat((fields[4] || '0').replace(',', '.'));
-                            const fechAntBase = ultimoFechExportado.get(codItem);
                             if (fechAntBase !== undefined && fechAntBase > 0) {
                                 abertCorr = Number(fechAntBase.toFixed(3));
                                 fields[4] = abertCorr.toFixed(3).replace('.', ',');
@@ -5679,18 +5996,26 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                             const saidaCorr = parseFloat((fields[7] || '0').replace(',', '.'));
                             const escrCorr = Number((dispCorr - saidaCorr).toFixed(3));
                             fields[8] = escrCorr.toFixed(3).replace('.', ',');
-                            // Deriva PERDA/GANHO reais a partir do fech_fisico do banco
+                            // Alvo do físico: o que o banco tem como base; se vier zero mas o
+                            // original era válido, mantém o original.
+                            const fisicoAlvo = fisicoBase > 0 ? fisicoBase : (fisicoOrig > 0 ? fisicoOrig : escrCorr);
+                            // Deriva PERDA/GANHO reais a partir do físico alvo
                             // para que a fórmula do PVA bata: FECH = ESCR - PERDA + GANHO
                             let corrigidoPerda = 0;
                             let corrigidoGanho = 0;
-                            if (fisicoBase <= escrCorr) {
-                                corrigidoPerda = Number((escrCorr - fisicoBase).toFixed(3));
+                            if (fisicoAlvo <= escrCorr) {
+                                corrigidoPerda = Number((escrCorr - fisicoAlvo).toFixed(3));
                             } else {
-                                corrigidoGanho = Number((fisicoBase - escrCorr).toFixed(3));
+                                corrigidoGanho = Number((fisicoAlvo - escrCorr).toFixed(3));
                             }
-                            fields[9] = corrigidoPerda.toFixed(3).replace('.', ',');
+                            // Escudo ANP final: derivação por base de banco também é blindada.
+                            const blindBase = escudoAnpMae(abertCorr, entrCorr, escrCorr, corrigidoPerda, corrigidoGanho);
+                            corrigidoPerda = blindBase.perda;
+                            corrigidoGanho = blindBase.ganho;
+                            const fisicoFinal = blindBase.fisico;
+                            fields[9]  = corrigidoPerda.toFixed(3).replace('.', ',');
                             fields[10] = corrigidoGanho.toFixed(3).replace('.', ',');
-                            fields[11] = fisicoBase.toFixed(3).replace('.', ',');
+                            fields[11] = fisicoFinal.toFixed(3).replace('.', ',');
                             if (fields.length < 13) while (fields.length < 13) fields.push('');
                             else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
                             changesApplied++;
@@ -6118,7 +6443,13 @@ function parseSpedFile(filePath, originalFilename) {
                 } else if (reg === '0150') {
                     data.participants.push({ cod_part: fields[2], nome: fields[3], cnpj: fields[5] });
                 } else if (reg === '0200') {
-                    data.produtos.push({ cod_item: fields[2], descr_item: fields[3], ncm: (fields[8] || '').replace(/\D/g, '') });
+                    // TRIM defensivo: alguns SPEDs gravam campos como CHAR fixo com padding (60 chars).
+                    // Sem o TRIM, JOINs cross-arquivo e queries por igualdade quebram silenciosamente.
+                    data.produtos.push({
+                        cod_item:   String(fields[2] || '').trim(),
+                        descr_item: String(fields[3] || '').trim(),
+                        ncm: (fields[8] || '').replace(/\D/g, '')
+                    });
                 } else if (reg === '1300') {
                     // *** REGISTRO CONSOLIDADO (A SOLUÇÃO REAL) ***
                     // O cliente informou que o LMC precisa bater os totais. 
@@ -6127,7 +6458,9 @@ function parseSpedFile(filePath, originalFilename) {
                     // 6 = vol_disp, 7 = vol_saidas, 8 = estq_escr, 9 = val_perda, 10 = val_ganho, 11 = fech_fisico
 
                     const p = fields;
-                    const codItem = p[2];
+                    // TRIM defensivo (CHAR fixo com padding) — chave dos Maps abaixo precisa estar
+                    // normalizada para casar com sped_produtos.cod_item (também TRIM-ado em 0200).
+                    const codItem = String(p[2] || '').trim();
                     const dtFech = p[3];
 
                     if (!data.lmc.has(codItem)) data.lmc.set(codItem, new Map());
@@ -6161,10 +6494,17 @@ function parseSpedFile(filePath, originalFilename) {
                     };
                     data.documents.push(currentC100);
                 } else if (reg === 'C170' && currentC100) {
+                    // TRIM defensivo: C170 também sofre padding em SPEDs CHAR-fixo.
                     currentC100.items.push({
-                        num_item: parseInt(fields[2]), cod_item: fields[3], qtd: parseFloatSped(fields[5]),
-                        unid: fields[6], vl_item: parseFloatSped(fields[7]), cst_icms: fields[10], cfop: fields[11],
-                        cst_pis: fields[25], cst_cofins: fields[31]
+                        num_item: parseInt(fields[2]),
+                        cod_item: String(fields[3] || '').trim(),
+                        qtd: parseFloatSped(fields[5]),
+                        unid: String(fields[6] || '').trim(),
+                        vl_item: parseFloatSped(fields[7]),
+                        cst_icms: String(fields[10] || '').trim(),
+                        cfop: String(fields[11] || '').trim(),
+                        cst_pis: String(fields[25] || '').trim(),
+                        cst_cofins: String(fields[31] || '').trim()
                     });
                 } else if (reg === 'C190' && currentC100) {
                     currentC100.analytical.push({
