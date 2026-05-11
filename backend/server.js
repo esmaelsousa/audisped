@@ -6033,6 +6033,49 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 }
             }
 
+            // --- BLOCO 1300 (PASSAGEM DIRETA): sem ajuste no banco, sem fech_fisico zerado.
+            // Apenas propaga continuidade (ABERT = FECH do dia anterior exportado) e armazena FECH.
+            if (fields.length >= 2 && fields[1] === '1300' && !pending1300) {
+                const codItemDirect = fields[2];
+                const fechAntDirect = ultimoFechExportado.get(codItemDirect);
+                const abertOrig = parseFloat((fields[4] || '0').replace(',', '.'));
+                const fechOrig = parseFloat((fields[11] || '0').replace(',', '.'));
+
+                if (fechAntDirect !== undefined && fechAntDirect > 0 && Math.abs(abertOrig - fechAntDirect) > 0.5) {
+                    // Continuidade quebrada: propagar FECH anterior como ABERT
+                    const novoAbert = Number(fechAntDirect.toFixed(3));
+                    fields[4] = novoAbert.toFixed(3).replace('.', ',');
+                    const entr = parseFloat((fields[5] || '0').replace(',', '.'));
+                    const disp = Number((novoAbert + entr).toFixed(3));
+                    fields[6] = disp.toFixed(3).replace('.', ',');
+                    const saida = parseFloat((fields[7] || '0').replace(',', '.'));
+                    let safeS = saida;
+                    if (safeS > disp - 0.001) safeS = Math.max(0, Number((disp - 0.001).toFixed(3)));
+                    fields[7] = safeS.toFixed(3).replace('.', ',');
+                    const escr = Number((disp - safeS).toFixed(3));
+                    fields[8] = escr.toFixed(3).replace('.', ',');
+                    const perdaOrig = parseFloat((fields[9] || '0').replace(',', '.'));
+                    const ganhoOrig = parseFloat((fields[10] || '0').replace(',', '.'));
+                    const blind = escudoAnpMae(novoAbert, entr, escr, perdaOrig, ganhoOrig);
+                    fields[9] = blind.perda.toFixed(3).replace('.', ',');
+                    fields[10] = blind.ganho.toFixed(3).replace('.', ',');
+                    fields[11] = blind.fisico.toFixed(3).replace('.', ',');
+                    if (fields.length < 13) while (fields.length < 13) fields.push('');
+                    changesApplied++;
+                    const fExport = blind.fisico;
+                    ultimoFechExportado.set(codItemDirect, fExport);
+                    pending1300 = {
+                        line: fields.join('|'),
+                        orig: { abert: abertOrig, saida, entr, codItem: codItemDirect },
+                        novo: { abert: novoAbert, saida: safeS, perda: blind.perda, ganho: blind.ganho, entr }
+                    };
+                    continue;
+                }
+
+                // Sem quebra: armazenar FECH para propagação futura
+                if (fechOrig > 0) ultimoFechExportado.set(codItemDirect, fechOrig);
+            }
+
             // --- BLOCO 1310 (Acumula no buffer se tivermos modificado o 1300) ---
             if (fields.length >= 2 && fields[1] === '1310' && pending1300) {
                 pending1310s.push(fields);
