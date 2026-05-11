@@ -5583,6 +5583,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
 
             const { orig, novo } = pending1300;
+
+            // Correção ABERT: se novo.abert está inflado vs orig.abert (estq_abert_ajustado
+            // errado no banco por redistribuição antiga), forçar uso do orig.abert.
+            // A propagação de continuidade (ultimoFechExportado) é confiável; o banco não.
+            if (orig.abert > 0 && novo.abert > orig.abert * 1.3) {
+                novo.abert = orig.abert;
+            }
+
             let sumAbert = 0, sumSaida = 0, sumPerda = 0, sumGanho = 0, sumEntr = 0;
 
             // PASS 1: Totalizadores REAIS blindados pós-escudo ANP
@@ -5941,20 +5949,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         const aj = mapAjustes.get(key);
                         changesApplied++;
 
-                        // PROTEÇÃO: O arquivo base pode ter lixo negativo (-17L), nós forçamos a sanidade.
-                        let novoAbert = Number(oldAbert.toFixed(3));
-                        if (aj.estq_abert_ajustado !== null) {
-                            novoAbert = Number(parseFloat(aj.estq_abert_ajustado).toFixed(3));
-                        }
-                        // Saneador Final: Exportação nunca grava estoque virtual de abertura negativo
-                        if (novoAbert < 0) {
-                            novoAbert = 0.5;
-                        }
-                        // Correção 3: propagar continuidade — ABERT = FECH do dia anterior exportado
+                        // ABERT: prioridade → 1) FECH exportado do dia anterior (propagação)
+                        //                    → 2) ABERT original do arquivo (confiável)
+                        //                    → 3) estq_abert_ajustado do banco (pode estar inflado por redistribuição antiga)
                         const fechAnterior = ultimoFechExportado.get(codItem);
+                        let novoAbert;
                         if (fechAnterior !== undefined && fechAnterior > 0) {
                             novoAbert = Number(fechAnterior.toFixed(3));
+                        } else {
+                            novoAbert = Number(oldAbert.toFixed(3));
                         }
+                        if (novoAbert < 0) novoAbert = 0.5;
                         fields[4] = novoAbert.toFixed(3).replace('.', ',');
 
                         let entr = Number(oldEntr.toFixed(3));
