@@ -5276,8 +5276,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         }
 
         const ajustes = await dbClient.query(`
-            SELECT data_mov, cod_item, 
-                   vol_saidas_ajustado, fech_fisico_ajustado,
+            SELECT data_mov, cod_item,
+                   vol_saidas_ajustado, fech_fisico_ajustado, fech_fisico,
                    val_perda_ajustado, val_ganho_ajustado,
                    estq_abert_ajustado, vol_escr_ajustado,
                    vol_entr_ajustado
@@ -5999,11 +5999,23 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         if (fields.length < 13) while (fields.length < 13) fields.push('');
                         else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
 
-                        // fisicoDb: valor do banco (fech_fisico_ajustado) — âncora definitiva
-                        // para que flush1300Group não acumule erro da redistribuição por tanques.
-                        const fisicoDb = (aj.fech_fisico_ajustado !== null && aj.fech_fisico_ajustado !== undefined)
-                            ? Number(parseFloat(aj.fech_fisico_ajustado).toFixed(3))
-                            : null;
+                        // fisicoDb: âncora para flush1300Group.
+                        // Prioridade: fech_fisico (original do SPED) quando válido e coerente.
+                        // fech_fisico_ajustado pode estar inflado pela redistribuição (escudo ANP
+                        // capou PERDA absurda do original, inflando FECH de 16K para 50K).
+                        const fisicoAj = (aj.fech_fisico_ajustado !== null && aj.fech_fisico_ajustado !== undefined)
+                            ? Number(parseFloat(aj.fech_fisico_ajustado).toFixed(3)) : null;
+                        const fisicoOr = (aj.fech_fisico !== undefined && aj.fech_fisico !== null)
+                            ? Number(parseFloat(aj.fech_fisico).toFixed(3)) : null;
+                        let fisicoDb;
+                        if (fisicoOr > 0 && fisicoAj > 0 && fisicoAj > fisicoOr * 1.3) {
+                            // Ajustado inflado vs original → usar original
+                            fisicoDb = fisicoOr;
+                        } else if (fisicoAj !== null && fisicoAj > 0) {
+                            fisicoDb = fisicoAj;
+                        } else {
+                            fisicoDb = fisicoOr;
+                        }
 
                         // Guarda no buffer para os tanques (1310) usarem o mesmo total arredondado
                         pending1300 = {
