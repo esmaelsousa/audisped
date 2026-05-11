@@ -5584,13 +5584,6 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             const { orig, novo } = pending1300;
 
-            // Correção ABERT: se novo.abert está inflado vs orig.abert (estq_abert_ajustado
-            // errado no banco por redistribuição antiga), forçar uso do orig.abert.
-            // A propagação de continuidade (ultimoFechExportado) é confiável; o banco não.
-            if (orig.abert > 0 && novo.abert > orig.abert * 1.3) {
-                novo.abert = orig.abert;
-            }
-
             let sumAbert = 0, sumSaida = 0, sumPerda = 0, sumGanho = 0, sumEntr = 0;
 
             // PASS 1: Totalizadores REAIS blindados pós-escudo ANP
@@ -5664,30 +5657,37 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
 
             // ── Recálculo consistente do 1300 mãe ──────────────────────────
-            // A soma dos tanques (realEscr, realPerda, etc.) pode ficar distorcida
-            // porque cada tanque aplica escudo ANP individual e as proporções de
-            // SAIDAS entre tanques podem ser desiguais (ex: tank 692 vende 0,
-            // tank 691 vende tudo). Recalculamos TODOS os campos do 1300 mãe
-            // a partir dos totalizadores primários (ABERT, ENTR, SAIDA) e da
-            // âncora fisicoDb (FECH do banco), garantindo coerência matemática.
+            // Recalcula ESCR a partir dos totais primários (não soma dos tanques)
+            // e decide FECH: âncora (banco) se dentro do ANP, ou escudo se fora.
 
-            // 1. ESCR recalculado a partir dos totais (não soma dos tanques)
+            // 1. ESCR = DISP - SAIDAS (recalculado, não soma distorcida dos tanques)
             realDisp = Number((realAbert + realEntr).toFixed(3));
             realEscr = Number((realDisp - realSaida).toFixed(3));
 
-            // 2. FECH: prioridade → âncora fisicoDb (banco) → escudo ANP
+            // 2. Escudo ANP: calcula FECH seguro (PERDA/GANHO ≤ 0.55%)
+            const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
+            let fechEscudo = blindMae.fisico;
+
+            // 3. Âncora: tenta usar FECH do banco, mas só se ANP ficar ≤ 0.60%
             const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
                 ? Number(novo.fisicoDb.toFixed(3)) : null;
 
             if (ancoraFisico !== null) {
-                // Âncora: FECH do banco é a fonte de verdade
-                realFisico = ancoraFisico;
+                const perdaTest = Math.abs(realEscr - ancoraFisico);
+                const anpTest = ancoraFisico > 0 ? (perdaTest / ancoraFisico * 100) : 999;
+                if (anpTest <= 0.60) {
+                    // Dentro do ANP → usar âncora (banco)
+                    realFisico = ancoraFisico;
+                } else {
+                    // Fora do ANP → usar escudo (FECH seguro)
+                    realFisico = fechEscudo;
+                }
             } else {
-                // Sem âncora: usar escudo ANP para calcular FECH
-                realFisico = Number((realEscr - realPerda + realGanho).toFixed(3));
+                // Sem âncora → usar escudo
+                realFisico = fechEscudo;
             }
 
-            // 3. PERDA/GANHO derivados de ESCR vs FECH (garante fórmula PVA)
+            // 4. PERDA/GANHO derivados de ESCR vs FECH (garante fórmula PVA)
             if (realFisico >= realEscr) {
                 realPerda = 0;
                 realGanho = Number((realFisico - realEscr).toFixed(3));
@@ -5696,16 +5696,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realGanho = 0;
             }
 
-            // 4. Escudo ANP: se PERDA ou GANHO > 0.55% de (ABERT+ENTR), limitar
-            //    MAS só quando NÃO há âncora (com âncora, o FECH do banco prevalece)
-            if (ancoraFisico === null) {
-                const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, realPerda, realGanho);
-                realPerda  = blindMae.perda;
-                realGanho  = blindMae.ganho;
-                realFisico = blindMae.fisico;
-            }
-
-            // 5. Saneador final: PERDA/GANHO nunca negativos
+            // 5. Saneador final
             if (realPerda < 0) realPerda = 0;
             if (realGanho < 0) realGanho = 0;
             // ──────────────────────────────────────────────────────────────
