@@ -5636,12 +5636,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico += nFisico;
             }
 
-            // Âncora: se o banco tem o FECH correto (via novo.fisico), forçar o 1300 mãe
-            // a usar esse valor em vez da soma dos tanques. A redistribuição por tanques
-            // com escudo ANP individual gera soma ≠ valor consolidado do banco, e o erro
-            // acumula dia a dia via propagação de continuidade.
-            if (novo.fisico !== undefined && novo.fisico > 0 && Math.abs(realFisico - novo.fisico) > 0.01) {
-                realFisico = Number(novo.fisico.toFixed(3));
+            // Âncora: usa o fech_fisico_ajustado DIRETO do banco (fisicoDb) como FECH
+            // definitivo do 1300 mãe. A redistribuição por tanques com escudo ANP individual
+            // gera soma ≠ valor consolidado do banco, e sem âncora o erro acumula dia a dia.
+            // novo.fisico (recalculado) pode já estar inflado — fisicoDb é a fonte de verdade.
+            const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
+                ? novo.fisicoDb : novo.fisico;
+            if (ancoraFisico !== undefined && ancoraFisico > 0 && Math.abs(realFisico - ancoraFisico) > 0.01) {
+                realFisico = Number(ancoraFisico.toFixed(3));
                 if (realFisico >= realEscr) {
                     realPerda = 0;
                     realGanho = Number((realFisico - realEscr).toFixed(3));
@@ -5980,11 +5982,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         if (fields.length < 13) while (fields.length < 13) fields.push('');
                         else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
 
+                        // fisicoDb: valor do banco (fech_fisico_ajustado) — âncora definitiva
+                        // para que flush1300Group não acumule erro da redistribuição por tanques.
+                        const fisicoDb = (aj.fech_fisico_ajustado !== null && aj.fech_fisico_ajustado !== undefined)
+                            ? Number(parseFloat(aj.fech_fisico_ajustado).toFixed(3))
+                            : null;
+
                         // Guarda no buffer para os tanques (1310) usarem o mesmo total arredondado
                         pending1300 = {
                             line: fields.join('|'),
                             orig: { abert: oldAbert, saida: oldSaida, entr: oldEntr, codItem: codItem },
-                            novo: { abert: novoAbert, saida: novoSaida, perda: novoPerda, ganho: novoGanho, entr: entr, fisico: fisico }
+                            novo: { abert: novoAbert, saida: novoSaida, perda: novoPerda, ganho: novoGanho, entr: entr, fisico: fisico, fisicoDb: fisicoDb }
                         };
                         continue; // Importante: não faz res.write aqui
                     } else if (mapBaseFisico.has(key)) {
