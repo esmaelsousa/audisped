@@ -5663,40 +5663,52 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico += nFisico;
             }
 
-            // Saneador: PERDA e GANHO nunca podem ser negativos no SPED.
-            if (realPerda < 0 || realGanho < 0) {
-                if (realFisico >= realEscr) {
-                    realPerda = 0;
-                    realGanho = Number((realFisico - realEscr).toFixed(3));
-                } else {
-                    realPerda = Number((realEscr - realFisico).toFixed(3));
-                    realGanho = 0;
-                }
+            // ── Recálculo consistente do 1300 mãe ──────────────────────────
+            // A soma dos tanques (realEscr, realPerda, etc.) pode ficar distorcida
+            // porque cada tanque aplica escudo ANP individual e as proporções de
+            // SAIDAS entre tanques podem ser desiguais (ex: tank 692 vende 0,
+            // tank 691 vende tudo). Recalculamos TODOS os campos do 1300 mãe
+            // a partir dos totalizadores primários (ABERT, ENTR, SAIDA) e da
+            // âncora fisicoDb (FECH do banco), garantindo coerência matemática.
+
+            // 1. ESCR recalculado a partir dos totais (não soma dos tanques)
+            realDisp = Number((realAbert + realEntr).toFixed(3));
+            realEscr = Number((realDisp - realSaida).toFixed(3));
+
+            // 2. FECH: prioridade → âncora fisicoDb (banco) → escudo ANP
+            const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
+                ? Number(novo.fisicoDb.toFixed(3)) : null;
+
+            if (ancoraFisico !== null) {
+                // Âncora: FECH do banco é a fonte de verdade
+                realFisico = ancoraFisico;
+            } else {
+                // Sem âncora: usar escudo ANP para calcular FECH
                 realFisico = Number((realEscr - realPerda + realGanho).toFixed(3));
             }
 
-            // Escudo ANP final no 1300 mãe
-            {
+            // 3. PERDA/GANHO derivados de ESCR vs FECH (garante fórmula PVA)
+            if (realFisico >= realEscr) {
+                realPerda = 0;
+                realGanho = Number((realFisico - realEscr).toFixed(3));
+            } else {
+                realPerda = Number((realEscr - realFisico).toFixed(3));
+                realGanho = 0;
+            }
+
+            // 4. Escudo ANP: se PERDA ou GANHO > 0.55% de (ABERT+ENTR), limitar
+            //    MAS só quando NÃO há âncora (com âncora, o FECH do banco prevalece)
+            if (ancoraFisico === null) {
                 const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, realPerda, realGanho);
                 realPerda  = blindMae.perda;
                 realGanho  = blindMae.ganho;
                 realFisico = blindMae.fisico;
             }
 
-            // Âncora FINAL: após escudo ANP, força FECH ao valor do banco (fisicoDb).
-            // Deve ser a ÚLTIMA operação sobre realFisico antes do PASS 2.
-            const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
-                ? novo.fisicoDb : null;
-            if (ancoraFisico !== null && Math.abs(realFisico - ancoraFisico) > 0.01) {
-                realFisico = Number(ancoraFisico.toFixed(3));
-                if (realFisico >= realEscr) {
-                    realPerda = 0;
-                    realGanho = Number((realFisico - realEscr).toFixed(3));
-                } else {
-                    realPerda = Number((realEscr - realFisico).toFixed(3));
-                    realGanho = 0;
-                }
-            }
+            // 5. Saneador final: PERDA/GANHO nunca negativos
+            if (realPerda < 0) realPerda = 0;
+            if (realGanho < 0) realGanho = 0;
+            // ──────────────────────────────────────────────────────────────
 
             // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
             let fields1300 = pending1300.line.split('|');
