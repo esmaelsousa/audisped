@@ -5551,6 +5551,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (!pending1300) return;
 
             if (pending1310s.length === 0) {
+                // Âncora para registros SEM tanques filhos: se fisicoDb existe, reescrever FECH na linha
+                if (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0) {
+                    const flds = pending1300.line.split('|');
+                    const fechLinha = parseFloat((flds[11] || '0').replace(',', '.'));
+                    if (Math.abs(fechLinha - novo.fisicoDb) > 0.01) {
+                        const escrLinha = parseFloat((flds[8] || '0').replace(',', '.'));
+                        const abertLinha = parseFloat((flds[4] || '0').replace(',', '.'));
+                        const entrLinha = parseFloat((flds[5] || '0').replace(',', '.'));
+                        let p2 = 0, g2 = 0;
+                        if (novo.fisicoDb >= escrLinha) { g2 = Number((novo.fisicoDb - escrLinha).toFixed(3)); }
+                        else { p2 = Number((escrLinha - novo.fisicoDb).toFixed(3)); }
+                        const blind2 = escudoAnpMae(abertLinha, entrLinha, escrLinha, p2, g2);
+                        flds[9] = blind2.perda.toFixed(3).replace('.', ',');
+                        flds[10] = blind2.ganho.toFixed(3).replace('.', ',');
+                        flds[11] = blind2.fisico.toFixed(3).replace('.', ',');
+                        pending1300.line = flds.join('|');
+                        changesApplied++;
+                    }
+                }
                 // Se não há tanques/filhos, escreve a global diretamente
                 pushLine(pending1300.line);
                 // Correção 3: armazenar FECH exportado para propagação
@@ -5636,26 +5655,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico += nFisico;
             }
 
-            // Âncora: usa o fech_fisico_ajustado DIRETO do banco (fisicoDb) como FECH
-            // definitivo do 1300 mãe. A redistribuição por tanques com escudo ANP individual
-            // gera soma ≠ valor consolidado do banco, e sem âncora o erro acumula dia a dia.
-            // novo.fisico (recalculado) pode já estar inflado — fisicoDb é a fonte de verdade.
-            const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
-                ? novo.fisicoDb : novo.fisico;
-            if (ancoraFisico !== undefined && ancoraFisico > 0 && Math.abs(realFisico - ancoraFisico) > 0.01) {
-                realFisico = Number(ancoraFisico.toFixed(3));
-                if (realFisico >= realEscr) {
-                    realPerda = 0;
-                    realGanho = Number((realFisico - realEscr).toFixed(3));
-                } else {
-                    realPerda = Number((realEscr - realFisico).toFixed(3));
-                    realGanho = 0;
-                }
-            }
-
             // Saneador: PERDA e GANHO nunca podem ser negativos no SPED.
-            // Tanques originais corrompidos (encerrantes como estoque) geram proporções
-            // negativas que contaminam realPerda/realGanho. Recalculamos a partir de ESCR vs FISICO.
             if (realPerda < 0 || realGanho < 0) {
                 if (realFisico >= realEscr) {
                     realPerda = 0;
@@ -5664,18 +5664,30 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     realPerda = Number((realEscr - realFisico).toFixed(3));
                     realGanho = 0;
                 }
-                // Recalcular FECH para que a fórmula feche: FECH = ESCR - PERDA + GANHO
                 realFisico = Number((realEscr - realPerda + realGanho).toFixed(3));
             }
 
-            // Escudo ANP final no 1300 mãe (após soma dos tanques): mesmo se cada 1310 estiver
-            // dentro do limite, a soma pode passar por arredondamento. Aplicado aqui antes do
-            // PASS 2 para que fields1300 saia consistente com o que o PVA exige.
+            // Escudo ANP final no 1300 mãe
             {
                 const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, realPerda, realGanho);
                 realPerda  = blindMae.perda;
                 realGanho  = blindMae.ganho;
                 realFisico = blindMae.fisico;
+            }
+
+            // Âncora FINAL: após escudo ANP, força FECH ao valor do banco (fisicoDb).
+            // Deve ser a ÚLTIMA operação sobre realFisico antes do PASS 2.
+            const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
+                ? novo.fisicoDb : null;
+            if (ancoraFisico !== null && Math.abs(realFisico - ancoraFisico) > 0.01) {
+                realFisico = Number(ancoraFisico.toFixed(3));
+                if (realFisico >= realEscr) {
+                    realPerda = 0;
+                    realGanho = Number((realFisico - realEscr).toFixed(3));
+                } else {
+                    realPerda = Number((realEscr - realFisico).toFixed(3));
+                    realGanho = 0;
+                }
             }
 
             // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
