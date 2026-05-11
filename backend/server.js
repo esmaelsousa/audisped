@@ -5636,6 +5636,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico += nFisico;
             }
 
+            // Âncora: se o banco tem o FECH correto (via novo.fisico), forçar o 1300 mãe
+            // a usar esse valor em vez da soma dos tanques. A redistribuição por tanques
+            // com escudo ANP individual gera soma ≠ valor consolidado do banco, e o erro
+            // acumula dia a dia via propagação de continuidade.
+            if (novo.fisico !== undefined && novo.fisico > 0 && Math.abs(realFisico - novo.fisico) > 0.01) {
+                realFisico = Number(novo.fisico.toFixed(3));
+                if (realFisico >= realEscr) {
+                    realPerda = 0;
+                    realGanho = Number((realFisico - realEscr).toFixed(3));
+                } else {
+                    realPerda = Number((realEscr - realFisico).toFixed(3));
+                    realGanho = 0;
+                }
+            }
+
             // Saneador: PERDA e GANHO nunca podem ser negativos no SPED.
             // Tanques originais corrompidos (encerrantes como estoque) geram proporções
             // negativas que contaminam realPerda/realGanho. Recalculamos a partir de ESCR vs FISICO.
@@ -5969,7 +5984,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         pending1300 = {
                             line: fields.join('|'),
                             orig: { abert: oldAbert, saida: oldSaida, entr: oldEntr, codItem: codItem },
-                            novo: { abert: novoAbert, saida: novoSaida, perda: novoPerda, ganho: novoGanho, entr: entr }
+                            novo: { abert: novoAbert, saida: novoSaida, perda: novoPerda, ganho: novoGanho, entr: entr, fisico: fisico }
                         };
                         continue; // Importante: não faz res.write aqui
                     } else if (mapBaseFisico.has(key)) {
