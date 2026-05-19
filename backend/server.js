@@ -61,8 +61,8 @@ const pool = new Pool({
     database: process.env.DB_DATABASE,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
-    max: 20,                      // máximo de conexões simultâneas (padrão era 10)
-    connectionTimeoutMillis: 5000, // falha rápida se pool esgotado (evita timeout de 30s no Axios)
+    max: 40,                       // suporta operações em lote (análise + export + LMC simultâneos)
+    connectionTimeoutMillis: 15000, // 15s de espera por conexão (evita falso timeout em lotes)
     idleTimeoutMillis: 30000,      // libera conexões ociosas após 30s
 });
 
@@ -70,6 +70,58 @@ const pool = new Pool({
 pool.on('error', (err) => {
     logger.error('Erro inesperado no pool PostgreSQL:', { message: err.message, stack: err.stack });
 });
+
+// Rede de segurança: captura rejeições não tratadas para evitar crash do processo
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('UnhandledRejection capturada (processo NÃO será encerrado):', {
+        message: reason?.message || String(reason),
+        stack: reason?.stack
+    });
+});
+
+// Helper: pool.connect() seguro — retorna null + responde 503 se pool esgotado
+async function safeConnect(res) {
+    try {
+        return await pool.connect();
+    } catch (err) {
+        logger.error('Pool esgotado — conexão não disponível:', err.message);
+        if (res && !res.headersSent) {
+            res.status(503).json({ message: 'Servidor sobrecarregado. Tente novamente em alguns segundos.' });
+        }
+        return null;
+    }
+}
+
+// Helper: ROLLBACK seguro — nunca lança exceção (evita crash do processo)
+async function safeRollback(client) {
+    try { if (client) await client.query('ROLLBACK'); } catch (_) { /* conexão já quebrada */ }
+}
+
+// Semáforo de concorrência para rotas pesadas (análise + exportação).
+// Limita operações simultâneas para evitar esgotamento do pool de conexões.
+const MAX_HEAVY_OPS = 3;
+let heavyOpsRunning = 0;
+const heavyOpsQueue = [];
+
+function acquireHeavySlot() {
+    return new Promise((resolve) => {
+        if (heavyOpsRunning < MAX_HEAVY_OPS) {
+            heavyOpsRunning++;
+            resolve();
+        } else {
+            heavyOpsQueue.push(resolve);
+        }
+    });
+}
+
+function releaseHeavySlot() {
+    if (heavyOpsQueue.length > 0) {
+        const next = heavyOpsQueue.shift();
+        next(); // próximo na fila ganha o slot (heavyOpsRunning permanece igual)
+    } else {
+        heavyOpsRunning--;
+    }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
 
@@ -99,7 +151,8 @@ app.post('/api/auth/register', async (req, res) => {
     const { nome, email, senha } = req.body;
     if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha todos os campos.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const hashedPassword = await bcrypt.hash(senha, 10);
         const query = 'INSERT INTO usuarios (nome, email, senha) VALUES ($1, $2, $3) RETURNING id, nome, email';
@@ -114,7 +167,8 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = 'SELECT id, nome, email FROM usuarios WHERE id = $1';
         const result = await dbClient.query(query, [req.user.id]);
@@ -129,7 +183,8 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
 
 app.put('/api/auth/profile', authMiddleware, async (req, res) => {
     const { nome, email, senha } = req.body;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         let query;
         let params;
@@ -153,7 +208,8 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
     const { email, senha } = req.body;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = 'SELECT * FROM usuarios WHERE email = $1';
         const result = await dbClient.query(query, [email]);
@@ -174,7 +230,8 @@ app.post('/api/auth/login', async (req, res) => {
 
 // --- ROTAS PARA GESTÃO DE CFOPS ---
 app.get('/api/cfops', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const result = await dbClient.query('SELECT * FROM cad_cfops ORDER BY codigo ASC');
         res.json(result.rows);
@@ -189,7 +246,8 @@ app.post('/api/cfops', authMiddleware, async (req, res) => {
     const { codigo, descricao, tipo = 'entrada' } = req.body;
     if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = 'INSERT INTO cad_cfops (codigo, descricao, tipo) VALUES ($1, $2, $3) RETURNING *';
         const result = await dbClient.query(query, [codigo, descricao, tipo]);
@@ -205,7 +263,8 @@ app.post('/api/cfops', authMiddleware, async (req, res) => {
 app.put('/api/cfops/:id', authMiddleware, async (req, res) => {
     const { codigo, descricao, tipo } = req.body;
     if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const result = await dbClient.query(
             'UPDATE cad_cfops SET codigo=$1, descricao=$2, tipo=$3 WHERE id=$4 RETURNING *',
@@ -222,7 +281,8 @@ app.put('/api/cfops/:id', authMiddleware, async (req, res) => {
 });
 
 app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('DELETE FROM cad_cfops WHERE id = $1', [req.params.id]);
         res.json({ message: 'CFOP excluído com sucesso.' });
@@ -244,7 +304,8 @@ app.get('/api/mde/sync/:id_empresa', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/mde/notas/:id_empresa', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     const { inicio, fim } = req.query;
     try {
         let query = 'SELECT * FROM mde_cache WHERE id_empresa = $1';
@@ -272,7 +333,8 @@ app.get('/api/mde/notas/:id_empresa', authMiddleware, async (req, res) => {
 
 
 app.get('/api/mde/xml/:chave_nfe', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const result = await dbClient.query(`
             SELECT xml_content FROM mde_cache 
@@ -323,7 +385,8 @@ app.post('/api/mde/delete-notas', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: 'Empresa e lista de chaves são obrigatórias.' });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         const query = 'DELETE FROM mde_cache WHERE id_empresa = $1 AND chave_nfe = ANY($2)';
@@ -331,7 +394,7 @@ app.post('/api/mde/delete-notas', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.json({ message: `${result.rowCount} nota(s) excluída(s) com sucesso.` });
     } catch (err) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         res.status(500).json({ message: 'Erro ao excluir notas.', error: err.message });
     } finally {
         dbClient.release();
@@ -434,7 +497,8 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
     }
     logger.info(`Recebido upload: ${req.file.originalname}, Path: ${req.file.path}, Size: ${req.file.size}`);
     const filePath = req.file.path;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         logger.info("Passo 1: Analisando o arquivo SPED em memória...");
         const parsedData = await parseSpedFile(filePath, req.file.originalname);
@@ -567,7 +631,7 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
         });
 
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('--- ERRO FATAL DURANTE O PROCESSAMENTO ---', { message: error.message, stack: error.stack });
         res.status(500).send({ message: "Ocorreu um erro crítico ao processar o arquivo. Verifique o log do backend para detalhes.", error: error.message });
     } finally {
@@ -605,8 +669,13 @@ app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file')
             c100_sem_c190: [],
             c100_saltos_enumeracao: [],
             h010_divergente_1300: [],
-            cfop_suspeitos: []
+            cfop_suspeitos: [],
+            bicos_duplicados_1320: [],
+            chv_nfe_cnpj_divergente: []
         };
+
+        // CNPJ do informante (extraído do registro 0000)
+        let cnpjInformante = '';
 
         // Cache state machines durante leitura sequencial
         let activeC100 = null;
@@ -616,12 +685,23 @@ app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file')
         let lastLmcFisico = 0;
         let inventarioH010Fisico = 0;
 
+        // Detecção de bicos duplicados: bico aparece em mais de um tanque no mesmo dia/produto
+        let current1300 = null;       // { dt, codItem, linha }
+        let current1310Tanque = null; // número do tanque corrente
+        // Map: "DD/MM/YYYY_COD_ITEM" -> Map<bico, [{tanque, vol, linha}]>
+        const bicoPorDiaProduto = new Map();
+
         // Mapa de Produtos (COD_ITEM -> { descr, ncm, cest })
         const produtoMap = new Map();
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const parts = line.split('|');
+
+            // --- Bloco 0: Registro 0000 (CNPJ do informante) ---
+            if (parts[1] === '0000' && parts.length > 7) {
+                cnpjInformante = (parts[7] || '').replace(/\D/g, '');
+            }
 
             // --- Bloco 0: Cadastros ---
             if (parts[1] === '0200') {
@@ -643,6 +723,25 @@ app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file')
                 // Em SPED, podem haver varios 1300, vamos guardar e reescrever o ultimo do mes
                 let fisicoStr = parts[11];
                 if (fisicoStr) lastLmcFisico = parseFloat(fisicoStr.replace(',', '.'));
+                // Rastrear para detecção de bicos duplicados
+                const dt = parts[3] || '';
+                const dtFmt = dt.length === 8 ? `${dt.substring(0,2)}/${dt.substring(2,4)}/${dt.substring(4,8)}` : dt;
+                current1300 = { dt: dtFmt, codItem: parts[2], linha: i + 1 };
+                current1310Tanque = null;
+            }
+
+            if (parts[1] === '1310') {
+                current1310Tanque = parts[2];
+            }
+
+            if (parts[1] === '1320' && current1300 && current1310Tanque) {
+                const bicoNum = parts[2];
+                const volVendas = parseFloat((parts[11] || '0').replace(',', '.'));
+                const chave = `${current1300.dt}_${current1300.codItem}`;
+                if (!bicoPorDiaProduto.has(chave)) bicoPorDiaProduto.set(chave, new Map());
+                const bicoMap = bicoPorDiaProduto.get(chave);
+                if (!bicoMap.has(bicoNum)) bicoMap.set(bicoNum, []);
+                bicoMap.get(bicoNum).push({ tanque: current1310Tanque, vol: volVendas, linha: i + 1 });
             }
 
             // --- Bloco H: Inventário ---
@@ -666,6 +765,23 @@ app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file')
                     }
                     if (activeC190Sum === 0 && activeC100.vl_doc > 0) {
                         infractions.c100_sem_c190.push({ linha: activeC100.linha, num_doc: activeC100.num_doc });
+                    }
+                }
+
+                // Detecção de CNPJ divergente na chave NF-e/NFC-e
+                const chvNfe = parts[9] || '';
+                const indEmit = parts[3] || '';
+                if (cnpjInformante && chvNfe.length === 44 && indEmit === '0') {
+                    const cnpjChave = chvNfe.substring(6, 20);
+                    if (cnpjChave !== cnpjInformante) {
+                        infractions.chv_nfe_cnpj_divergente.push({
+                            linha: i + 1,
+                            num_doc: parts[8] || '',
+                            modelo: parts[5] === '65' ? 'NFC-e' : 'NF-e',
+                            cnpj_chave: cnpjChave,
+                            cnpj_informante: cnpjInformante,
+                            alerta: `CNPJ da chave (${cnpjChave}) difere do informante (${cnpjInformante})`
+                        });
                     }
                 }
 
@@ -714,6 +830,27 @@ app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file')
                     valor_capa: activeC100.vl_doc, soma_c190: activeC190Sum,
                     diferenca: (activeC100.vl_doc - activeC190Sum).toFixed(2)
                 });
+            }
+        }
+
+        // Detecção de bicos duplicados entre tanques
+        for (const [chave, bicoMap] of bicoPorDiaProduto) {
+            for (const [bicoNum, ocorrencias] of bicoMap) {
+                if (ocorrencias.length > 1) {
+                    const [dt, codItem] = chave.split('_');
+                    const descr = produtoMap.has(codItem) ? produtoMap.get(codItem).descr : codItem;
+                    const tanques = ocorrencias.map(o => o.tanque);
+                    const vols = ocorrencias.map(o => o.vol.toFixed(3));
+                    infractions.bicos_duplicados_1320.push({
+                        data: dt,
+                        produto: descr,
+                        cod_item: codItem,
+                        bico: bicoNum,
+                        tanques: tanques.join(', '),
+                        volumes: vols.join(', '),
+                        alerta: `Bico ${bicoNum} aparece em ${ocorrencias.length} tanques (${tanques.join(', ')}) no mesmo dia — possivel duplicacao no arquivo original`
+                    });
+                }
             }
         }
 
@@ -960,7 +1097,8 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov) 
 // Garante que a NF apareça no LMC e no Analisador do período onde foi injetada.
 async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
     if (!parsedNotes || parsedNotes.length === 0) return;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         for (const nota of parsedNotes) {
             if (!nota.c100?.chv_nfe && !nota.c100?.num_doc) continue;
@@ -1093,7 +1231,7 @@ async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedP
 
         await dbClient.query('COMMIT');
     } catch (e) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('[LMC pós-injeção] Erro ao atualizar entradas:', e.message);
     } finally {
         dbClient.release();
@@ -1348,7 +1486,8 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
         return res.status(400).json({ error: 'Mapeamentos inválidos.' });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         
@@ -1401,7 +1540,7 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
         await dbClient.query('COMMIT');
         res.json({ success: true, count: mapeamentos.length });
     } catch (err) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         console.error('Erro ao salvar batch de-para:', err);
         res.status(500).json({ error: 'Erro ao salvar mapeamentos.' });
     } finally {
@@ -1455,9 +1594,7 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
         if (idSpedBase) {
             try {
                 // Obter caminho do arquivo primeiro
-                const dbClient = await pool.connect();
-                const fileQuery = await dbClient.query('SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idSpedBase]);
-                dbClient.release();
+                const fileQuery = await pool.query('SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idSpedBase]);
 
                 if (fileQuery.rows.length === 0) {
                     return res.status(404).json({ message: 'Arquivo SPED Base não encontrado no banco de dados.' });
@@ -1632,12 +1769,10 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
     };
 
     try {
-        const dbClient = await pool.connect();
-        const fileQuery = await dbClient.query(
+        const fileQuery = await pool.query(
             'SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1',
             [idSpedBase]
         );
-        dbClient.release();
 
         if (fileQuery.rows.length === 0) { limparTemps(); return res.status(404).json({ message: 'Arquivo SPED não encontrado.' }); }
 
@@ -1956,7 +2091,9 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
     }
 
     logger.info(`Iniciando análise REAL para o arquivo ID: ${arquivoId}`);
-    const dbClient = await pool.connect();
+    await acquireHeavySlot();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) { releaseHeavySlot(); return; }
     try {
         await dbClient.query('BEGIN');
         // Limita cada query a 30s para evitar congelamento do event loop em SPEDs grandes
@@ -2525,11 +2662,12 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
         res.status(200).send({ message: "Análise concluída com sucesso." });
 
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('--- ERRO AO EXECUTAR ANÁLISE ---', { message: error.message, stack: error.stack });
         res.status(500).json({ message: "Erro ao executar análise.", error: error.message });
     } finally {
         if (dbClient) dbClient.release();
+        releaseHeavySlot();
     }
 });
 
@@ -2541,7 +2679,8 @@ app.get('/api/erros/:id', authMiddleware, async (req, res) => {
         return res.status(400).send({ message: "ID de arquivo inválido." });
     }
     logger.info(`Buscando erros para o arquivo ID: ${arquivoId} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const { rows } = await dbClient.query('SELECT * FROM erros_analise WHERE id_sped_arquivo = $1', [arquivoId]);
         logger.info(`Encontrados ${rows.length} erros para o arquivo ID: ${arquivoId} `);
@@ -2559,7 +2698,8 @@ app.get('/api/erros/:id', authMiddleware, async (req, res) => {
 // Listar todas as empresas com filtros inteligentes
 app.get('/api/empresas', authMiddleware, async (req, res) => {
     const { busca } = req.query;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         let query = 'SELECT * FROM empresas';
         let params = [];
@@ -2582,7 +2722,8 @@ app.get('/api/empresas', authMiddleware, async (req, res) => {
 
 // Listar TODOS os arquivos (para o Injetor Global) - filtra para mostrar apenas arquivos físicos existentes
 app.get('/api/arquivos', authMiddleware, async (req, res) => {
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT a.id, a.nome_arquivo, a.periodo_apuracao, a.data_upload, a.caminho_arquivo, e.nome_empresa, e.cnpj as cnpj_empresa
@@ -2623,7 +2764,8 @@ app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
     const idEmpresa = parseInt(req.params.id_empresa);
     logger.info(`[GET /api/arquivos/:id_empresa] Recebido: id_empresa=${idEmpresa}, usuário=${req.user?.id || 'anônimo'}`);
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT id, nome_arquivo, periodo_apuracao, data_upload
@@ -2645,7 +2787,8 @@ app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
 // Buscar metadados de um arquivo específico para carregar análise
 app.get('/api/arquivo/info/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT a.*, e.nome_empresa, e.cnpj as cnpj_real, e.uf
@@ -2678,7 +2821,8 @@ app.get('/api/arquivo/info/:id', authMiddleware, async (req, res) => {
 app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
     if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // Arquivo anterior = mesmo CNPJ (normalizado, sem máscara), período mais recente antes deste
         const query = `
@@ -2845,7 +2989,8 @@ app.get('/api/lmc/diagnostico-completude/:id', authMiddleware, async (req, res) 
 // --- RELATÓRIO DO LMC DIÁRIO ---
 app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             WITH ncm_to_lmc AS (
@@ -3038,7 +3183,8 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
         return res.status(400).json({ error: "Parâmetros incompletos (id_arquivo, cod_item, novo_estoque)" });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
@@ -3055,7 +3201,7 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
         `, [id_arquivo, cod_item]);
 
         if (resFirstDay.rows.length === 0) {
-            await dbClient.query('ROLLBACK');
+            await safeRollback(dbClient);
             return res.status(404).json({ error: "Nenhum LMC encontrado para este produto no mês." });
         }
 
@@ -3073,7 +3219,7 @@ app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => 
         logger.info(`Estoque inicial do produto ${cod_item} no arquivo ${id_arquivo} ajustado para ${novo_estoque} L (todos os tanques do dia 1).`);
         res.json({ message: "Estoque Inicial ancorado com sucesso!" });
     } catch (e) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error("Erro ao atualizar estoque inicial: ", e);
         res.status(500).json({ error: "Erro interno ao salvar novo estoque de abertura." });
     } finally {
@@ -3297,7 +3443,8 @@ app.post('/api/lmc/preview-sincronizacao', authMiddleware, async (req, res) => {
     const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
     if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const previews = [];
         for (const item of itens) {
@@ -3318,7 +3465,8 @@ app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, async (req, res) =>
     const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
     if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         await dbClient.query('ALTER TABLE lmc_movimentacao ADD COLUMN IF NOT EXISTS estq_abert_ajustado NUMERIC(15,3)');
@@ -3339,7 +3487,7 @@ app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, async (req, res) =>
         await dbClient.query('COMMIT');
         res.json({ success: true, message: `${itens.length} produto(s) sincronizados e redistribuídos com sucesso.` });
     } catch (e) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('Erro ao confirmar sincronização:', e);
         res.status(500).json({ error: e.message });
     } finally {
@@ -3354,7 +3502,8 @@ app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
     const { id_arquivo, cod_item } = req.body;
     if (!id_arquivo || !cod_item) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // Lê a abertura já sincronizada no 1º dia
         const abertRes = await dbClient.query(`
@@ -3395,7 +3544,7 @@ app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
         logger.info(`Correcao distribuicao: arquivo=${id_arquivo} cod_item=${cod_item} abertura=${aberturaAjustada.toFixed(3)} vendas_antes=${resumo.vendas_antes.toFixed(3)} vendas_depois=${resumo.vendas_depois.toFixed(3)}`);
         res.json({ success: true, resumo });
     } catch (e) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('Erro ao corrigir distribuição:', e);
         res.status(500).json({ error: e.message });
     } finally {
@@ -3410,7 +3559,8 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: "Parâmetros incompletos (id_arquivo, cod_item)" });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
@@ -3442,7 +3592,7 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
 
         const dailyItems = resLmcConsolidado.rows;
         if (dailyItems.length === 0) {
-            await dbClient.query('ROLLBACK');
+            await safeRollback(dbClient);
             return res.status(404).json({ error: "Nenhum registro LMC encontrado." });
         }
 
@@ -3713,7 +3863,7 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         });
 
     } catch (error) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error("ERRO OTIMIZADOR V2:", error);
         res.status(500).json({ error: "Falha no motor matemático de recálculo." });
     } finally {
@@ -3749,14 +3899,15 @@ async function deleteSpedFile(arquivoId, dbClient) {
 
 app.delete('/api/periodo/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         await deleteSpedFile(arquivoId, dbClient);
         await dbClient.query('COMMIT');
         res.json({ message: "Período e dados residuais excluídos com sucesso." });
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('Erro ao excluir período:', error);
         res.status(500).send("Erro ao processar exclusão.");
     } finally {
@@ -3770,7 +3921,8 @@ app.post('/api/periodo/bulk-delete', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: "IDs não fornecidos para exclusão em lote." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         for (const id of ids) {
@@ -3779,7 +3931,7 @@ app.post('/api/periodo/bulk-delete', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.json({ message: `${ids.length} períodos excluídos com sucesso.` });
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('Erro na exclusão em lote:', error);
         res.status(500).json({ message: "Erro ao processar exclusão de alguns arquivos.", error: error.message });
     } finally {
@@ -3795,7 +3947,8 @@ app.get('/api/documentos/entradas/:id_arquivo', authMiddleware, async (req, res)
         return res.status(400).send({ message: "ID de arquivo inválido." });
     }
     logger.info(`Buscando documentos de entrada para o arquivo ID: ${arquivoId} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT doc.id, doc.num_doc, doc.dt_doc, doc.dt_e_s, doc.vl_doc, part.nome as nome_fornecedor,
@@ -3843,7 +3996,8 @@ app.get('/api/documentos/saidas/:id_arquivo', authMiddleware, async (req, res) =
     }
 
     logger.info(`Buscando documentos de SAÍDA para o arquivo ID: ${arquivoId} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT doc.id, doc.num_doc, doc.dt_doc, doc.dt_e_s, doc.vl_doc, part.nome as nome_fornecedor,
@@ -3880,7 +4034,8 @@ app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, 
     const limit = parseInt(req.query.limit) || 1000;
     const offset = parseInt(req.query.offset) || 0;
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // Buscamos o C100 com o Participante acoplado
         // E usamos subqueries (ou json_agg) para injetar o C190 e o C170 dentro de cada C100
@@ -3957,7 +4112,8 @@ app.get('/api/documentos/auditoria/saidas/:id_arquivo', authMiddleware, async (r
     const modelo = req.query.modelo || '55';
     if (isNaN(arquivoId)) return res.status(400).send({ message: "ID de arquivo inválido." });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         if (modelo === '65') {
             // MODELO 65 (NFC-e): Agrupado por CFOP + lista de NFs dentro de cada grupo
@@ -4067,14 +4223,15 @@ app.post('/api/empresas', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: 'CNPJ e Nome da Empresa são obrigatórios.' });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         
         // Verificar se CNPJ já existe
         const verificaCnpj = await dbClient.query('SELECT id FROM empresas WHERE cnpj = $1', [cnpj]);
         if (verificaCnpj.rows.length > 0) {
-            await dbClient.query('ROLLBACK');
+            await safeRollback(dbClient);
             return res.status(400).json({ message: 'Já existe uma empresa cadastrada com este CNPJ.' });
         }
 
@@ -4090,7 +4247,7 @@ app.post('/api/empresas', authMiddleware, async (req, res) => {
         logger.info(`Empresa criada com sucesso ID: ${rows[0].id}`);
         res.status(201).json(rows[0]);
     } catch (error) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('--- ERRO AO CRIAR EMPRESA ---', { message: error.message, stack: error.stack });
         res.status(500).json({ message: "Erro ao criar empresa no banco de dados.", error: error.message });
     } finally {
@@ -4107,7 +4264,8 @@ app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, async (req, res) =>
     }
 
     logger.info(`Buscando arquivos para a empresa ID: ${idEmpresa} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT id, nome_arquivo, periodo_apuracao, data_upload 
@@ -4136,14 +4294,15 @@ app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
     }
 
     logger.info(`Recebida requisição para excluir empresa ID: ${idEmpresa}, cascade: ${cascade}`);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
         // Busca o CNPJ antes de excluir para limpar lmc_tanques_config
         const empresaRes = await dbClient.query('SELECT cnpj FROM empresas WHERE id = $1', [idEmpresa]);
         if (empresaRes.rowCount === 0) {
-            await dbClient.query('ROLLBACK');
+            await safeRollback(dbClient);
             return res.status(404).json({ message: "Empresa não encontrada." });
         }
         const cnpjEmpresa = empresaRes.rows[0].cnpj;
@@ -4186,7 +4345,7 @@ app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
         logger.info(`Empresa ID: ${idEmpresa} excluída com sucesso.`);
         res.status(200).json({ message: 'Empresa excluída com sucesso.' });
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error(`Erro ao excluir empresa ID ${idEmpresa}:`, error);
         res.status(500).json({ message: "Erro ao excluir empresa.", error: error.message });
     } finally {
@@ -4203,7 +4362,8 @@ app.get('/api/resumo/:id_arquivo', async (req, res) => {
     }
 
     logger.info(`Buscando resumo gerencial para o arquivo ID: ${arquivoId} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const entradasQuery = `
             SELECT 
@@ -4368,7 +4528,8 @@ app.get('/api/estoque-resumo/:id_arquivo', async (req, res) => {
         return res.status(400).send({ message: "ID de arquivo inválido." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
 SELECT
@@ -4406,7 +4567,8 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, 
         return res.status(400).send({ message: "ID de arquivo inválido." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             WITH params AS (
@@ -4524,7 +4686,8 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, 
 app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     const { grupo } = req.query; // Captura o filtro de grupo enviado pelo frontend
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // 1. Buscar Informações da Empresa e Arquivo
         const fileQuery = `
@@ -4680,7 +4843,8 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (r
 // Buscar configurações de tanques para um CNPJ
 app.get('/api/lmc/tanques-config/:cnpj', authMiddleware, async (req, res) => {
     const cnpj = req.params.cnpj;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const result = await dbClient.query(
             'SELECT cod_item, capacidade FROM lmc_tanques_config WHERE cnpj = $1',
@@ -4700,7 +4864,8 @@ app.get('/api/lmc/tanques-sugeridos/:id_arquivo', authMiddleware, async (req, re
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const arqInfo = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id = $1', [arquivoId]);
         if (!arqInfo.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
@@ -4766,7 +4931,8 @@ app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: "Dados inválidos." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         for (const item of configs) {
@@ -4781,7 +4947,7 @@ app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.json({ message: "Configurações salvas com sucesso." });
     } catch (error) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('Erro ao salvar configurações de tanques:', error);
         res.status(500).json({ message: "Erro ao salvar configurações de tanques." });
     } finally {
@@ -4799,7 +4965,8 @@ app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {
     }
 
     logger.info(`Buscando resumo por participante para o arquivo ID: ${arquivoId} `);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // Query para Entradas (ind_oper = '0')
         const entradasQuery = `
@@ -4850,7 +5017,8 @@ app.get('/api/relatorio/dossie/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).send({ message: "ID inválido." });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // 1. Buscar dados do arquivo e empresa
         const arqRes = await dbClient.query(`
@@ -4940,7 +5108,8 @@ app.get('/api/relatorio/dossie/:id', authMiddleware, async (req, res) => {
 // --- ROTA DE EXPORTAÇÃO EXCEL (FASE 5) ---
 app.get('/api/relatorio/excel/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             SELECT e.*, a.nome_arquivo, emp.nome_empresa, emp.cnpj
@@ -5007,7 +5176,8 @@ app.post('/api/corrigir-item', authMiddleware, async (req, res) => {
 
     if (!tipo || !id_item || !novos_valores) return res.status(400).send({ message: "Dados incompletos." });
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
@@ -5033,7 +5203,7 @@ app.post('/api/corrigir-item', authMiddleware, async (req, res) => {
         logger.info(`Item ${id_item} (${tipo}) corrigido com sucesso.`);
         res.status(200).send({ message: "Correção aplicada com sucesso." });
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('Erro ao corrigir item:', error);
         res.status(500).send({ message: "Erro ao aplicar correção.", error: error.message });
     } finally {
@@ -5044,7 +5214,8 @@ app.post('/api/corrigir-item', authMiddleware, async (req, res) => {
 // --- ROTA DE CORREÇÃO EM MASSA (FASE 5) ---
 app.post('/api/corrigir-massa', authMiddleware, async (req, res) => {
     const { id_arquivo, regra_id, novos_valores } = req.body;
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
         logger.info(`Iniciando correção em massa para regra ${regra_id} no arquivo ${id_arquivo}`);
@@ -5072,7 +5243,7 @@ app.post('/api/corrigir-massa', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.status(200).send({ message: "Correção em massa aplicada com sucesso." });
     } catch (error) {
-        if (dbClient) await dbClient.query('ROLLBACK');
+        if (dbClient) await safeRollback(dbClient);
         logger.error('Erro na correção em massa:', error);
         res.status(500).json({ message: "Erro ao aplicar correção em massa.", error: error.message });
     } finally {
@@ -5087,7 +5258,8 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
         return res.status(400).json({ error: 'Parâmetros inválidos.' });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         // Busca todos os dias do produto ordenados
         const { rows } = await dbClient.query(`
@@ -5171,7 +5343,7 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.json({ success: true });
     } catch (e) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('Erro em ajustar-cascata:', e);
         res.status(500).json({ error: e.message });
     } finally {
@@ -5190,7 +5362,8 @@ app.post('/api/lmc/ajustar', authMiddleware, async (req, res) => {
         return res.status(400).send({ message: "Dados insuficientes para atualização." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         const query = `
             UPDATE lmc_movimentacao 
@@ -5221,7 +5394,8 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
         return res.status(400).send({ message: "Payload inválido para lote." });
     }
 
-    const dbClient = await pool.connect();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
@@ -5243,7 +5417,7 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
         await dbClient.query('COMMIT');
         res.status(200).send({ message: "Ajustes em lote salvos com sucesso!" });
     } catch (error) {
-        await dbClient.query('ROLLBACK');
+        await safeRollback(dbClient);
         logger.error('Erro ao ajustar LMC em lote:', error);
         res.status(500).send("Erro ao salvar os ajustes.");
     } finally {
@@ -5254,7 +5428,9 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
 // --- ROTA DE EXPORTAÇÃO RETIFICADA (FASE 10) ---
 app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
-    const dbClient = await pool.connect();
+    await acquireHeavySlot();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) { releaseHeavySlot(); return; }
 
     try {
         // 1. Buscar info do arquivo e ajustes
@@ -5491,11 +5667,48 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         const ultimoFechExportado = new Map(); // cod_item -> fech_fisico
 
         // Correção 4: continuidade INTERMENSAL — ABERT do 1º dia do mês = FECH do último dia
-        // do mês anterior do mesmo CNPJ. Sem isso, o 1º registro 1300 fica desprotegido
-        // (ultimoFechExportado começa vazio) e exporta abert errada quando estq_abert_ajustado
-        // é NULL ou quando o SPED original tem salto na abertura.
-        // Aplica TRIM no cod_item para suportar arquivos com padding em CHAR fixo.
+        // do mês anterior do mesmo CNPJ. Prioridade:
+        //   1) encerrantes_exportados (FECH realmente exportado no mês anterior)
+        //   2) lmc_movimentacao.fech_fisico (original, não ajustado — evita inflação)
+        //   3) lmc_movimentacao.fech_fisico_ajustado (só se original for NULL/0)
         if (cnpjArq && periodoApuracao) {
+            const competenciaAtual = periodoApuracao.substring(0, 7); // 'YYYY-MM'
+            const [anoAt, mesAt] = competenciaAtual.split('-').map(Number);
+            const mesAnterior = mesAt === 1
+                ? `${anoAt - 1}-12`
+                : `${anoAt}-${String(mesAt - 1).padStart(2, '0')}`;
+            const cnpjNum = cnpjArq.replace(/\D/g, '');
+
+            // Fonte 1: encerrantes realmente exportados (tabela encerrantes_exportados)
+            const resExportados = await dbClient.query(`
+                SELECT cod_item, fech_fisico_exportado AS fech
+                FROM encerrantes_exportados
+                WHERE cnpj_empresa = $1 AND competencia = $2
+            `, [cnpjNum, mesAnterior]);
+            resExportados.rows.forEach(r => {
+                const f = parseFloat(r.fech);
+                if (f > 0) ultimoFechExportado.set(r.cod_item.trim(), f);
+            });
+            if (resExportados.rowCount > 0) {
+                logger.info(`[Export 1300] Continuidade intermensal: ${resExportados.rowCount} fechamentos do mês anterior (encerrantes_exportados) para arquivo ${arquivoId}.`);
+            }
+
+            // Continuidade intermensal dos BICOS (1320): carrega VAL_FECHA do último dia do mês anterior
+            const resBicosAnt = await dbClient.query(`
+                SELECT num_bico, val_fecha
+                FROM encerrantes_bicos_exportados
+                WHERE cnpj_empresa = $1 AND competencia = $2
+            `, [cnpjNum, mesAnterior]);
+            resBicosAnt.rows.forEach(r => {
+                const v = parseFloat(r.val_fecha);
+                if (v > 0) encerrantesBombasMap[r.num_bico] = v;
+            });
+            if (resBicosAnt.rowCount > 0) {
+                logger.info(`[Export 1320] Continuidade bicos: ${resBicosAnt.rowCount} encerrantes do mês anterior para arquivo ${arquivoId}.`);
+            }
+
+            // Fonte 2 (fallback): lmc_movimentacao — apenas para produtos sem exportação anterior.
+            // Prioriza fech_fisico (original) sobre fech_fisico_ajustado (pode estar inflado).
             const fechMesAnt = await dbClient.query(`
                 WITH atual AS (
                     SELECT REGEXP_REPLACE($1,'[^0-9]','','g') AS cnpj_num,
@@ -5513,7 +5726,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 )
                 SELECT DISTINCT ON (TRIM(m.cod_item))
                     TRIM(m.cod_item) AS cod_item,
-                    COALESCE(m.fech_fisico_ajustado::numeric, m.fech_fisico::numeric, 0) AS fech
+                    CASE
+                        WHEN m.fech_fisico::numeric > 0 THEN m.fech_fisico::numeric
+                        ELSE COALESCE(m.fech_fisico_ajustado::numeric, 0)
+                    END AS fech
                 FROM lmc_movimentacao m
                 CROSS JOIN arquivo_anterior aa
                 WHERE m.id_sped_arquivo = aa.id
@@ -5521,18 +5737,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 ORDER BY TRIM(m.cod_item), m.data_mov DESC
             `, [cnpjArq, periodoApuracao, arquivoId]);
             fechMesAnt.rows.forEach(r => {
-                const f = parseFloat(r.fech);
-                if (f > 0) ultimoFechExportado.set(r.cod_item, f);
+                const codItem = r.cod_item.trim();
+                if (!ultimoFechExportado.has(codItem)) {
+                    const f = parseFloat(r.fech);
+                    if (f > 0) ultimoFechExportado.set(codItem, f);
+                }
             });
-            if (fechMesAnt.rowCount > 0) {
-                logger.info(`[Export 1300] Continuidade intermensal: pré-carregados ${fechMesAnt.rowCount} fechamentos do mês anterior para arquivo ${arquivoId}.`);
+            if (fechMesAnt.rowCount > 0 && resExportados.rowCount === 0) {
+                logger.info(`[Export 1300] Continuidade intermensal (fallback lmc): ${fechMesAnt.rowCount} fechamentos do mês anterior para arquivo ${arquivoId}.`);
             }
         }
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
         const pushLine = (l) => outputLines.push(l);
-        // Flag para pular o registro 0206 filho de um 0200 que foi omitido
+        // Flag para pular registros filhos (0205, 0206) de um 0200 que foi omitido
         let skipNext0206 = false;
 
         // ── Recálculo de E210 VL_RETENCAO_ST durante exportação ─────────────
@@ -5584,6 +5803,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             const { orig, novo } = pending1300;
 
+            // Correção ABERT: no primeiro dia do produto (sem propagação anterior),
+            // usar ABERT original do arquivo. estq_abert_ajustado do banco pode estar
+            // inflado por redistribuição antiga. Em dias subsequentes, ultimoFechExportado
+            // já existe e a propagação do escudo é legítima — não interferir.
+            if (!ultimoFechExportado.has(orig.codItem) && orig.abert > 0 && Math.abs(novo.abert - orig.abert) > 1) {
+                novo.abert = orig.abert;
+            }
+
             let sumAbert = 0, sumSaida = 0, sumPerda = 0, sumGanho = 0, sumEntr = 0;
 
             // PASS 1: Totalizadores REAIS blindados pós-escudo ANP
@@ -5599,8 +5826,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                 // Proporções baseadas no movimento original por estoque global
                 let pAbert = orig.abert > 0 ? (tOrigAbert / orig.abert) : (1 / pending1310s.length);
-                let pSaida = orig.saida > 0 ? (tOrigSaida / orig.saida) : (1 / pending1310s.length);
                 let pEntr = orig.entr > 0 ? (tOrigEntr / orig.entr) : (1 / pending1310s.length);
+
+                // SAÍDA: quando orig.saida = 0, distribuir apenas para tanques que
+                // possuem bicos (1320). Tanques de armazenamento puro (sem bicos)
+                // recebem saída = 0, evitando divergência 1320 x 1300.
+                let pSaida;
+                if (orig.saida > 0) {
+                    pSaida = tOrigSaida / orig.saida;
+                } else {
+                    const tanqueCod = tk[2];
+                    const temBicos = (pending1320s[tanqueCod] || []).length > 0;
+                    const tanquesComBicos = pending1310s.filter(t => (pending1320s[t[2]] || []).length > 0).length;
+                    pSaida = temBicos && tanquesComBicos > 0 ? (1 / tanquesComBicos) : 0;
+                }
+
                 // Correção 2: proporção inválida = tanques originais corrompidos (encerrantes como estoque)
                 if (pAbert < 0 || pAbert > 1) pAbert = 1 / pending1310s.length;
                 if (pSaida < 0 || pSaida > 1) pSaida = 1 / pending1310s.length;
@@ -5610,10 +5850,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                 if (isLast) {
                     nAbert = Number((novo.abert - sumAbert).toFixed(3));
-                    nSaida = Number((novo.saida - sumSaida).toFixed(3));
+                    nEntr = Number((novo.entr - sumEntr).toFixed(3));
+                    // Saída: se este tanque (último) não tem bicos E orig.saida era 0,
+                    // toda a saída já foi atribuída aos tanques com bicos → este recebe 0.
+                    const lastTanqueCod = tk[2];
+                    const lastTemBicos = (pending1320s[lastTanqueCod] || []).length > 0;
+                    if (!lastTemBicos && orig.saida <= 0 && sumSaida >= novo.saida - 0.01) {
+                        nSaida = 0;
+                    } else {
+                        nSaida = Number((novo.saida - sumSaida).toFixed(3));
+                    }
                     nPerda = Number((novo.perda - sumPerda).toFixed(3));
                     nGanho = Number((novo.ganho - sumGanho).toFixed(3));
-                    nEntr = Number((novo.entr - sumEntr).toFixed(3));
 
                     // ESCUDO FINAL ANP NO EXPORT
                     let baseTanque = nAbert + nEntr;
@@ -5664,6 +5912,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             realDisp = Number((realAbert + realEntr).toFixed(3));
             realEscr = Number((realDisp - realSaida).toFixed(3));
 
+            // Fix ABERT: primeiro dia usa ABERT original, demais usam propagação.
+            // Isso é feito AQUI (pós PASS-1) porque é a seção que SABEMOS executar
+            // com código atual, contornando qualquer cache FUSE no mapAjustes.
+            if (!ultimoFechExportado.has(orig.codItem) && orig.abert > 0) {
+                // Primeiro dia: ABERT = original do arquivo
+                realAbert = orig.abert;
+            }
+            // Para dias subsequentes: realAbert vem do PASS 1 (usando novo.abert
+            // que já tem o ultimoFechExportado via propagação).
+
             // 2. Escudo ANP: calcula FECH seguro (PERDA/GANHO ≤ 0.55%)
             const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
             let fechEscudo = blindMae.fisico;
@@ -5701,8 +5959,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (realGanho < 0) realGanho = 0;
             // ──────────────────────────────────────────────────────────────
 
-            // PASS 2: Sobrescreve o 1300 Mãe com a soma purificada e imprime
+            // PASS 2: Sobrescreve o 1300 Mãe — usa valores recalculados
             let fields1300 = pending1300.line.split('|');
+            // Fix ABERT: no 1º dia, usa soma dos ABERTs originais dos 1310 (imune ao FUSE cache)
+            if (!ultimoFechExportado.has(orig.codItem) && pending1310s.length > 0) {
+                let _somaAbOrig = 0;
+                for (const _tk of pending1310s) _somaAbOrig += parseFloat((_tk[3] || '0').replace(',', '.'));
+                if (_somaAbOrig > 0 && realAbert > _somaAbOrig * 1.3) {
+                    realAbert = Number(_somaAbOrig.toFixed(3));
+                    realDisp = Number((realAbert + realEntr).toFixed(3));
+                    realEscr = Number((realDisp - realSaida).toFixed(3));
+                    const _bf = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
+                    const _af = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0) ? Number(novo.fisicoDb.toFixed(3)) : null;
+                    if (_af !== null && realEscr > 0 && (Math.abs(_af - realEscr) / (_af > 0 ? _af : 1) * 100) <= 0.60) {
+                        realFisico = _af;
+                    } else { realFisico = _bf.fisico; }
+                    if (realFisico >= realEscr) { realPerda = 0; realGanho = Number((realFisico - realEscr).toFixed(3)); }
+                    else { realPerda = Number((realEscr - realFisico).toFixed(3)); realGanho = 0; }
+                }
+            }
             fields1300[4] = realAbert.toFixed(3).replace('.', ',');
             fields1300[5] = realEntr.toFixed(3).replace('.', ',');
             fields1300[6] = realDisp.toFixed(3).replace('.', ',');
@@ -5712,14 +5987,54 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             fields1300[10] = realGanho.toFixed(3).replace('.', ',');
             fields1300[11] = realFisico.toFixed(3).replace('.', ',');
 
-            pushLine(fields1300.join('|'));
+            // ── PASS 1.5: Redistribuir delta FECH entre tanques 1310 ─────────
+            // O PASS 2 pode ter alterado realFisico (via âncora/escudo ANP)
+            // sem atualizar os tanques. Isso gera 1300.FECH != sum(1310.FECH).
+            // Aqui redistribuímos a diferença proporcionalmente para que batem.
+            if (pending1310s.length > 0) {
+                let somaFisicoTanques = 0;
+                for (const tk of pending1310s) somaFisicoTanques += tk._curated.nFisico;
+                const deltaFisico = realFisico - somaFisicoTanques;
 
-            // Correção 3: armazenar FECH exportado para propagação de continuidade
-            if (pending1300.orig && pending1300.orig.codItem && realFisico > 0) {
-                ultimoFechExportado.set(pending1300.orig.codItem, realFisico);
+                if (Math.abs(deltaFisico) > 0.001) {
+                    let somaRedist = 0;
+                    for (let i = 0; i < pending1310s.length; i++) {
+                        const tk = pending1310s[i];
+                        const isLast = (i === pending1310s.length - 1);
+
+                        let ajuste;
+                        if (isLast) {
+                            ajuste = Number((deltaFisico - somaRedist).toFixed(3));
+                        } else {
+                            const peso = somaFisicoTanques > 0
+                                ? (tk._curated.nFisico / somaFisicoTanques)
+                                : (1 / pending1310s.length);
+                            ajuste = Number((deltaFisico * peso).toFixed(3));
+                            somaRedist += ajuste;
+                        }
+
+                        tk._curated.nFisico = Math.max(0, Number((tk._curated.nFisico + ajuste).toFixed(3)));
+
+                        // Recalcular PERDA/GANHO para manter fórmula PVA: FECH = ESCR - PERDA + GANHO
+                        if (tk._curated.nFisico >= tk._curated.nEscr) {
+                            tk._curated.nPerda = 0;
+                            tk._curated.nGanho = Number((tk._curated.nFisico - tk._curated.nEscr).toFixed(3));
+                        } else {
+                            tk._curated.nPerda = Number((tk._curated.nEscr - tk._curated.nFisico).toFixed(3));
+                            tk._curated.nGanho = 0;
+                        }
+                    }
+                }
             }
+            // ──────────────────────────────────────────────────────────────────
 
-            // PASS 3: Imprime os tanques 1310 e a cascata de Bicos 1320 atrelados
+            // PASS 3: Finaliza tanques 1310, acumula somas para reescrever 1300
+            // A 1300 é emitida DEPOIS dos 1310 com a soma exata, eliminando
+            // qualquer divergência por arredondamento ou saneador.
+            let soma1310 = { abert: 0, entr: 0, disp: 0, saida: 0, escr: 0, perda: 0, ganho: 0, fisico: 0 };
+            const linhas1310 = []; // buffer para emitir depois da 1300
+            const bicosProcessadosNesteFlush = new Set(); // evita contar bico duplicado 2x
+
             for (let i = 0; i < pending1310s.length; i++) {
                 let tk = pending1310s[i];
                 let curated = tk._curated;
@@ -5747,6 +6062,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     tkFisico = Number((curated.nEscr - tkPerda + tkGanho).toFixed(3));
                 }
 
+                // Acumula somas dos valores FINAIS dos tanques
+                soma1310.abert += curated.nAbert;
+                soma1310.entr += curated.nEntr;
+                soma1310.disp += curated.nDisp;
+                soma1310.saida += curated.nSaida;
+                soma1310.escr += curated.nEscr;
+                soma1310.perda += tkPerda;
+                soma1310.ganho += tkGanho;
+                soma1310.fisico += tkFisico;
+
                 tk[3] = curated.nAbert.toFixed(3).replace('.', ',');
                 tk[4] = curated.nEntr.toFixed(3).replace('.', ',');
                 tk[5] = curated.nDisp.toFixed(3).replace('.', ',');
@@ -5766,12 +6091,24 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     tk[11] = '';
                 }
 
-                pushLine(tk.join('|'));
+                linhas1310.push(tk.join('|'));
 
                 // Sincronização e gravação do 1320
                 let bicosDesteTanque = pending1320s[tanqueCod] || [];
+
+                // Calcula a soma REAL dos VOL_VENDAS originais dos bicos.
+                // Usar essa soma (não tOrigSaida do 1310) como base do fator evita
+                // que encerrantes corrompidos (ex: dígito faltante) propaguem volumes
+                // absurdos — a proporção de cada bico no total é preservada.
+                let somaBicosOriginal = 0;
+                for (let b = 0; b < bicosDesteTanque.length; b++) {
+                    const v = parseFloat((bicosDesteTanque[b][11] || '0').replace(',', '.'));
+                    if (v > 0) somaBicosOriginal += v;
+                }
                 let fatorOtimizacao = 1;
-                if (curated.tOrigSaida > 0) {
+                if (somaBicosOriginal > 0) {
+                    fatorOtimizacao = curated.nSaida / somaBicosOriginal;
+                } else if (curated.tOrigSaida > 0) {
                     fatorOtimizacao = curated.nSaida / curated.tOrigSaida;
                 }
 
@@ -5782,35 +6119,117 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                     let bicoNum = bFields[2];
 
-                    let volBicoOriginal = parseFloat((bFields[11] || '0').replace(',', '.'));
+                    let encFechaOrig = parseFloat((bFields[8] || '0').replace(',', '.'));
+                    let encAbertOrig = parseFloat((bFields[9] || '0').replace(',', '.'));
+                    let volAferiOrig = parseFloat((bFields[10] || '0').replace(',', '.'));
+                    let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
+
+                    // 1) Entrada fantasma (todos os campos zero): pular cálculo,
+                    //    mas preencher ABERT/FECHA com encerrante atual da cadeia
+                    //    para não quebrar continuidade no arquivo de saída.
+                    if (encFechaOrig === 0 && encAbertOrig === 0 && volAferiOrig === 0 && volVendasOrig === 0) {
+                        const encAtual = encerrantesBombasMap[bicoNum];
+                        if (encAtual !== undefined && encAtual > 0) {
+                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                        }
+                        linhas1310.push(bFields.join('|'));
+                        continue;
+                    }
+
+                    // 2) Duplicata real: mesmo bico já processado neste flush (mesmo dia,
+                    //    outro produto). O encerrante já foi contabilizado → zerar volume
+                    //    e usar encerrantes atuais para não inflar a cadeia.
+                    if (bicosProcessadosNesteFlush.has(bicoNum)) {
+                        bFields[11] = '0,000';
+                        bFields[10] = '0,000';
+                        const encAtual = encerrantesBombasMap[bicoNum] || 0;
+                        bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                        bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                        linhas1310.push(bFields.join('|'));
+                        continue;
+                    }
+
+                    let volBicoOriginal = volVendasOrig;
                     let volBicoCalculado = 0;
 
                     if (isUltimoBico) {
                         volBicoCalculado = Number((curated.nSaida - volBicoAcumulado).toFixed(3));
                         if (volBicoCalculado < 0) volBicoCalculado = 0;
                     } else {
-                        volBicoCalculado = Number((volBicoOriginal * fatorOtimizacao).toFixed(3));
+                        volBicoCalculado = Number(((volBicoOriginal > 0 ? volBicoOriginal : 0) * fatorOtimizacao).toFixed(3));
                         volBicoAcumulado += volBicoCalculado;
                     }
 
-                    bFields[11] = volBicoCalculado.toFixed(3).replace('.', ',');
+                    // Saneador: volume de venda nunca pode ser negativo
+                    if (volBicoCalculado < 0) volBicoCalculado = 0;
 
-                    let volAferido = parseFloat((bFields[10] || '0').replace(',', '.'));
-                    let encInicialOriginal = parseFloat((bFields[9] || '0').replace(',', '.'));
+                    let volAferido = volAferiOrig;
                     let encInicialReal = encerrantesBombasMap[bicoNum] !== undefined
                         ? encerrantesBombasMap[bicoNum]
-                        : encInicialOriginal;
+                        : encAbertOrig;
 
-                    bFields[9] = encInicialReal.toFixed(3).replace('.', ',');
+                    // Aritmética inteira (mililitros) para eliminar erro de ponto flutuante.
+                    const mlAbert = Math.round(encInicialReal * 1000);
+                    const mlVendas = Math.round(volBicoCalculado * 1000);
+                    const mlAferi = Math.round(volAferido * 1000);
+                    let mlFecha = mlAbert + mlVendas + mlAferi;
 
-                    let encFinalNovo = Number((encInicialReal + volBicoCalculado + volAferido).toFixed(3));
+                    // Simula o cálculo do validador (float): FECHA - ABERT - AFERI.
+                    // Se der negativo (-0.000), bumpa FECHA em 0.001 para corrigir.
+                    let fechaF = mlFecha / 1000;
+                    let abertF = mlAbert / 1000;
+                    let aferiF = mlAferi / 1000;
+                    if ((fechaF - abertF - aferiF) < 0) {
+                        mlFecha += 1;
+                        fechaF = mlFecha / 1000;
+                    }
+
+                    const encFinalNovo = fechaF;
+                    const volVendasFinal = (mlFecha - mlAbert - mlAferi) / 1000;
+
+                    bFields[9] = abertF.toFixed(3).replace('.', ',');
                     bFields[8] = encFinalNovo.toFixed(3).replace('.', ',');
+                    bFields[11] = (volVendasFinal < 0 ? 0 : volVendasFinal).toFixed(3).replace('.', ',');
 
                     encerrantesBombasMap[bicoNum] = encFinalNovo;
+                    bicosProcessadosNesteFlush.add(bicoNum);
 
-                    pushLine(bFields.join('|'));
+                    linhas1310.push(bFields.join('|'));
                 }
             }
+
+            // ── PASS 4: Emitir 1300 com soma exata dos 1310 finalizados ──────
+            // Garante 1300 = Σ(1310) sem divergência de arredondamento.
+            if (pending1310s.length > 0) {
+                // Arredonda as somas para 3 casas
+                for (const k of Object.keys(soma1310)) soma1310[k] = Number(soma1310[k].toFixed(3));
+
+                // NÃO aplicar escudo ANP aqui: cada tanque já tem escudo individual
+                // (PASS 1, linhas de blindagem per-tank). Aplicar novamente na soma
+                // quebraria 1300 ≠ Σ(1310), que é justamente o bug sendo corrigido.
+
+                fields1300[4] = soma1310.abert.toFixed(3).replace('.', ',');
+                fields1300[5] = soma1310.entr.toFixed(3).replace('.', ',');
+                fields1300[6] = soma1310.disp.toFixed(3).replace('.', ',');
+                fields1300[7] = soma1310.saida.toFixed(3).replace('.', ',');
+                fields1300[8] = soma1310.escr.toFixed(3).replace('.', ',');
+                fields1300[9] = soma1310.perda.toFixed(3).replace('.', ',');
+                fields1300[10] = soma1310.ganho.toFixed(3).replace('.', ',');
+                fields1300[11] = soma1310.fisico.toFixed(3).replace('.', ',');
+
+                realFisico = soma1310.fisico; // atualiza para propagação de continuidade
+            }
+
+            pushLine(fields1300.join('|'));
+
+            // Correção 3: armazenar FECH exportado para propagação de continuidade
+            if (pending1300.orig && pending1300.orig.codItem && realFisico > 0) {
+                ultimoFechExportado.set(pending1300.orig.codItem, realFisico);
+            }
+
+            // Emitir linhas 1310 e 1320 (já calculadas e bufferizadas)
+            for (const linha of linhas1310) pushLine(linha);
 
             pending1300 = null;
             pending1310s = [];
@@ -5856,6 +6275,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     continue;
                 }
                 skipNext0206 = false;
+                pushLine(line);
+                continue;
+            }
+
+            // --- BLOCO 0205 (FILHO DO 0200 — omitir se o pai foi omitido) ---
+            if (fields.length >= 2 && fields[1] === '0205') {
+                if (skipNext0206) continue; // pai 0200 foi omitido → pular 0205 órfão
                 pushLine(line);
                 continue;
             }
@@ -6343,6 +6769,53 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Descarregar buffer residual se o arquivo terminar em um bloco 1310 ajustado
         flush1300Group();
 
+        // ── Persistir fechamentos realmente exportados (continuidade intermensal) ──
+        // Salva o FECH_FISICO final de cada produto na tabela encerrantes_exportados.
+        // Na exportação do mês seguinte, esses valores terão prioridade sobre lmc_movimentacao.
+        if (cnpjArq && periodoIniArq && ultimoFechExportado.size > 0) {
+            const compExp = `${periodoIniArq.substring(4,8)}-${periodoIniArq.substring(2,4)}`; // YYYY-MM
+            const cnpjNum = cnpjArq.replace(/\D/g, '');
+            for (const [codItem, fech] of ultimoFechExportado.entries()) {
+                try {
+                    await dbClient.query(`
+                        INSERT INTO encerrantes_exportados
+                            (id_sped_arquivo, cnpj_empresa, competencia, cod_item, fech_fisico_exportado)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (cnpj_empresa, competencia, cod_item)
+                        DO UPDATE SET fech_fisico_exportado = EXCLUDED.fech_fisico_exportado,
+                                      dt_exportacao = NOW(),
+                                      id_sped_arquivo = EXCLUDED.id_sped_arquivo
+                    `, [arquivoId, cnpjNum, compExp, codItem, fech]);
+                } catch (eEnc) {
+                    logger.warn(`[Export] Erro ao salvar encerrante exportado ${codItem}:`, eEnc.message);
+                }
+            }
+            logger.info(`[Export 1300] Salvos ${ultimoFechExportado.size} fechamentos exportados em encerrantes_exportados (${compExp}).`);
+        }
+
+        // ── Persistir encerrantes finais dos BICOS (continuidade intermensal 1320) ──
+        if (cnpjArq && periodoIniArq && Object.keys(encerrantesBombasMap).length > 0) {
+            const compExp = `${periodoIniArq.substring(4,8)}-${periodoIniArq.substring(2,4)}`;
+            const cnpjNum = cnpjArq.replace(/\D/g, '');
+            let savedBicos = 0;
+            for (const [numBico, valFecha] of Object.entries(encerrantesBombasMap)) {
+                try {
+                    await dbClient.query(`
+                        INSERT INTO encerrantes_bicos_exportados
+                            (cnpj_empresa, competencia, num_bico, val_fecha)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (cnpj_empresa, competencia, num_bico)
+                        DO UPDATE SET val_fecha = EXCLUDED.val_fecha,
+                                      dt_exportacao = NOW()
+                    `, [cnpjNum, compExp, numBico, valFecha]);
+                    savedBicos++;
+                } catch (eBico) {
+                    logger.warn(`[Export 1320] Erro ao salvar encerrante bico ${numBico}:`, eBico.message);
+                }
+            }
+            logger.info(`[Export 1320] Salvos ${savedBicos} encerrantes de bicos em encerrantes_bicos_exportados (${compExp}).`);
+        }
+
         // ── Fix C (pós-loop): injeta 0150 para CNPJs do 1601 que estão ausentes ──
         if (map1601Participantes.size > 0) {
             // Busca CNPJs dos participantes do 1601 na tabela sped_participantes
@@ -6435,6 +6908,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         }
     } finally {
         dbClient.release();
+        releaseHeavySlot();
     }
 });
 

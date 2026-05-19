@@ -28,6 +28,15 @@ const terminalLogs = ref([]);
 const terminalContainer = ref(null);
 let logEventSource = null;
 
+// --- Alerta de LMC incompleto (Registro 1300 com dias faltantes) ---
+const avisosLmcUpload = ref(null);
+const showLmcLacunaModal = ref(false);
+
+// --- Alerta de sequência de período ---
+const showSequenciaModal = ref(false);
+const sequenciaInfo = ref(null);
+let pendingUploadFile = null;
+
 function connectToLogStream() {
     if (logEventSource) logEventSource.close();
     terminalLogs.value = [{ msg: 'Iniciando conexão com o Motor...', type: 'sys' }];
@@ -97,7 +106,9 @@ const infractions = ref({
     c100_sem_c190: [],
     c100_saltos_enumeracao: [],
     h010_divergente_1300: [],
-    cfop_suspeitos: []
+    cfop_suspeitos: [],
+    bicos_duplicados_1320: [],
+    chv_nfe_cnpj_divergente: []
 });
 const loadingSintaxe = ref(false);
 const totalInfractions = computed(() => {
@@ -406,7 +417,9 @@ const lmcKpis = computed(() => {
 });
 
 async function openLmcConfig() {
-    const produtosNoLmc = [...new Set(lmcData.value.map(d => d.cod_item))];
+    // Apenas combustíveis com registro real no 1300 (has_lmc_row = true)
+    // Exclui aditivos, filtros e lubrificantes que aparecem só por NF-e de compra
+    const produtosNoLmc = [...new Set(lmcData.value.filter(d => d.has_lmc_row === true).map(d => d.cod_item))];
 
     // Buscar sugestões de capacidade extraídas dos registros 1310 do SPED original
     let sugestoes = [];
@@ -445,9 +458,13 @@ async function saveLmcConfig() {
     savingLmcConfig.value = true;
     try {
         const token = localStorage.getItem('token');
+        const configsSanitizadas = tankConfigs.value.map(c => ({
+            cod_item: c.cod_item,
+            capacidade: (c.capacidade === '' || c.capacidade === null || isNaN(c.capacidade)) ? null : Number(c.capacidade)
+        }));
         await axios.post(`${API_BASE_URL}/api/lmc/tanques-config`, {
             cnpj: empresaSelecionada.value.cnpj,
-            configs: tankConfigs.value
+            configs: configsSanitizadas
         }, {
             headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
@@ -723,11 +740,116 @@ function openCorrection(erro) {
 const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 const formatNumber = (value) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 3 }).format(value);
 
+// --- Verificação de Sequência de Período ---
+function parseSpedHeader(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = e.target.result;
+            const firstLine = text.split('\n')[0] || '';
+            const parts = firstLine.split('|');
+            // |0000|...|DT_INI|DT_FIN|NOME|CNPJ|...
+            if (parts[1] === '0000' && parts.length > 7) {
+                const dtIni = parts[3] || ''; // DDMMYYYY
+                const cnpj = (parts[7] || '').replace(/\D/g, '');
+                resolve({ dtIni, cnpj });
+            } else {
+                resolve(null);
+            }
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsText(file.slice(0, 2000), 'latin1');
+    });
+}
+
+async function verificarSequenciaPeriodo(file) {
+    const header = await parseSpedHeader(file);
+    if (!header || !header.cnpj || !header.dtIni) return true; // não conseguiu ler, prossegue
+
+    // Extrai mês/ano do arquivo sendo carregado
+    const mesNovo = parseInt(header.dtIni.substring(2, 4));
+    const anoNovo = parseInt(header.dtIni.substring(4, 8));
+    if (!mesNovo || !anoNovo) return true;
+
+    // Busca arquivos da empresa pelo CNPJ
+    try {
+        const token = localStorage.getItem('token');
+        const resEmpresas = await axios.get(`${API_BASE_URL}/api/empresas?busca=${header.cnpj}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        const empresa = resEmpresas.data?.find(e => e.cnpj?.replace(/\D/g, '') === header.cnpj);
+        if (!empresa) return true; // empresa nova, sem histórico
+
+        const resArquivos = await axios.get(`${API_BASE_URL}/api/arquivos/${empresa.id}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        const arquivos = resArquivos.data || [];
+        if (arquivos.length === 0) return true; // nenhum arquivo anterior
+
+        // Encontra o último período carregado
+        const periodos = arquivos.map(a => {
+            const p = a.periodo_apuracao || '';
+            const m = parseInt(p.substring(5, 7));
+            const y = parseInt(p.substring(0, 4));
+            return { mes: m, ano: y, label: p };
+        }).filter(p => p.mes && p.ano).sort((a, b) => a.ano !== b.ano ? b.ano - a.ano : b.mes - a.mes);
+
+        if (periodos.length === 0) return true;
+        const ultimo = periodos[0];
+
+        // Calcula o mês esperado (último + 1)
+        const mesEsperado = ultimo.mes === 12 ? 1 : ultimo.mes + 1;
+        const anoEsperado = ultimo.mes === 12 ? ultimo.ano + 1 : ultimo.ano;
+
+        if (mesNovo === mesEsperado && anoNovo === anoEsperado) return true; // sequencial
+
+        // Não é sequencial — exibir alerta
+        const meses = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        sequenciaInfo.value = {
+            empresa: empresa.nome_empresa,
+            ultimoPeriodo: `${meses[ultimo.mes]}/${ultimo.ano}`,
+            novoPeriodo: `${meses[mesNovo]}/${anoNovo}`,
+            esperado: `${meses[mesEsperado]}/${anoEsperado}`
+        };
+        return false; // não sequencial
+    } catch (e) {
+        console.warn('Erro ao verificar sequência:', e);
+        return true; // em caso de erro, prossegue
+    }
+}
+
 // --- Processamento ---
 async function handleSpedFile(event) {
     const file = event.target.files[0];
     if (!file) return;
 
+    // Verificação de sequência de período
+    status.value = 'Verificando sequência de período...';
+    const isSequencial = await verificarSequenciaPeriodo(file);
+    if (!isSequencial) {
+        pendingUploadFile = file;
+        showSequenciaModal.value = true;
+        status.value = 'Aguardando confirmação...';
+        return;
+    }
+
+    await executarUpload(file);
+}
+
+function confirmarUploadForaSequencia() {
+    showSequenciaModal.value = false;
+    const file = pendingUploadFile;
+    pendingUploadFile = null;
+    if (file) executarUpload(file);
+}
+
+function cancelarUploadForaSequencia() {
+    showSequenciaModal.value = false;
+    pendingUploadFile = null;
+    status.value = 'Upload cancelado — período fora de sequência.';
+}
+
+async function executarUpload(file) {
     isUploading.value = true;
     uploadProgress.value = 0;
     uploadMessage.value = `Subindo ${file.name}...`;
@@ -779,9 +901,17 @@ async function handleSpedFile(event) {
 
         idArquivoSped.value = response.data.id_sped_arquivo;
         const fileInfo = response.data.fileInfo;
-        
+
         setArquivoInfo({ id: idArquivoSped.value, nome: file.name, cnpj: fileInfo.cnpj_empresa, periodo: fileInfo.periodo_apuracao });
         setEmpresaSelecionada({ id: fileInfo.id_empresa, nome_empresa: fileInfo.nome_empresa, cnpj: fileInfo.cnpj_empresa, uf: fileInfo.uf });
+
+        // Alerta de LMC incompleto (dias do período sem Registro 1300, por produto).
+        if (response.data.avisos_lmc?.tem_lacuna) {
+            avisosLmcUpload.value = response.data.avisos_lmc;
+            showLmcLacunaModal.value = true;
+        } else {
+            avisosLmcUpload.value = null;
+        }
 
         status.value = `Motor de Auditoria em execução...`;
         
@@ -1022,6 +1152,22 @@ const getStatusColor = (score) => {
           </div>
         </div>
       </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4" v-if="(infractions.chv_nfe_cnpj_divergente?.length || 0) + (infractions.bicos_duplicados_1320?.length || 0) > 0">
+        <div v-if="infractions.chv_nfe_cnpj_divergente?.length" class="bg-white p-6 rounded-3xl border border-orange-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500">🔑</div>
+          <div>
+            <p class="text-[10px] font-black text-orange-500 uppercase">CNPJ Chave Divergente</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.chv_nfe_cnpj_divergente.length }}</p>
+          </div>
+        </div>
+        <div v-if="infractions.bicos_duplicados_1320?.length" class="bg-white p-6 rounded-3xl border border-purple-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-500">⛽</div>
+          <div>
+            <p class="text-[10px] font-black text-purple-500 uppercase">Bicos Duplicados</p>
+            <p class="text-xl font-black text-slate-900">{{ infractions.bicos_duplicados_1320.length }}</p>
+          </div>
+        </div>
+      </div>
 
       <!-- Detalhamento das Infrações -->
       <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1082,6 +1228,38 @@ const getStatusColor = (score) => {
                     <span>LMC: <span class="font-bold">{{ formatNumber(err.lmc) }} L</span></span>
                     <span>Inventário: <span class="font-bold">{{ formatNumber(err.inventario) }} L</span></span>
                     <span class="text-red-500">Diferença: {{ formatNumber(err.diff) }} L</span>
+                 </div>
+              </div>
+           </div>
+
+           <!-- CNPJ Divergente na Chave NF-e/NFC-e -->
+           <div v-if="infractions.chv_nfe_cnpj_divergente && infractions.chv_nfe_cnpj_divergente.length" class="p-6 bg-orange-50/20">
+              <h4 class="text-xs font-black text-orange-600 uppercase mb-4 flex items-center gap-2">🔑 CNPJ Divergente na Chave NF-e/NFC-e</h4>
+              <div class="p-4 bg-white border border-orange-100 rounded-2xl text-xs mb-3">
+                <p class="font-bold text-orange-700 mb-2">
+                  {{ infractions.chv_nfe_cnpj_divergente.length }} documentos de emissao propria com CNPJ diferente do informante na chave de acesso.
+                </p>
+                <div class="flex gap-6 text-[10px] text-slate-600">
+                  <span>NFC-e: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NFC-e').length }}</span></span>
+                  <span>NF-e: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NF-e').length }}</span></span>
+                  <span>CNPJ na chave: <span class="font-bold">{{ [...new Set(infractions.chv_nfe_cnpj_divergente.map(e => e.cnpj_chave))].join(', ') }}</span></span>
+                  <span>CNPJ informante: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente[0]?.cnpj_informante }}</span></span>
+                </div>
+                <p class="text-[10px] text-orange-500 mt-2 font-semibold">O sistema corrigira automaticamente ao exportar o SPED.</p>
+              </div>
+           </div>
+
+           <!-- Bicos Duplicados entre Tanques -->
+           <div v-if="infractions.bicos_duplicados_1320 && infractions.bicos_duplicados_1320.length" class="p-6 bg-purple-50/20">
+              <h4 class="text-xs font-black text-purple-600 uppercase mb-4 flex items-center gap-2">⛽ Bico Duplicado entre Tanques (1320)</h4>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                 <div v-for="err in infractions.bicos_duplicados_1320.slice(0, 10)" :key="err.data + err.bico" class="p-3 bg-white border border-purple-100 rounded-xl text-[11px]">
+                    <span class="font-bold">{{ err.data }}</span> — {{ err.produto }} — Bico <span class="font-bold">{{ err.bico }}</span>
+                    <div class="text-[10px] text-slate-500 mt-1">Tanques: {{ err.tanques }} | Volumes: {{ err.volumes }}</div>
+                    <div class="text-[10px] text-purple-500 font-semibold mt-1">Erro no arquivo original — bico registrado em dois tanques.</div>
+                 </div>
+                 <div v-if="infractions.bicos_duplicados_1320.length > 10" class="p-3 bg-purple-50 rounded-xl text-[11px] text-purple-600 font-bold flex items-center justify-center">
+                    ... e mais {{ infractions.bicos_duplicados_1320.length - 10 }} ocorrencias
                  </div>
               </div>
            </div>
@@ -2042,6 +2220,107 @@ const getStatusColor = (score) => {
                 <button @click="saveLmcConfig" :disabled="savingLmcConfig" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
                     <Loader2 v-if="savingLmcConfig" class="w-4 h-4 animate-spin"/>
                     {{ savingLmcConfig ? 'SALVANDO...' : 'SALVAR CAPACIDADES' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de LMC Incompleto: dias do período sem Registro 1300 -->
+    <div v-if="showLmcLacunaModal && avisosLmcUpload" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-5 max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-start gap-4">
+                <div class="flex items-start gap-3">
+                    <div class="text-2xl">⚠️</div>
+                    <div>
+                        <h3 class="text-xl font-black text-amber-700">LMC Incompleto Detectado</h3>
+                        <p class="text-xs text-slate-500 mt-1 font-medium">
+                            Período <span class="font-mono font-bold">{{ avisosLmcUpload.periodo }}</span> ·
+                            {{ avisosLmcUpload.total_dias_periodo }} dias esperados
+                        </p>
+                    </div>
+                </div>
+                <button @click="showLmcLacunaModal = false" class="w-9 h-9 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 leading-relaxed">
+                O arquivo SPED foi importado, mas o <b>Registro 1300 (LMC)</b> não cobre todos os dias do período.
+                Isso costuma indicar que o LMC parou de ser lançado antes do fim do mês.
+                Verifique na tabela abaixo quais combustíveis estão com dias faltantes — corrija no SPED de origem
+                e reimporte para evitar erros de continuidade na auditoria.
+            </div>
+
+            <div class="space-y-2">
+                <div v-for="prod in avisosLmcUpload.produtos.filter(p => p.dias_faltantes.length > 0)" :key="prod.cod_item"
+                     class="border border-slate-200 rounded-2xl p-4 space-y-2">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="text-sm font-black text-slate-800">{{ prod.descr_item }}</div>
+                            <div class="text-[10px] font-mono text-slate-400">{{ prod.cod_item }}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs font-black text-rose-600">{{ prod.dias_faltantes.length }} dia(s) sem LMC</div>
+                            <div class="text-[10px] text-slate-400">
+                                Último lançamento: <span class="font-mono">{{ prod.ultimo_dia_com_lmc || '—' }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                        <span v-for="d in prod.dias_faltantes" :key="d"
+                              class="text-[10px] font-mono bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">
+                            {{ d.split('-').reverse().join('/') }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+                <button @click="showLmcLacunaModal = false"
+                        class="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg hover:bg-slate-800 transition-all uppercase tracking-widest text-xs">
+                    Entendi, continuar auditoria
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Período Fora de Sequência -->
+    <div v-if="showSequenciaModal && sequenciaInfo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-5">
+            <div class="flex items-start gap-3">
+                <div class="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl shrink-0">⚠️</div>
+                <div>
+                    <h3 class="text-lg font-black text-amber-700">Período Fora de Sequência</h3>
+                    <p class="text-xs text-slate-500 mt-1 font-medium">{{ sequenciaInfo.empresa }}</p>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-slate-500 font-medium">Último período carregado:</span>
+                    <span class="font-black text-slate-800">{{ sequenciaInfo.ultimoPeriodo }}</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-slate-500 font-medium">Período esperado:</span>
+                    <span class="font-black text-emerald-600">{{ sequenciaInfo.esperado }}</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-slate-500 font-medium">Período do arquivo:</span>
+                    <span class="font-black text-amber-700">{{ sequenciaInfo.novoPeriodo }}</span>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-500 leading-relaxed">
+                O arquivo que você está carregando não é o mês seguinte ao último período processado.
+                Isso pode causar quebra de continuidade no LMC e divergências intermensais.
+            </p>
+
+            <div class="flex gap-3 pt-1">
+                <button @click="cancelarUploadForaSequencia"
+                        class="flex-1 py-3.5 bg-slate-100 text-slate-700 font-bold rounded-2xl hover:bg-slate-200 transition-all text-xs uppercase tracking-wider">
+                    Cancelar
+                </button>
+                <button @click="confirmarUploadForaSequencia"
+                        class="flex-1 py-3.5 bg-amber-500 text-white font-black rounded-2xl shadow-lg hover:bg-amber-600 transition-all text-xs uppercase tracking-wider">
+                    Carregar mesmo assim
                 </button>
             </div>
         </div>

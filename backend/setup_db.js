@@ -256,6 +256,35 @@ async function setupDatabase() {
             }
         }
 
+        // Tabela para persistir fechamentos realmente exportados (continuidade intermensal)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS encerrantes_exportados (
+                id              SERIAL PRIMARY KEY,
+                id_sped_arquivo INTEGER NOT NULL REFERENCES sped_arquivos(id) ON DELETE CASCADE,
+                cnpj_empresa    TEXT NOT NULL,
+                competencia     TEXT NOT NULL,
+                cod_item        TEXT NOT NULL,
+                fech_fisico_exportado NUMERIC(15,3) NOT NULL,
+                dt_exportacao   TIMESTAMP DEFAULT NOW(),
+                UNIQUE (cnpj_empresa, competencia, cod_item)
+            );
+        `);
+        console.log('Tabela encerrantes_exportados garantida.');
+
+        // Tabela para persistir encerrantes finais dos bicos (continuidade intermensal 1320)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS encerrantes_bicos_exportados (
+                id              SERIAL PRIMARY KEY,
+                cnpj_empresa    TEXT NOT NULL,
+                competencia     TEXT NOT NULL,
+                num_bico        TEXT NOT NULL,
+                val_fecha       NUMERIC(15,3) NOT NULL,
+                dt_exportacao   TIMESTAMP DEFAULT NOW(),
+                UNIQUE (cnpj_empresa, competencia, num_bico)
+            );
+        `);
+        console.log('Tabela encerrantes_bicos_exportados garantida.');
+
         console.log('Estrutura de Auditoria Avançada, Cofre A1 e Cadastro de CFOPs estabilizada.');
     } catch (err) {
         console.error('Erro ao configurar banco:', err);

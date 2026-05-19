@@ -188,8 +188,8 @@ const handleLogout = () => {
     </aside>
     
     <!-- Área Principal de Conteúdo -->
-    <main class="flex-1 h-screen overflow-y-auto bg-brand-surface relative z-10 custom-scrollbar-light">
-      <div class="w-full px-5 py-6">
+    <main class="flex-1 min-w-0 h-screen overflow-y-auto overflow-x-hidden bg-brand-surface relative z-10 custom-scrollbar-light">
+      <div class="w-full max-w-full px-5 py-6">
         <RouterView />
       </div>
     </main>
