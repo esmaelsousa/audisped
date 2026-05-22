@@ -3322,122 +3322,139 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         abertCalc: 0, escrCalc: 0, fisicoCalc: 0
     }));
 
-    // 6. OPÇÃO B: Distribuição proporcional de vendas com redistribuição iterativa.
-    //    Garante: nenhum dia com NFC-e (saidaOrig > 0) fica zerado, cascata nunca negativa, ANP ≤ 0,60%.
+    // 6. Distribuição proporcional por segmentos com busca binária.
+    //    Segmento = período entre entradas de combustível.
+    //    Para cada segmento, busca o MAIOR fator de venda que não zera nenhum dia.
+    //    Garante: nenhum dia com NFC-e fica zerado, cascata nunca negativa, ANP ≤ 0,60%.
     //    Vendas distribuídas com peso proporcional ao original (padrão real do posto).
 
-    // 6.1 Calcular total disponível para venda no mês
-    const totalEntradas = calcs.reduce((s, c) => s + c.entradasOrig, 0);
-    const estoqueMinFinal = 0.5;
-    const totalDisponivelVenda = aberturaInicialConsolidada + totalEntradas - estoqueMinFinal;
-
-    // 6.2 Identificar dias com NFC-e (saidaOrig > 0) e calcular peso proporcional
-    const totalSaidaOrigComVenda = calcs.filter(c => c.saidaOrig > 0).reduce((s, c) => s + c.saidaOrig, 0);
-
-    // 6.3 Total de vendas a distribuir
-    let targetVendas = Math.min(totalSaidaOrigComVenda, Math.max(0, totalDisponivelVenda));
-    if (capacidadeTotal > 0) {
-        const estoqueMinVendas = aberturaInicialConsolidada + totalEntradas - capacidadeTotal * 0.99;
-        if (estoqueMinVendas > targetVendas) targetVendas = estoqueMinVendas;
-    }
-
-    // 6.4 Distribuição inicial proporcional
-    for (let c of calcs) {
-        if (c.saidaOrig > 0 && totalSaidaOrigComVenda > 0) {
-            c.saidaCalc = Number((targetVendas * (c.saidaOrig / totalSaidaOrigComVenda)).toFixed(3));
-        } else {
-            c.saidaCalc = 0;
+    // 6.1 Identificar segmentos (períodos entre entradas)
+    const segmentos = [];
+    let segInicio = 0;
+    for (let i = 0; i < calcs.length; i++) {
+        if (i > 0 && calcs[i].entradasOrig > 0) {
+            segmentos.push({ ini: segInicio, fim: i - 1 });
+            segInicio = i;
         }
     }
+    segmentos.push({ ini: segInicio, fim: calcs.length - 1 });
 
-    // 6.5 Redistribuição iterativa: ajusta vendas até que a cascata não tenha dias cortados.
-    //     Se um dia excede o disponível, o excesso é tirado dos dias ANTERIORES com folga.
-    for (let iter = 0; iter < 50; iter++) {
-        let temCorte = false;
-        let stockCheck = aberturaInicialConsolidada;
+    // 6.2 Função auxiliar: roda cascata num segmento e retorna stock final + resultados
+    const cascataSegmento = (stockIni, seg, saidas) => {
+        let stock = stockIni;
+        const result = [];
+        for (let i = 0; i < seg.length; i++) {
+            const c = seg[i];
+            const disp = stock + c.entradasOrig;
+            let sf = saidas[i];
+            // Cap capacidade: se excede, aumentar saída
+            if (capacidadeTotal > 0 && (disp - sf) > capacidadeTotal * 0.994) {
+                sf = Number((disp - capacidadeTotal * 0.994).toFixed(3));
+            }
+            // Saída não pode exceder disponível
+            if (sf > disp - 0.001) sf = Math.max(0, Number((disp - 0.001).toFixed(3)));
+            const escr = Math.max(0, Number((disp - sf).toFixed(3)));
+            const capPerda = escr * (0.006 / 1.006);
+            const capGanho = escr * (0.006 / 0.994);
+            const perda = Math.min(c.perdaOrig, capPerda);
+            const ganho = Math.min(c.ganhoOrig, capGanho);
+            let fech = Math.max(0, Number((escr + ganho - perda).toFixed(3)));
+            if (capacidadeTotal > 0 && fech > capacidadeTotal * 0.99)
+                fech = Number((capacidadeTotal * 0.99).toFixed(3));
+            result.push({ sf, escr, fech });
+            stock = fech;
+        }
+        return { stockFinal: stock, result };
+    };
 
-        // Passo 1: Cascata forward — detectar dias que excedem disponível
-        for (let i = 0; i < calcs.length; i++) {
-            const c = calcs[i];
-            const volDisp = stockCheck + c.entradasOrig;
-            const maxSaida = Math.max(0, volDisp - 0.001);
+    // 6.3 Processar cada segmento com busca binária do fator ideal
+    let stockAtual = aberturaInicialConsolidada;
 
-            if (c.saidaCalc > maxSaida) {
-                const excesso = c.saidaCalc - maxSaida;
-                c.saidaCalc = maxSaida;
-                temCorte = true;
+    for (const { ini, fim } of segmentos) {
+        const seg = calcs.slice(ini, fim + 1);
+        const nSeg = seg.length;
+        const diasVendaIdx = [];
+        for (let j = 0; j < nSeg; j++) {
+            if (seg[j].saidaOrig > 0) diasVendaIdx.push(j);
+        }
+        const vendasOrig = diasVendaIdx.reduce((s, j) => s + seg[j].saidaOrig, 0);
 
-                // Passo 2: Redistribuir excesso para dias ANTERIORES com folga
-                // (reduzir proporcionalmente dias anteriores para liberar estoque)
-                let restante = excesso;
-                const doadoresAnteriores = calcs.slice(0, i).filter(d => d.saidaCalc > 0.01);
-                const totalDoavel = doadoresAnteriores.reduce((s, d) => s + d.saidaCalc * 0.4, 0);
+        if (vendasOrig <= 0 || diasVendaIdx.length === 0) {
+            // Segmento sem vendas — só passar cascata com saída 0
+            const saidas = new Array(nSeg).fill(0);
+            const { stockFinal, result } = cascataSegmento(stockAtual, seg, saidas);
+            for (let j = 0; j < nSeg; j++) {
+                seg[j].saidaCalc = result[j].sf;
+                seg[j].abertCalc = j === 0 ? stockAtual : result[j - 1].fech;
+                seg[j].escrCalc = result[j].escr;
+                seg[j].fisicoCalc = result[j].fech;
+            }
+            stockAtual = stockFinal;
+            continue;
+        }
 
-                if (totalDoavel > 0) {
-                    for (let d of doadoresAnteriores) {
-                        const maxCeder = d.saidaCalc * 0.4; // max 40% de cada dia
-                        const cessao = Math.min(maxCeder, restante * (d.saidaCalc / totalDoavel * 0.4));
-                        d.saidaCalc = Number((d.saidaCalc - cessao).toFixed(3));
-                        restante -= cessao;
-                        if (restante <= 0.01) break;
-                    }
+        // Busca binária: encontrar o MAIOR fator (0..1) onde nenhum dia zera
+        let fatorMin = 0.0, fatorMax = 1.0;
+        let melhorResult = null;
+
+        for (let biter = 0; biter < 30; biter++) {
+            const fator = (fatorMin + fatorMax) / 2;
+            const saidas = new Array(nSeg).fill(0);
+            for (const j of diasVendaIdx) {
+                saidas[j] = Number((seg[j].saidaOrig * fator).toFixed(3));
+            }
+
+            const { stockFinal, result } = cascataSegmento(stockAtual, seg, saidas);
+
+            // Verificar se algum dia com venda ficou zerado (saída efetiva ≤ 0.001)
+            let algumZerado = false;
+            for (const j of diasVendaIdx) {
+                if (result[j].sf <= 0.001) {
+                    algumZerado = true;
+                    break;
                 }
             }
 
-            // Cap ANP para cálculo do stock
-            const escrCheck = Math.max(0, volDisp - c.saidaCalc);
-            const capGanho = escrCheck * (0.006 / 0.994);
-            const ganho = Math.min(c.ganhoOrig, capGanho);
-            const capPerda = escrCheck * (0.006 / 1.006);
-            const perda = Math.min(c.perdaOrig, capPerda);
-            stockCheck = Math.max(0, escrCheck + ganho - perda);
-            if (capacidadeTotal > 0 && stockCheck > capacidadeTotal * 0.99)
-                stockCheck = capacidadeTotal * 0.99;
-        }
-
-        if (!temCorte) break; // Convergiu — nenhum dia foi cortado
-    }
-
-    // 6.6 Trava fiscal final: nenhum dia com NFC-e pode ter saída zerada
-    for (let c of calcs) {
-        if (c.saidaCalc <= 0 && c.saidaOrig > 0) {
-            c.saidaCalc = Math.max(0.001, Number((c.saidaOrig * 0.001).toFixed(3)));
-        }
-    }
-
-    // 6.7 Cascata final: calcular abertura, escritural, físico e ANP definitivos
-    let stockAtual = aberturaInicialConsolidada;
-    for (let i = 0; i < calcs.length; i++) {
-        const c = calcs[i];
-        c.abertCalc = stockAtual;
-        const volDisp = c.abertCalc + c.entradasOrig;
-
-        // Saída não pode exceder disponível
-        if (c.saidaCalc > volDisp - 0.001) {
-            c.saidaCalc = Math.max(0, Number((volDisp - 0.001).toFixed(3)));
-        }
-
-        // Se estoque excede capacidade, AUMENTAR saída para drenar excesso
-        // Garante que escritural fique ≤ capacidade * 0.994 (ANP seguro)
-        if (capacidadeTotal > 0) {
-            const escrMaxAnp = capacidadeTotal * 0.994; // escritural máximo para ANP 0.60%
-            const escrSemAjuste = volDisp - c.saidaCalc;
-            if (escrSemAjuste > escrMaxAnp) {
-                c.saidaCalc = Number((volDisp - escrMaxAnp).toFixed(3));
+            if (algumZerado) {
+                fatorMax = fator; // Reduzir
+            } else {
+                fatorMin = fator; // Pode aumentar
+                melhorResult = { result, stockFinal, saidas };
             }
         }
 
-        c.escrCalc = Math.max(0, Number((volDisp - c.saidaCalc).toFixed(3)));
+        // Aplicar melhor resultado encontrado (ou fallback com mínimo)
+        if (melhorResult) {
+            for (let j = 0; j < nSeg; j++) {
+                seg[j].saidaCalc = melhorResult.result[j].sf;
+                seg[j].abertCalc = j === 0 ? stockAtual : melhorResult.result[j - 1].fech;
+                seg[j].escrCalc = melhorResult.result[j].escr;
+                seg[j].fisicoCalc = melhorResult.result[j].fech;
+            }
+            stockAtual = melhorResult.stockFinal;
+        } else {
+            // Fallback: mínimo simbólico por dia
+            const saidas = new Array(nSeg).fill(0);
+            for (const j of diasVendaIdx) {
+                saidas[j] = Math.max(0.001, Number((seg[j].saidaOrig * 0.001).toFixed(3)));
+            }
+            const { stockFinal, result } = cascataSegmento(stockAtual, seg, saidas);
+            for (let j = 0; j < nSeg; j++) {
+                seg[j].saidaCalc = result[j].sf;
+                seg[j].abertCalc = j === 0 ? stockAtual : result[j - 1].fech;
+                seg[j].escrCalc = result[j].escr;
+                seg[j].fisicoCalc = result[j].fech;
+            }
+            stockAtual = stockFinal;
+        }
+    }
 
-        const capPerda = c.escrCalc * (0.006 / 1.006);
-        const capGanho = c.escrCalc * (0.006 / 0.994);
-        const perdaNova = Math.min(c.perdaOrig, capPerda);
-        const ganhoNovo = Math.min(c.ganhoOrig, capGanho);
-        c.fisicoCalc = Math.max(0, Number((c.escrCalc + ganhoNovo - perdaNova).toFixed(3)));
-        if (capacidadeTotal > 0 && c.fisicoCalc > capacidadeTotal * 0.99)
-            c.fisicoCalc = Number((capacidadeTotal * 0.99).toFixed(3));
-
-        stockAtual = c.fisicoCalc;
+    // 6.4 Trava fiscal final: rede de segurança
+    for (let c of calcs) {
+        if (c.saidaCalc <= 0 && c.saidaOrig > 0) {
+            c.saidaCalc = Math.max(0.001, Number((c.saidaOrig * 0.001).toFixed(3)));
+            logger.warn(`[TRAVA FISCAL SYNC] Dia ${c.data_mov_normalized} (cod_item=${codTrim}): saída forçada para ${c.saidaCalc}L.`);
+        }
     }
 
     // 9. Fase final: cascata com ruído ANP e rateio por tanque
