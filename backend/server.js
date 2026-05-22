@@ -3414,6 +3414,12 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
                 aAjustada = aberturaInicialConsolidada * peso;
             }
 
+            // FASE 3: Se âncora disparou neste dia (fisicoCalc > escrCalc significativamente),
+            // ajustar abertura para que: abert + entr - saida = escrCalc (escritural bate)
+            if (dayCalc.fisicoCalc > 0 && dayCalc.escrCalc > (aAjustada + parseFloat(r.vol_entr || 0))) {
+                aAjustada = dayCalc.escrCalc + sAjustada - parseFloat(r.vol_entr || 0);
+            }
+
             const escrTanque = Math.max(0, aAjustada + parseFloat(r.vol_entr || 0) - sAjustada);
             const diffPG     = fAjustado - escrTanque;
 
