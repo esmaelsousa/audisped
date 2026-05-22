@@ -3337,7 +3337,9 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         // Saída mínima obrigatória se tanque ultrapassaria capacidade
         const minObrig = capacidadeTotal > 0 ? Math.max(0, volDisp - capacidadeTotal * 0.99) : 0;
         const saidaAlvo = Math.max(minObrig, volDisp - escrAlvo);
-        c.saidaCalc = Math.max(0, Math.min(saidaAlvo, volDisp));
+        // Trava fiscal: nunca zerar saída se SPED original tinha venda (NFC-e comprova)
+        const minimoFiscalSync = c.saidaOrig > 0 ? Math.max(0.001, c.saidaOrig * 0.001) : 0;
+        c.saidaCalc = Math.max(minimoFiscalSync, Math.min(saidaAlvo, volDisp));
         c.escrCalc  = Math.max(0, volDisp - c.saidaCalc);
 
         // Cap ANP: % = |diff|/físico ≤ 0,60% (garantido matematicamente)
