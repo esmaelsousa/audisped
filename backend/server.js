@@ -3664,13 +3664,15 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         // 4.0 MOTOR V7: Curandeiro Analítico (Saneador Profilático)
         // Resolve erros bizarros do PDV original onde Venda Original > Estoque Físico.
         // Tira o volume impossível do dia, forçando o motor iterativo a recolocar esse volume em dias válidos.
+        // CORREÇÃO: Nunca zera saída completamente se o SPED original tinha venda (NFC-e comprova).
         let tempStock = aberturaInicialConsolidada;
         for (let i = 0; i < calcs.length; i++) {
             let c = calcs[i];
             let maxSaidaPermitida = tempStock + c.entradasOrig - 0.5; // Deixa 0.5 de fundo de tanque
             if (c.saidaCalc > maxSaidaPermitida) {
-                // Secou além do tolerável! Corta a venda.
-                c.saidaCalc = Math.max(0, maxSaidaPermitida);
+                // Trava fiscal: se havia saída real no SPED (NFC-e), manter mínimo simbólico
+                const minimoFiscal = c.saidaOrig > 0 ? Math.max(0.001, c.saidaOrig * 0.001) : 0;
+                c.saidaCalc = Math.max(minimoFiscal, maxSaidaPermitida);
             }
             tempStock = tempStock + c.entradasOrig - c.saidaCalc;
         }
@@ -3778,6 +3780,15 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
                     // Nunca zera a venda, deixa um rastro microscópico se for o caso
                     c.saidaCalc -= Math.min(cotaProporcional, c.saidaCalc - 0.001);
                 }
+            }
+        }
+
+        // 4.2 TRAVA FISCAL: Nenhum dia com venda real (NFC-e) pode ter saída zerada
+        // Aplica APÓS toda a redistribuição iterativa como rede de segurança final.
+        for (let c of calcs) {
+            if (c.saidaCalc <= 0 && c.saidaOrig > 0) {
+                c.saidaCalc = Math.max(0.001, c.saidaOrig * 0.001);
+                logger.warn(`[TRAVA FISCAL] Dia ${c.data_mov_normalized} (cod_item=${cod_item}): saída era 0 mas SPED original=${c.saidaOrig.toFixed(3)}L. Forçado mínimo=${c.saidaCalc.toFixed(3)}L.`);
             }
         }
 
