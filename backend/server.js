@@ -3351,6 +3351,13 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         if (capacidadeTotal > 0 && c.fisicoCalc > capacidadeTotal * 0.99)
             c.fisicoCalc = capacidadeTotal * 0.99;
 
+        // FASE 3: Âncora no fech_fisico original — se o SPED mostra medição real do tanque
+        // maior que o calculado, significa que houve entrada não declarada (combustível real).
+        // Usar a medição como piso para não zerar os dias seguintes.
+        if (c.fisicoOrig > c.fisicoCalc && c.fisicoOrig > 0 && c.saidaOrig > 0) {
+            c.fisicoCalc = c.fisicoOrig;
+        }
+
         stockAtual = c.fisicoCalc;
     }
 
@@ -3677,6 +3684,11 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
                 c.saidaCalc = Math.max(minimoFiscal, maxSaidaPermitida);
             }
             tempStock = tempStock + c.entradasOrig - c.saidaCalc;
+            // FASE 3: Âncora — se medição real do tanque (fech_fisico original) > estoque calculado,
+            // usar a medição como piso (houve entrada não declarada, combustível real existia)
+            if (c.fisicoOrig > tempStock && c.fisicoOrig > 0 && c.saidaOrig > 0) {
+                tempStock = c.fisicoOrig;
+            }
         }
 
         // 4.1 MOTOR V5: Trava Inviolável de Venda Mínima (Física + ANP)
