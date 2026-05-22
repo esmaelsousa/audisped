@@ -3406,10 +3406,12 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 
             const { stockFinal, result } = cascataSegmento(stockAtual, seg, saidas);
 
-            // Verificar se algum dia com venda ficou zerado (saída efetiva ≤ 0.001)
+            // Verificar se algum dia com venda ficou com saída insignificante
+            // Mínimo = pelo menos 1L ou 0.5% da venda original (o que for maior)
             let algumZerado = false;
             for (const j of diasVendaIdx) {
-                if (result[j].sf <= 0.001) {
+                const minimoAceitavel = Math.max(1.0, seg[j].saidaOrig * 0.005);
+                if (result[j].sf < minimoAceitavel) {
                     algumZerado = true;
                     break;
                 }
