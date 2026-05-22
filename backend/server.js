@@ -3412,8 +3412,19 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         c.abertCalc = stockAtual;
         const volDisp = c.abertCalc + c.entradasOrig;
 
+        // Saída não pode exceder disponível
         if (c.saidaCalc > volDisp - 0.001) {
             c.saidaCalc = Math.max(0, Number((volDisp - 0.001).toFixed(3)));
+        }
+
+        // Se estoque excede capacidade, AUMENTAR saída para drenar excesso
+        // Garante que escritural fique ≤ capacidade * 0.994 (ANP seguro)
+        if (capacidadeTotal > 0) {
+            const escrMaxAnp = capacidadeTotal * 0.994; // escritural máximo para ANP 0.60%
+            const escrSemAjuste = volDisp - c.saidaCalc;
+            if (escrSemAjuste > escrMaxAnp) {
+                c.saidaCalc = Number((volDisp - escrMaxAnp).toFixed(3));
+            }
         }
 
         c.escrCalc = Math.max(0, Number((volDisp - c.saidaCalc).toFixed(3)));
