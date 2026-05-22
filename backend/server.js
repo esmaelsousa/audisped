@@ -3354,8 +3354,16 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         // FASE 3: Âncora no fech_fisico original — se o SPED mostra medição real do tanque
         // maior que o calculado, significa que houve entrada não declarada (combustível real).
         // Usar a medição como piso para não zerar os dias seguintes.
+        // Também ajusta escritural e saída para manter ANP ≤ 0,60% no dia da âncora.
         if (c.fisicoOrig > c.fisicoCalc && c.fisicoOrig > 0 && c.saidaOrig > 0) {
             c.fisicoCalc = c.fisicoOrig;
+            // Ajustar escritural para ficar dentro do ANP (ganho máximo 0,60%)
+            // escr deve ser tal que: (fisicoOrig - escr) / fisicoOrig ≤ 0.006
+            // escr ≥ fisicoOrig * (1 - 0.006) = fisicoOrig * 0.994
+            c.escrCalc = c.fisicoOrig * 0.994;
+            // Recalcular saída: saida = volDisp - escrCalc (pode ficar negativa → limitar)
+            const saidaRecalc = volDisp - c.escrCalc;
+            c.saidaCalc = Math.max(c.saidaOrig > 0 ? Math.max(0.001, c.saidaOrig * 0.001) : 0, saidaRecalc);
         }
 
         stockAtual = c.fisicoCalc;
