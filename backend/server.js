@@ -3353,17 +3353,15 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 
         // FASE 3: Âncora no fech_fisico original — se o SPED mostra medição real do tanque
         // maior que o calculado, significa que houve entrada não declarada (combustível real).
-        // Usar a medição como piso para não zerar os dias seguintes.
-        // Também ajusta escritural e saída para manter ANP ≤ 0,60% no dia da âncora.
+        // Trata como "reposição implícita": ajusta fisicoCalc, escrCalc e saidaCalc para
+        // que o dia fique dentro do ANP 0,60%, mesmo que volDisp seja insuficiente.
         if (c.fisicoOrig > c.fisicoCalc && c.fisicoOrig > 0 && c.saidaOrig > 0) {
             c.fisicoCalc = c.fisicoOrig;
-            // Ajustar escritural para ficar dentro do ANP (ganho máximo 0,60%)
-            // escr deve ser tal que: (fisicoOrig - escr) / fisicoOrig ≤ 0.006
-            // escr ≥ fisicoOrig * (1 - 0.006) = fisicoOrig * 0.994
-            c.escrCalc = c.fisicoOrig * 0.994;
-            // Recalcular saída: saida = volDisp - escrCalc (pode ficar negativa → limitar)
-            const saidaRecalc = volDisp - c.escrCalc;
-            c.saidaCalc = Math.max(c.saidaOrig > 0 ? Math.max(0.001, c.saidaOrig * 0.001) : 0, saidaRecalc);
+            // Escritural = fisicoOrig * 0.994 → garante ganho ≤ 0.60%
+            c.escrCalc = Number((c.fisicoOrig * 0.994).toFixed(3));
+            // Saída = diferença entre disponível real (escr + saída original) e escritural alvo
+            // Como houve reposição implícita, a saída deve refletir as vendas reais do dia
+            c.saidaCalc = Math.max(0.001, c.saidaOrig);
         }
 
         stockAtual = c.fisicoCalc;
