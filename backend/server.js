@@ -3322,53 +3322,102 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         abertCalc: 0, escrCalc: 0, fisicoCalc: 0
     }));
 
-    // 6. OPÇÃO B: Distribuição proporcional de vendas — redistribui o total disponível
-    //    entre todos os dias COM NFC-e (saidaOrig > 0), usando peso da venda original.
-    //    Garante: nenhum dia com NFC-e fica zerado, cascata nunca fica negativa, ANP ≤ 0,60%.
+    // 6. OPÇÃO B: Distribuição proporcional de vendas com redistribuição iterativa.
+    //    Garante: nenhum dia com NFC-e (saidaOrig > 0) fica zerado, cascata nunca negativa, ANP ≤ 0,60%.
+    //    Vendas distribuídas com peso proporcional ao original (padrão real do posto).
 
     // 6.1 Calcular total disponível para venda no mês
     const totalEntradas = calcs.reduce((s, c) => s + c.entradasOrig, 0);
-    const estoqueMinFinal = 0.5; // fundo de tanque
+    const estoqueMinFinal = 0.5;
     const totalDisponivelVenda = aberturaInicialConsolidada + totalEntradas - estoqueMinFinal;
 
     // 6.2 Identificar dias com NFC-e (saidaOrig > 0) e calcular peso proporcional
-    const diasComVenda = calcs.filter(c => c.saidaOrig > 0);
-    const totalSaidaOrigDiasComVenda = diasComVenda.reduce((s, c) => s + c.saidaOrig, 0);
+    const totalSaidaOrigComVenda = calcs.filter(c => c.saidaOrig > 0).reduce((s, c) => s + c.saidaOrig, 0);
 
-    // 6.3 Determinar o total de vendas a distribuir (pode ser mais ou menos que o original)
-    // Respeita o total disponível — não vende mais do que tem
-    let targetVendas = Math.min(totalSaidaOrigDiasComVenda, Math.max(0, totalDisponivelVenda));
-    // Se capacidade configurada, não deixar estoque final exceder capacidade
+    // 6.3 Total de vendas a distribuir
+    let targetVendas = Math.min(totalSaidaOrigComVenda, Math.max(0, totalDisponivelVenda));
     if (capacidadeTotal > 0) {
         const estoqueMinVendas = aberturaInicialConsolidada + totalEntradas - capacidadeTotal * 0.99;
         if (estoqueMinVendas > targetVendas) targetVendas = estoqueMinVendas;
     }
 
-    // 6.4 Distribuir proporcionalmente entre dias com NFC-e
+    // 6.4 Distribuição inicial proporcional
     for (let c of calcs) {
-        if (c.saidaOrig > 0 && totalSaidaOrigDiasComVenda > 0) {
-            const peso = c.saidaOrig / totalSaidaOrigDiasComVenda;
-            c.saidaCalc = Number((targetVendas * peso).toFixed(3));
+        if (c.saidaOrig > 0 && totalSaidaOrigComVenda > 0) {
+            c.saidaCalc = Number((targetVendas * (c.saidaOrig / totalSaidaOrigComVenda)).toFixed(3));
         } else {
-            c.saidaCalc = 0; // Dia sem NFC-e → sem venda
+            c.saidaCalc = 0;
         }
     }
 
-    // 6.5 Cascata: calcular abertura, escritural, físico e ANP dia a dia
+    // 6.5 Redistribuição iterativa: ajusta vendas até que a cascata não tenha dias cortados.
+    //     Se um dia excede o disponível, o excesso é tirado dos dias ANTERIORES com folga.
+    for (let iter = 0; iter < 50; iter++) {
+        let temCorte = false;
+        let stockCheck = aberturaInicialConsolidada;
+
+        // Passo 1: Cascata forward — detectar dias que excedem disponível
+        for (let i = 0; i < calcs.length; i++) {
+            const c = calcs[i];
+            const volDisp = stockCheck + c.entradasOrig;
+            const maxSaida = Math.max(0, volDisp - 0.001);
+
+            if (c.saidaCalc > maxSaida) {
+                const excesso = c.saidaCalc - maxSaida;
+                c.saidaCalc = maxSaida;
+                temCorte = true;
+
+                // Passo 2: Redistribuir excesso para dias ANTERIORES com folga
+                // (reduzir proporcionalmente dias anteriores para liberar estoque)
+                let restante = excesso;
+                const doadoresAnteriores = calcs.slice(0, i).filter(d => d.saidaCalc > 0.01);
+                const totalDoavel = doadoresAnteriores.reduce((s, d) => s + d.saidaCalc * 0.4, 0);
+
+                if (totalDoavel > 0) {
+                    for (let d of doadoresAnteriores) {
+                        const maxCeder = d.saidaCalc * 0.4; // max 40% de cada dia
+                        const cessao = Math.min(maxCeder, restante * (d.saidaCalc / totalDoavel * 0.4));
+                        d.saidaCalc = Number((d.saidaCalc - cessao).toFixed(3));
+                        restante -= cessao;
+                        if (restante <= 0.01) break;
+                    }
+                }
+            }
+
+            // Cap ANP para cálculo do stock
+            const escrCheck = Math.max(0, volDisp - c.saidaCalc);
+            const capGanho = escrCheck * (0.006 / 0.994);
+            const ganho = Math.min(c.ganhoOrig, capGanho);
+            const capPerda = escrCheck * (0.006 / 1.006);
+            const perda = Math.min(c.perdaOrig, capPerda);
+            stockCheck = Math.max(0, escrCheck + ganho - perda);
+            if (capacidadeTotal > 0 && stockCheck > capacidadeTotal * 0.99)
+                stockCheck = capacidadeTotal * 0.99;
+        }
+
+        if (!temCorte) break; // Convergiu — nenhum dia foi cortado
+    }
+
+    // 6.6 Trava fiscal final: nenhum dia com NFC-e pode ter saída zerada
+    for (let c of calcs) {
+        if (c.saidaCalc <= 0 && c.saidaOrig > 0) {
+            c.saidaCalc = Math.max(0.001, Number((c.saidaOrig * 0.001).toFixed(3)));
+        }
+    }
+
+    // 6.7 Cascata final: calcular abertura, escritural, físico e ANP definitivos
     let stockAtual = aberturaInicialConsolidada;
     for (let i = 0; i < calcs.length; i++) {
         const c = calcs[i];
         c.abertCalc = stockAtual;
         const volDisp = c.abertCalc + c.entradasOrig;
 
-        // Saída não pode exceder disponível (segurança contra arredondamento)
         if (c.saidaCalc > volDisp - 0.001) {
             c.saidaCalc = Math.max(0, Number((volDisp - 0.001).toFixed(3)));
         }
 
         c.escrCalc = Math.max(0, Number((volDisp - c.saidaCalc).toFixed(3)));
 
-        // Cap ANP: % = |diff|/físico ≤ 0,60%
         const capPerda = c.escrCalc * (0.006 / 1.006);
         const capGanho = c.escrCalc * (0.006 / 0.994);
         const perdaNova = Math.min(c.perdaOrig, capPerda);
