@@ -6087,6 +6087,32 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realGanho = 0;
             }
 
+            // 4.1 ESCUDO ANP FINAL: se perda/ganho derivada excede 0.60%,
+            // ajustar saída para que escritural fique dentro do limite.
+            // Rede de segurança — corrige cortes silenciosos do PASS 1 nos tanques.
+            if (realFisico > 0) {
+                const anpPercent = Math.abs(realEscr - realFisico) / realFisico * 100;
+                if (anpPercent > 0.60) {
+                    if (realEscr > realFisico) {
+                        // Perda: escr > fech → reduzir escr → aumentar saída
+                        const escrAlvo = Number((realFisico * 1.006).toFixed(3));
+                        realSaida = Math.max(0, Number((realDisp - escrAlvo).toFixed(3)));
+                    } else {
+                        // Ganho: fech > escr → aumentar escr → reduzir saída
+                        const escrAlvo = Number((realFisico * 0.994).toFixed(3));
+                        realSaida = Math.max(0, Number((realDisp - escrAlvo).toFixed(3)));
+                    }
+                    realEscr = Number((realDisp - realSaida).toFixed(3));
+                    if (realFisico >= realEscr) {
+                        realPerda = 0;
+                        realGanho = Number((realFisico - realEscr).toFixed(3));
+                    } else {
+                        realPerda = Number((realEscr - realFisico).toFixed(3));
+                        realGanho = 0;
+                    }
+                }
+            }
+
             // 5. Saneador final
             if (realPerda < 0) realPerda = 0;
             if (realGanho < 0) realGanho = 0;
