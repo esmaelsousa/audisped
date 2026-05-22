@@ -61,9 +61,9 @@ const pool = new Pool({
     database: process.env.DB_DATABASE,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
-    max: 40,                       // suporta operações em lote (análise + export + LMC simultâneos)
-    connectionTimeoutMillis: 15000, // 15s de espera por conexão (evita falso timeout em lotes)
-    idleTimeoutMillis: 30000,      // libera conexões ociosas após 30s
+    max: 120,                      // aumentado para suportar exportações em lote sem esgotamento
+    connectionTimeoutMillis: 30000, // 30s de espera por conexão (antes 20s)
+    idleTimeoutMillis: 15000,      // libera conexões ociosas mais rápido (antes 30s)
 });
 
 // Handler global de erros do pool (evita crash silencioso em conexões perdidas)
@@ -99,7 +99,7 @@ async function safeRollback(client) {
 
 // Semáforo de concorrência para rotas pesadas (análise + exportação).
 // Limita operações simultâneas para evitar esgotamento do pool de conexões.
-const MAX_HEAVY_OPS = 3;
+const MAX_HEAVY_OPS = 5;
 let heavyOpsRunning = 0;
 const heavyOpsQueue = [];
 
@@ -3009,19 +3009,21 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                 WHERE sp.ncm IS NOT NULL AND length(sp.ncm) >= 6
                 ORDER BY LEFT(sp.ncm, 6), lmc_cnt.entr_count DESC, lmc_cnt.cod_item
             ),
-            notas_entrada AS (
+            items_in_lmc AS (
+                SELECT DISTINCT cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1
+            ),
+            notas_raw AS (
                 SELECT
-                    COALESCE(ncm_map.cod_item, item.cod_item) as cod_item,
+                    -- Usa cod_item direto se já existe no LMC; só recorre ao NCM quando não existe
+                    CASE WHEN item.cod_item IN (SELECT cod_item FROM items_in_lmc)
+                         THEN item.cod_item
+                         ELSE COALESCE(ncm_map.cod_item, item.cod_item)
+                    END as cod_item_resolved,
                     COALESCE(c100.dt_e_s, c100.dt_doc) as data_entrada,
-                    SUM(item.qtd) as volume_nota,
-                    json_agg(
-                        json_build_object(
-                            'num_doc', c100.num_doc,
-                            'dt_doc', c100.dt_doc,
-                            'qtd', item.qtd,
-                            'fornecedor', COALESCE(part.nome, 'Não Informado')
-                        )
-                    ) as nfs_detalhadas
+                    item.qtd,
+                    c100.num_doc,
+                    c100.dt_doc,
+                    COALESCE(part.nome, 'Não Informado') as fornecedor
                 FROM documentos_c100 c100
                 JOIN documentos_itens_c170 item ON item.id_documento_c100 = c100.id
                 LEFT JOIN sped_participantes part ON part.cod_part = c100.cod_part AND part.id_sped_arquivo = c100.id_sped_arquivo
@@ -3037,14 +3039,27 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
                       item.cfop LIKE '065%' OR
                       item.cfop LIKE '116%' OR
                       item.cfop LIKE '216%' OR
-                      -- NCM filter restrito aos itens já cadastrados no LMC para evitar
-                      -- varredura de milhares de produtos derivados de petróleo em SPEDs grandes
                       (LEFT(sp.ncm, 4) IN ('2710', '2207', '2711')
                        AND item.cod_item IN (
                            SELECT cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1
                        ))
                   )
-                GROUP BY COALESCE(ncm_map.cod_item, item.cod_item), COALESCE(c100.dt_e_s, c100.dt_doc)
+            ),
+            notas_entrada AS (
+                SELECT
+                    cod_item_resolved as cod_item,
+                    data_entrada,
+                    SUM(qtd) as volume_nota,
+                    json_agg(
+                        json_build_object(
+                            'num_doc', num_doc,
+                            'dt_doc', dt_doc,
+                            'qtd', qtd,
+                            'fornecedor', fornecedor
+                        )
+                    ) as nfs_detalhadas
+                FROM notas_raw
+                GROUP BY cod_item_resolved, data_entrada
             ),
             lmc_entrada AS (
                 SELECT 
@@ -5668,9 +5683,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         // Correção 4: continuidade INTERMENSAL — ABERT do 1º dia do mês = FECH do último dia
         // do mês anterior do mesmo CNPJ. Prioridade:
-        //   1) encerrantes_exportados (FECH realmente exportado no mês anterior)
-        //   2) lmc_movimentacao.fech_fisico (original, não ajustado — evita inflação)
-        //   3) lmc_movimentacao.fech_fisico_ajustado (só se original for NULL/0)
+        //   1) encerrantes_exportados (garante ABERT = FECH exportado do mês anterior)
+        //   2) lmc_movimentacao (fallback quando não há exportação anterior)
+        // A âncora na flush1300Group garante que o FECH exportado = valor do banco,
+        // eliminando a inflação do escudo ANP.
         if (cnpjArq && periodoApuracao) {
             const competenciaAtual = periodoApuracao.substring(0, 7); // 'YYYY-MM'
             const [anoAt, mesAt] = competenciaAtual.split('-').map(Number);
@@ -5679,7 +5695,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 : `${anoAt}-${String(mesAt - 1).padStart(2, '0')}`;
             const cnpjNum = cnpjArq.replace(/\D/g, '');
 
-            // Fonte 1: encerrantes realmente exportados (tabela encerrantes_exportados)
+            // Fonte 1: encerrantes realmente exportados (garante continuidade entre arquivos)
             const resExportados = await dbClient.query(`
                 SELECT cod_item, fech_fisico_exportado AS fech
                 FROM encerrantes_exportados
@@ -5693,22 +5709,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 logger.info(`[Export 1300] Continuidade intermensal: ${resExportados.rowCount} fechamentos do mês anterior (encerrantes_exportados) para arquivo ${arquivoId}.`);
             }
 
-            // Continuidade intermensal dos BICOS (1320): carrega VAL_FECHA do último dia do mês anterior
-            const resBicosAnt = await dbClient.query(`
-                SELECT num_bico, val_fecha
-                FROM encerrantes_bicos_exportados
-                WHERE cnpj_empresa = $1 AND competencia = $2
-            `, [cnpjNum, mesAnterior]);
-            resBicosAnt.rows.forEach(r => {
-                const v = parseFloat(r.val_fecha);
-                if (v > 0) encerrantesBombasMap[r.num_bico] = v;
-            });
-            if (resBicosAnt.rowCount > 0) {
-                logger.info(`[Export 1320] Continuidade bicos: ${resBicosAnt.rowCount} encerrantes do mês anterior para arquivo ${arquivoId}.`);
-            }
-
-            // Fonte 2 (fallback): lmc_movimentacao — apenas para produtos sem exportação anterior.
-            // Prioriza fech_fisico (original) sobre fech_fisico_ajustado (pode estar inflado).
+            // Fonte 2 (fallback): lmc_movimentacao — só para produtos sem exportação anterior
             const fechMesAnt = await dbClient.query(`
                 WITH atual AS (
                     SELECT REGEXP_REPLACE($1,'[^0-9]','','g') AS cnpj_num,
@@ -5727,8 +5728,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 SELECT DISTINCT ON (TRIM(m.cod_item))
                     TRIM(m.cod_item) AS cod_item,
                     CASE
+                        WHEN COALESCE(m.fech_fisico_ajustado::numeric, 0) > 0 THEN m.fech_fisico_ajustado::numeric
                         WHEN m.fech_fisico::numeric > 0 THEN m.fech_fisico::numeric
-                        ELSE COALESCE(m.fech_fisico_ajustado::numeric, 0)
+                        ELSE 0
                     END AS fech
                 FROM lmc_movimentacao m
                 CROSS JOIN arquivo_anterior aa
@@ -5745,6 +5747,20 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             });
             if (fechMesAnt.rowCount > 0 && resExportados.rowCount === 0) {
                 logger.info(`[Export 1300] Continuidade intermensal (fallback lmc): ${fechMesAnt.rowCount} fechamentos do mês anterior para arquivo ${arquivoId}.`);
+            }
+
+            // Continuidade intermensal dos BICOS (1320): carrega VAL_FECHA do último dia do mês anterior
+            const resBicosAnt = await dbClient.query(`
+                SELECT num_bico, val_fecha
+                FROM encerrantes_bicos_exportados
+                WHERE cnpj_empresa = $1 AND competencia = $2
+            `, [cnpjNum, mesAnterior]);
+            resBicosAnt.rows.forEach(r => {
+                const v = parseFloat(r.val_fecha);
+                if (v > 0) encerrantesBombasMap[r.num_bico] = v;
+            });
+            if (resBicosAnt.rowCount > 0) {
+                logger.info(`[Export 1320] Continuidade bicos: ${resBicosAnt.rowCount} encerrantes do mês anterior para arquivo ${arquivoId}.`);
             }
         }
 
@@ -5926,22 +5942,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
             let fechEscudo = blindMae.fisico;
 
-            // 3. Âncora: tenta usar FECH do banco, mas só se ANP ficar ≤ 0.60%
+            // 3. Âncora: FECH do banco SEMPRE prevalece quando disponível.
+            // O fech_fisico_ajustado reflete o valor real (otimizador/laboratório/medição).
+            // Deixar o escudo sobrescrever causava inflação acumulativa entre meses.
             const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
                 ? Number(novo.fisicoDb.toFixed(3)) : null;
 
             if (ancoraFisico !== null) {
-                const perdaTest = Math.abs(realEscr - ancoraFisico);
-                const anpTest = ancoraFisico > 0 ? (perdaTest / ancoraFisico * 100) : 999;
-                if (anpTest <= 0.60) {
-                    // Dentro do ANP → usar âncora (banco)
-                    realFisico = ancoraFisico;
-                } else {
-                    // Fora do ANP → usar escudo (FECH seguro)
-                    realFisico = fechEscudo;
-                }
+                realFisico = ancoraFisico;
             } else {
-                // Sem âncora → usar escudo
+                // Sem âncora → usar escudo como fallback
                 realFisico = fechEscudo;
             }
 
@@ -6124,17 +6134,33 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     let volAferiOrig = parseFloat((bFields[10] || '0').replace(',', '.'));
                     let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
 
-                    // 1) Entrada fantasma (todos os campos zero): pular cálculo,
-                    //    mas preencher ABERT/FECHA com encerrante atual da cadeia
-                    //    para não quebrar continuidade no arquivo de saída.
+                    // 1) Entrada fantasma (todos os campos zero):
+                    //    - Se há outros bicos REAIS no tanque: pular (manter continuidade).
+                    //    - Se TODOS os bicos são fantasma E o tanque tem SAÍDA > 0:
+                    //      converter este fantasma em entrada real (absorve o volume).
                     if (encFechaOrig === 0 && encAbertOrig === 0 && volAferiOrig === 0 && volVendasOrig === 0) {
-                        const encAtual = encerrantesBombasMap[bicoNum];
-                        if (encAtual !== undefined && encAtual > 0) {
-                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
-                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                        const todosFantasma = bicosDesteTanque.every(bf => {
+                            const f = parseFloat((bf[8] || '0').replace(',', '.'));
+                            const a = parseFloat((bf[9] || '0').replace(',', '.'));
+                            const af = parseFloat((bf[10] || '0').replace(',', '.'));
+                            const v = parseFloat((bf[11] || '0').replace(',', '.'));
+                            return f === 0 && a === 0 && af === 0 && v === 0;
+                        });
+
+                        if (todosFantasma && curated.nSaida > 0) {
+                            // Converter fantasma em entrada real: absorve toda a saída do tanque
+                            volVendasOrig = curated.nSaida;
+                            // continua o processamento normal abaixo
+                        } else {
+                            // Fantasma com outros bicos reais: preencher encerrantes e pular
+                            const encAtual = encerrantesBombasMap[bicoNum];
+                            if (encAtual !== undefined && encAtual > 0) {
+                                bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                                bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                            }
+                            linhas1310.push(bFields.join('|'));
+                            continue;
                         }
-                        linhas1310.push(bFields.join('|'));
-                        continue;
                     }
 
                     // 2) Duplicata real: mesmo bico já processado neste flush (mesmo dia,
@@ -6429,22 +6455,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         else if (fields[fields.length - 1] !== '') fields[fields.length - 1] = '';
 
                         // fisicoDb: âncora para flush1300Group.
-                        // Prioridade: fech_fisico (original do SPED) quando válido e coerente.
-                        // fech_fisico_ajustado pode estar inflado pela redistribuição (escudo ANP
-                        // capou PERDA absurda do original, inflando FECH de 16K para 50K).
+                        // fech_fisico_ajustado SEMPRE prevalece — é o valor do otimizador/laboratório.
                         const fisicoAj = (aj.fech_fisico_ajustado !== null && aj.fech_fisico_ajustado !== undefined)
                             ? Number(parseFloat(aj.fech_fisico_ajustado).toFixed(3)) : null;
                         const fisicoOr = (aj.fech_fisico !== undefined && aj.fech_fisico !== null)
                             ? Number(parseFloat(aj.fech_fisico).toFixed(3)) : null;
-                        let fisicoDb;
-                        if (fisicoOr > 0 && fisicoAj > 0 && fisicoAj > fisicoOr * 1.3) {
-                            // Ajustado inflado vs original → usar original
-                            fisicoDb = fisicoOr;
-                        } else if (fisicoAj !== null && fisicoAj > 0) {
-                            fisicoDb = fisicoAj;
-                        } else {
-                            fisicoDb = fisicoOr;
-                        }
+                        const fisicoDb = (fisicoAj !== null && fisicoAj > 0) ? fisicoAj : fisicoOr;
 
                         // Guarda no buffer para os tanques (1310) usarem o mesmo total arredondado
                         pending1300 = {
@@ -6553,7 +6569,23 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     continue;
                 }
 
-                // Sem quebra: armazenar FECH para propagação futura
+                // Sem quebra de continuidade no 1300, mas se existem encerrantes de bicos
+                // carregados (intermensal), bufferizar para que os 1320 passem pelo
+                // processamento de encerrantesBombasMap (sem isso, bicos passam direto
+                // com valores originais e a cadeia intermensal de bicos quebra).
+                if (Object.keys(encerrantesBombasMap).length > 0) {
+                    const entr = parseFloat((fields[5] || '0').replace(',', '.'));
+                    const saida = parseFloat((fields[7] || '0').replace(',', '.'));
+                    pending1300 = {
+                        line: fields.join('|'),
+                        orig: { abert: abertOrig, saida, entr, codItem: codItemDirect },
+                        novo: { abert: abertOrig, saida, perda: parseFloat((fields[9] || '0').replace(',', '.')), ganho: parseFloat((fields[10] || '0').replace(',', '.')), entr }
+                    };
+                    if (fechOrig > 0) ultimoFechExportado.set(codItemDirect, fechOrig);
+                    continue;
+                }
+
+                // Sem encerrantes de bicos: armazenar FECH para propagação futura
                 if (fechOrig > 0) ultimoFechExportado.set(codItemDirect, fechOrig);
             }
 

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios'
 import { API_BASE_URL } from '../api';
 import { arquivoInfo, setArquivoInfo, setEmpresaSelecionada, empresaSelecionada } from '../store';
-import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw } from 'lucide-vue-next';
+import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 
 const route = useRoute();
 const router = useRouter();
@@ -47,6 +47,7 @@ onMounted(async () => {
     }
 
     await loadData(arquivoId);
+    await carregarPeriodos();
 });
 
 const currentArquivoId = ref(null);
@@ -143,14 +144,30 @@ function sincronizarTodos() {
     abrirPreviewSincronizacao(continuidade.value.divergencias);
 }
 
+// Cancela requests anteriores ao navegar rapidamente
+let abortController = null;
+
 async function loadData(arquivoId) {
     if (!arquivoId) return;
+
+    // Cancela qualquer carregamento anterior em andamento
+    if (abortController) abortController.abort();
+    abortController = new AbortController();
+    const signal = abortController.signal;
+
     currentArquivoId.value = arquivoId;
     loading.value = true;
     selectedFuel.value = null;
-    lmcData.value = []; // Limpa para garantir reatividade total
+    lmcData.value = [];
     try {
-        const response = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoId}`, { timeout: 60000 });
+        // Atualiza contexto da store para que exportação e header usem o arquivo correto
+        if (!arquivoInfo.value || arquivoInfo.value.id != arquivoId) {
+            try {
+                const infoRes = await axios.get(`${API_BASE_URL}/api/arquivo/info/${arquivoId}`, { signal });
+                setArquivoInfo(infoRes.data);
+            } catch (e) { if (axios.isCancel(e)) return; }
+        }
+        const response = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoId}`, { timeout: 60000, signal });
         lmcData.value = response.data.map(item => ({
             ...item,
             nfs_detalhadas: typeof item.nfs_detalhadas === 'string'
@@ -168,6 +185,7 @@ async function loadData(arquivoId) {
         await recalcularTudo();
         await checkContinuidade();
     } catch (error) {
+        if (axios.isCancel(error)) return; // Navegação cancelou este request — ignorar
         console.error("Erro ao carregar dados do LMC:", error);
     } finally {
         loading.value = false;
@@ -581,6 +599,38 @@ async function confirmarGravar() {
 // Quando trocar combustível, rodar cálculo
 watch(selectedFuel, () => recalcularTudo());
 
+// ── Navegação entre períodos (sem sair da página) ──
+const periodosEmpresa = ref([]);  // [{ id, periodo, label }] ordenados cronologicamente
+const idxPeriodoAtual = computed(() => periodosEmpresa.value.findIndex(p => p.id == currentArquivoId.value));
+const periodoAnterior = computed(() => idxPeriodoAtual.value > 0 ? periodosEmpresa.value[idxPeriodoAtual.value - 1] : null);
+const periodoSeguinte = computed(() => idxPeriodoAtual.value >= 0 && idxPeriodoAtual.value < periodosEmpresa.value.length - 1 ? periodosEmpresa.value[idxPeriodoAtual.value + 1] : null);
+
+async function carregarPeriodos() {
+    try {
+        const idEmpresa = empresaSelecionada.value?.id || arquivoInfo.value?.id_empresa;
+        if (!idEmpresa) return;
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/arquivos/${idEmpresa}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        periodosEmpresa.value = (res.data || [])
+            .filter(a => a.periodo_apuracao)
+            .map(a => {
+                const p = a.periodo_apuracao;
+                const m = p.substring(5, 7);
+                const y = p.substring(0, 4);
+                const meses = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                return { id: a.id, periodo: p, label: `${meses[parseInt(m)] || m}/${y}`, sort: `${y}-${m}` };
+            })
+            .sort((a, b) => a.sort.localeCompare(b.sort));
+    } catch (e) { /* silencioso */ }
+}
+
+function navPeriodo(arquivo) {
+    if (!arquivo) return;
+    router.push(`/lmc/${arquivo.id}`);
+}
+
 // Recarrega dados ao navegar entre meses sem desmontar o componente
 watch(() => route.params.id, (newId) => {
     if (newId) loadData(newId);
@@ -667,9 +717,39 @@ async function exportarSped() {
         <p class="text-xs font-mono text-slate-400 tracking-widest">
           CNPJ {{ arquivoInfo?.cnpj || empresaSelecionada?.cnpj || '' }}
         </p>
-        <span class="mt-1 inline-block text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full">
-          {{ arquivoInfo.periodo }}
-        </span>
+        <div class="mt-1 flex items-center gap-1.5">
+          <button
+            @click="navPeriodo(periodoAnterior)"
+            :disabled="!periodoAnterior"
+            :title="periodoAnterior ? `← ${periodoAnterior.label}` : 'Sem período anterior'"
+            class="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+            :class="periodoAnterior ? 'bg-slate-100 hover:bg-brand-accent hover:text-white text-slate-500 cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'"
+          >
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+
+          <select
+            v-if="periodosEmpresa.length > 1"
+            :value="currentArquivoId"
+            @change="navPeriodo(periodosEmpresa.find(p => p.id == $event.target.value))"
+            class="text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full appearance-none text-center cursor-pointer hover:bg-brand-accent/20 transition-colors"
+          >
+            <option v-for="p in periodosEmpresa" :key="p.id" :value="p.id">{{ p.label }}</option>
+          </select>
+          <span v-else class="text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full">
+            {{ arquivoInfo.periodo }}
+          </span>
+
+          <button
+            @click="navPeriodo(periodoSeguinte)"
+            :disabled="!periodoSeguinte"
+            :title="periodoSeguinte ? `${periodoSeguinte.label} →` : 'Sem período seguinte'"
+            class="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+            :class="periodoSeguinte ? 'bg-slate-100 hover:bg-brand-accent hover:text-white text-slate-500 cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'"
+          >
+            <ChevronRight class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </header>
 
