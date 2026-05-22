@@ -3322,47 +3322,60 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
         abertCalc: 0, escrCalc: 0, fisicoCalc: 0
     }));
 
-    // 6. Cascata direta: garante ANP ≤ 0,60% em cada dia
-    //    Para cada dia calcula a saída que alinharia o escritural ao físico original
-    //    (escr = fisicoOrig + perdaOrig - ganhoOrig), depois aplica o cap ANP.
-    //    Propaga via fisicoCalc real — não há descasamento entre abertura e estoque.
+    // 6. OPÇÃO B: Distribuição proporcional de vendas — redistribui o total disponível
+    //    entre todos os dias COM NFC-e (saidaOrig > 0), usando peso da venda original.
+    //    Garante: nenhum dia com NFC-e fica zerado, cascata nunca fica negativa, ANP ≤ 0,60%.
+
+    // 6.1 Calcular total disponível para venda no mês
+    const totalEntradas = calcs.reduce((s, c) => s + c.entradasOrig, 0);
+    const estoqueMinFinal = 0.5; // fundo de tanque
+    const totalDisponivelVenda = aberturaInicialConsolidada + totalEntradas - estoqueMinFinal;
+
+    // 6.2 Identificar dias com NFC-e (saidaOrig > 0) e calcular peso proporcional
+    const diasComVenda = calcs.filter(c => c.saidaOrig > 0);
+    const totalSaidaOrigDiasComVenda = diasComVenda.reduce((s, c) => s + c.saidaOrig, 0);
+
+    // 6.3 Determinar o total de vendas a distribuir (pode ser mais ou menos que o original)
+    // Respeita o total disponível — não vende mais do que tem
+    let targetVendas = Math.min(totalSaidaOrigDiasComVenda, Math.max(0, totalDisponivelVenda));
+    // Se capacidade configurada, não deixar estoque final exceder capacidade
+    if (capacidadeTotal > 0) {
+        const estoqueMinVendas = aberturaInicialConsolidada + totalEntradas - capacidadeTotal * 0.99;
+        if (estoqueMinVendas > targetVendas) targetVendas = estoqueMinVendas;
+    }
+
+    // 6.4 Distribuir proporcionalmente entre dias com NFC-e
+    for (let c of calcs) {
+        if (c.saidaOrig > 0 && totalSaidaOrigDiasComVenda > 0) {
+            const peso = c.saidaOrig / totalSaidaOrigDiasComVenda;
+            c.saidaCalc = Number((targetVendas * peso).toFixed(3));
+        } else {
+            c.saidaCalc = 0; // Dia sem NFC-e → sem venda
+        }
+    }
+
+    // 6.5 Cascata: calcular abertura, escritural, físico e ANP dia a dia
     let stockAtual = aberturaInicialConsolidada;
     for (let i = 0; i < calcs.length; i++) {
         const c = calcs[i];
         c.abertCalc = stockAtual;
         const volDisp = c.abertCalc + c.entradasOrig;
 
-        // Escr alvo: valor que reproduziria o físico original com as perdas/ganhos originais
-        const escrAlvo = Math.max(0, c.fisicoOrig + c.perdaOrig - c.ganhoOrig);
-        // Saída mínima obrigatória se tanque ultrapassaria capacidade
-        const minObrig = capacidadeTotal > 0 ? Math.max(0, volDisp - capacidadeTotal * 0.99) : 0;
-        const saidaAlvo = Math.max(minObrig, volDisp - escrAlvo);
-        // Trava fiscal: nunca zerar saída se SPED original tinha venda (NFC-e comprova)
-        const minimoFiscalSync = c.saidaOrig > 0 ? Math.max(0.001, c.saidaOrig * 0.001) : 0;
-        c.saidaCalc = Math.max(minimoFiscalSync, Math.min(saidaAlvo, volDisp));
-        c.escrCalc  = Math.max(0, volDisp - c.saidaCalc);
+        // Saída não pode exceder disponível (segurança contra arredondamento)
+        if (c.saidaCalc > volDisp - 0.001) {
+            c.saidaCalc = Math.max(0, Number((volDisp - 0.001).toFixed(3)));
+        }
 
-        // Cap ANP: % = |diff|/físico ≤ 0,60% (garantido matematicamente)
+        c.escrCalc = Math.max(0, Number((volDisp - c.saidaCalc).toFixed(3)));
+
+        // Cap ANP: % = |diff|/físico ≤ 0,60%
         const capPerda = c.escrCalc * (0.006 / 1.006);
         const capGanho = c.escrCalc * (0.006 / 0.994);
         const perdaNova = Math.min(c.perdaOrig, capPerda);
         const ganhoNovo = Math.min(c.ganhoOrig, capGanho);
-        c.fisicoCalc = Math.max(0, c.escrCalc + ganhoNovo - perdaNova);
+        c.fisicoCalc = Math.max(0, Number((c.escrCalc + ganhoNovo - perdaNova).toFixed(3)));
         if (capacidadeTotal > 0 && c.fisicoCalc > capacidadeTotal * 0.99)
-            c.fisicoCalc = capacidadeTotal * 0.99;
-
-        // FASE 3: Âncora no fech_fisico original — se o SPED mostra medição real do tanque
-        // maior que o calculado, significa que houve entrada não declarada (combustível real).
-        // Trata como "reposição implícita": ajusta fisicoCalc, escrCalc e saidaCalc para
-        // que o dia fique dentro do ANP 0,60%, mesmo que volDisp seja insuficiente.
-        if (c.fisicoOrig > c.fisicoCalc && c.fisicoOrig > 0 && c.saidaOrig > 0) {
-            c.fisicoCalc = c.fisicoOrig;
-            // Escritural = fisicoOrig * 0.994 → garante ganho ≤ 0.60%
-            c.escrCalc = Number((c.fisicoOrig * 0.994).toFixed(3));
-            // Saída = diferença entre disponível real (escr + saída original) e escritural alvo
-            // Como houve reposição implícita, a saída deve refletir as vendas reais do dia
-            c.saidaCalc = Math.max(0.001, c.saidaOrig);
-        }
+            c.fisicoCalc = Number((capacidadeTotal * 0.99).toFixed(3));
 
         stockAtual = c.fisicoCalc;
     }
@@ -3412,12 +3425,6 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
                 const totAbertDia = rowsDoDia.reduce((s, x) => s + parseFloat(x.estq_abert || 0), 0);
                 const peso = totAbertDia > 0 ? parseFloat(r.estq_abert || 0) / totAbertDia : 1 / rowsDoDia.length;
                 aAjustada = aberturaInicialConsolidada * peso;
-            }
-
-            // FASE 3: Se âncora disparou neste dia (fisicoCalc > escrCalc significativamente),
-            // ajustar abertura para que: abert + entr - saida = escrCalc (escritural bate)
-            if (dayCalc.fisicoCalc > 0 && dayCalc.escrCalc > (aAjustada + parseFloat(r.vol_entr || 0))) {
-                aAjustada = dayCalc.escrCalc + sAjustada - parseFloat(r.vol_entr || 0);
             }
 
             const escrTanque = Math.max(0, aAjustada + parseFloat(r.vol_entr || 0) - sAjustada);
