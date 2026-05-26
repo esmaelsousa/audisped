@@ -6106,6 +6106,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (realFisico > 0 && realEscr > 0) {
                 const _anpPct = Math.abs(realEscr - realFisico) / realFisico * 100;
                 if (_anpPct > 0.60) {
+                    logger.info(`[ESCUDO ANP FINAL] ${orig.codItem} dt=${pending1300.line.split('|')[3]}: realDisp=${realDisp.toFixed(1)} realSaida=${realSaida.toFixed(1)} realEscr=${realEscr.toFixed(1)} realFisico=${realFisico.toFixed(1)} ANP=${_anpPct.toFixed(2)}% → CORRIGINDO`);
+                }
+                if (_anpPct > 0.60) {
                     if (realEscr > realFisico) {
                         const _escrAlvo = Number((realFisico * 1.006).toFixed(3));
                         realSaida = Math.max(0, Number((realDisp - _escrAlvo).toFixed(3)));
@@ -6179,7 +6182,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             // qualquer divergência por arredondamento ou saneador.
             let soma1310 = { abert: 0, entr: 0, disp: 0, saida: 0, escr: 0, perda: 0, ganho: 0, fisico: 0 };
             const linhas1310 = []; // buffer para emitir depois da 1300
-            const bicosProcessadosNesteFlush = new Set(); // evita contar bico duplicado 2x
+            const bicosProcessadosNesteFlush = new Map(); // bico -> vendas (evita contar duplicado 2x)
 
             for (let i = 0; i < pending1310s.length; i++) {
                 let tk = pending1310s[i];
@@ -6318,9 +6321,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     // 2) Duplicata real: mesmo bico já processado neste flush (mesmo dia,
                     //    outro produto). O encerrante já foi contabilizado → zerar volume
                     //    e usar encerrantes atuais para não inflar a cadeia.
+                    //    EXCEÇÃO: se o bico já processado tinha vendas=0 (fantasma no outro tanque)
+                    //    e este tem vendas > 0 (real), manter as vendas reais.
                     if (bicosProcessadosNesteFlush.has(bicoNum)) {
-                        bFields[11] = '0,000';
-                        bFields[10] = '0,000';
+                        // Verificar se a ocorrência anterior era fantasma (vendas=0)
+                        const anteriorEraFantasma = bicosProcessadosNesteFlush.get(bicoNum) === 0;
+                        if (!anteriorEraFantasma) {
+                            bFields[11] = '0,000';
+                            bFields[10] = '0,000';
+                        }
+                        // Se anterior era fantasma e este tem vendas, manter vendas reais
                         const encAtual = encerrantesBombasMap[bicoNum] || 0;
                         bFields[9] = encAtual.toFixed(3).replace('.', ',');
                         bFields[8] = encAtual.toFixed(3).replace('.', ',');
@@ -6371,7 +6381,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     bFields[11] = (volVendasFinal < 0 ? 0 : volVendasFinal).toFixed(3).replace('.', ',');
 
                     encerrantesBombasMap[bicoNum] = encFinalNovo;
-                    bicosProcessadosNesteFlush.add(bicoNum);
+                    bicosProcessadosNesteFlush.set(bicoNum, volBicoCalculado);
 
                     linhas1310.push(bFields.join('|'));
                 }
