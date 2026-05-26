@@ -6282,10 +6282,26 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
 
                     // 1) Entrada fantasma (todos os campos zero):
-                    //    - Se há outros bicos REAIS no tanque: pular (manter continuidade).
+                    //    - Se o MESMO bico tem outro registro REAL neste tanque/dia: OMITIR o fantasma.
                     //    - Se TODOS os bicos são fantasma E o tanque tem SAÍDA > 0:
                     //      converter este fantasma em entrada real (absorve o volume).
+                    //    - Se há outros bicos REAIS (outro número): preencher encerrantes e manter.
                     if (encFechaOrig === 0 && encAbertOrig === 0 && volAferiOrig === 0 && volVendasOrig === 0) {
+                        // Verificar se existe OUTRO registro do MESMO bico com dados reais
+                        const mesmoBicoReal = bicosDesteTanque.some(bf => {
+                            if (bf === bFields) return false; // não comparar consigo mesmo
+                            const bNum = bf[2];
+                            if (bNum !== bicoNum) return false;
+                            const f = parseFloat((bf[8] || '0').replace(',', '.'));
+                            const v = parseFloat((bf[11] || '0').replace(',', '.'));
+                            return f > 0 || v > 0;
+                        });
+
+                        if (mesmoBicoReal) {
+                            // Mesmo bico tem registro real → OMITIR este fantasma completamente
+                            continue;
+                        }
+
                         const todosFantasma = bicosDesteTanque.every(bf => {
                             const f = parseFloat((bf[8] || '0').replace(',', '.'));
                             const a = parseFloat((bf[9] || '0').replace(',', '.'));
