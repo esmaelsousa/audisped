@@ -6273,6 +6273,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     let volAferiOrig = parseFloat((bFields[10] || '0').replace(',', '.'));
                     let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
 
+                    // 0) Bomba parada: enc_inic == enc_final no SPED original (não vendeu nada).
+                    //    Pode existir outro registro do MESMO bico em outro tanque que É ativo.
+                    //    Manter encerrantes originais, vendas=0, NÃO marcar como processado.
+                    const isBombaParada = encFechaOrig > 0 && Math.abs(encFechaOrig - encAbertOrig) < 0.01 && volVendasOrig === 0;
+                    if (isBombaParada) {
+                        // Manter registro com vendas=0 e encerrantes originais
+                        bFields[11] = '0,000';
+                        bFields[8] = encFechaOrig.toFixed(3).replace('.', ',');
+                        bFields[9] = encAbertOrig.toFixed(3).replace('.', ',');
+                        bFields[10] = volAferiOrig.toFixed(3).replace('.', ',');
+                        linhas1310.push(bFields.join('|'));
+                        // NÃO marcar como processado → outro tanque com este bico pode ter vendas reais
+                        continue;
+                    }
+
                     // 1) Entrada fantasma (todos os campos zero):
                     //    - Se o MESMO bico tem outro registro REAL neste tanque/dia: OMITIR o fantasma.
                     //    - Se TODOS os bicos são fantasma E o tanque tem SAÍDA > 0:
