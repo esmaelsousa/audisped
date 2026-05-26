@@ -5942,13 +5942,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
             const { orig, novo } = pending1300;
 
-            // Correção ABERT: no primeiro dia do produto (sem propagação anterior),
-            // usar ABERT original do arquivo. estq_abert_ajustado do banco pode estar
-            // inflado por redistribuição antiga. Em dias subsequentes, ultimoFechExportado
-            // já existe e a propagação do escudo é legítima — não interferir.
-            if (!ultimoFechExportado.has(orig.codItem) && orig.abert > 0 && Math.abs(novo.abert - orig.abert) > 1) {
-                novo.abert = orig.abert;
-            }
+            // Nota: a prioridade de ABERT já é resolvida na entrada do 1300:
+            // 1) FECH exportado do dia anterior, 2) abert_adj do banco, 3) original do arquivo.
+            // Não forçar orig.abert aqui — o banco (Re-distribuir) tem o valor correto.
 
             let sumAbert = 0, sumSaida = 0, sumPerda = 0, sumGanho = 0, sumEntr = 0;
 
@@ -6051,15 +6047,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             realDisp = Number((realAbert + realEntr).toFixed(3));
             realEscr = Number((realDisp - realSaida).toFixed(3));
 
-            // Fix ABERT: primeiro dia usa ABERT original, demais usam propagação.
-            // Isso é feito AQUI (pós PASS-1) porque é a seção que SABEMOS executar
-            // com código atual, contornando qualquer cache FUSE no mapAjustes.
-            if (!ultimoFechExportado.has(orig.codItem) && orig.abert > 0) {
-                // Primeiro dia: ABERT = original do arquivo
-                realAbert = orig.abert;
-            }
-            // Para dias subsequentes: realAbert vem do PASS 1 (usando novo.abert
-            // que já tem o ultimoFechExportado via propagação).
+            // ABERT: já resolvido na entrada do 1300 (prioridade: propagação > abert_adj > original).
+            // Não sobrescrever com orig.abert aqui.
 
             // 2. Escudo ANP: calcula FECH seguro (PERDA/GANHO ≤ 0.55%)
             const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
@@ -6568,12 +6557,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         changesApplied++;
 
                         // ABERT: prioridade → 1) FECH exportado do dia anterior (propagação)
-                        //                    → 2) ABERT original do arquivo (confiável)
-                        //                    → 3) estq_abert_ajustado do banco (pode estar inflado por redistribuição antiga)
+                        //                    → 2) estq_abert_ajustado do banco (Re-distribuir calculou)
+                        //                    → 3) ABERT original do arquivo (fallback)
                         const fechAnterior = ultimoFechExportado.get(codItem);
                         let novoAbert;
                         if (fechAnterior !== undefined && fechAnterior > 0) {
                             novoAbert = Number(fechAnterior.toFixed(3));
+                        } else if (aj.estq_abert_ajustado !== null && aj.estq_abert_ajustado !== undefined && parseFloat(aj.estq_abert_ajustado) > 0) {
+                            novoAbert = Number(parseFloat(aj.estq_abert_ajustado).toFixed(3));
                         } else {
                             novoAbert = Number(oldAbert.toFixed(3));
                         }
