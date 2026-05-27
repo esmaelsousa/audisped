@@ -5693,7 +5693,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
         } catch(_) {}
 
         // 7. Gerar PDF
-        const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
+        const doc = new PDFDocument({ size: 'A4', margin: 30, bufferPages: true, autoFirstPage: true });
         res.setHeader('Content-Type', 'application/pdf');
         const nomeEmpresa = (emp.nome_fantasia || emp.nome_empresa || 'LMC')
             .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
