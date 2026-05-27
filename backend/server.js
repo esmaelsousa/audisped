@@ -6112,14 +6112,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const blindMae = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
             let fechEscudo = blindMae.fisico;
 
-            // 3. Âncora: FECH do banco SEMPRE prevalece quando disponível.
-            // O fech_fisico_ajustado reflete o valor real (otimizador/laboratório/medição).
-            // Deixar o escudo sobrescrever causava inflação acumulativa entre meses.
+            // 3. Âncora: FECH do banco prevalece quando disponível E dentro do ANP.
+            // Se a âncora gera ANP > 0.60% (ex: saída cortada inflou escritural),
+            // usar o escudo ANP para garantir conformidade.
             const ancoraFisico = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0)
                 ? Number(novo.fisicoDb.toFixed(3)) : null;
 
             if (ancoraFisico !== null) {
-                realFisico = ancoraFisico;
+                // Verificar se a âncora fica dentro do ANP com o escritural atual
+                const anpAncora = realEscr > 0 ? (Math.abs(realEscr - ancoraFisico) / ancoraFisico * 100) : 0;
+                if (anpAncora <= 0.60) {
+                    realFisico = ancoraFisico;
+                } else {
+                    // Âncora gera ANP > 0.60% → usar escudo ANP
+                    realFisico = fechEscudo;
+                }
             } else {
                 // Sem âncora → usar escudo como fallback
                 realFisico = fechEscudo;
