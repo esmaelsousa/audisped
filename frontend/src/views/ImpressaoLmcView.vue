@@ -112,18 +112,22 @@ async function salvarObservacao() {
 async function gerarPDF() {
     if (!arquivoSelecionado.value) return
 
-    // Salvar observação antes de gerar (se preenchida)
-    if (observacao.value.trim()) await salvarObservacao()
-
+    // Abrir janela ANTES do await (evita bloqueio de popup)
     const token = localStorage.getItem('token')
     const params = new URLSearchParams()
     if (combustivelSelecionado.value !== 'todos') params.set('combustivel', combustivelSelecionado.value)
     if (dataInicio.value) params.set('data_inicio', dataInicio.value)
     if (dataFim.value) params.set('data_fim', dataFim.value)
     if (folhaInicial.value > 1) params.set('folha_inicial', folhaInicial.value)
+    const url = `${API_BASE_URL}/api/lmc/imprimir/${arquivoSelecionado.value}?${params.toString()}&token=${token}`
 
-    const url = `${API_BASE_URL}/api/lmc/imprimir/${arquivoSelecionado.value}?${params.toString()}`
-    window.open(`${url}&token=${token}`, '_blank')
+    const win = window.open('about:blank', '_blank')
+
+    // Salvar observação (se preenchida)
+    if (observacao.value.trim()) await salvarObservacao()
+
+    // Navegar para o PDF na janela já aberta
+    if (win) win.location.href = url
 }
 </script>
 
