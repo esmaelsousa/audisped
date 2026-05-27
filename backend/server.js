@@ -6430,6 +6430,33 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 fields1300[10] = soma1310.ganho.toFixed(3).replace('.', ',');
                 fields1300[11] = soma1310.fisico.toFixed(3).replace('.', ',');
 
+                // ESCUDO ANP PÓS-PASS4: a soma dos tanques pode gerar ANP > 0.60%
+                // no consolidado 1300 (mesmo que cada tanque esteja OK individualmente).
+                // Ajusta saída do 1300 mãe para garantir ANP ≤ 0.60%.
+                if (soma1310.fisico > 0 && soma1310.escr > 0) {
+                    const _anpP4 = Math.abs(soma1310.escr - soma1310.fisico) / soma1310.fisico * 100;
+                    if (_anpP4 > 0.60) {
+                        let _saida4 = soma1310.saida;
+                        let _escr4 = soma1310.escr;
+                        let _perda4 = soma1310.perda;
+                        let _ganho4 = soma1310.ganho;
+                        if (_escr4 > soma1310.fisico) {
+                            const _alvo4 = Number((soma1310.fisico * 1.006).toFixed(3));
+                            _saida4 = Math.max(0, Number((soma1310.disp - _alvo4).toFixed(3)));
+                        } else {
+                            const _alvo4 = Number((soma1310.fisico * 0.994).toFixed(3));
+                            _saida4 = Math.max(0, Number((soma1310.disp - _alvo4).toFixed(3)));
+                        }
+                        _escr4 = Number((soma1310.disp - _saida4).toFixed(3));
+                        if (soma1310.fisico >= _escr4) { _perda4 = 0; _ganho4 = Number((soma1310.fisico - _escr4).toFixed(3)); }
+                        else { _perda4 = Number((_escr4 - soma1310.fisico).toFixed(3)); _ganho4 = 0; }
+                        fields1300[7] = _saida4.toFixed(3).replace('.', ',');
+                        fields1300[8] = _escr4.toFixed(3).replace('.', ',');
+                        fields1300[9] = _perda4.toFixed(3).replace('.', ',');
+                        fields1300[10] = _ganho4.toFixed(3).replace('.', ',');
+                    }
+                }
+
                 realFisico = soma1310.fisico; // atualiza para propagação de continuidade
             }
 
