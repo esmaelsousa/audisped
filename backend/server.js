@@ -5746,20 +5746,37 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
         const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');
-        // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD" → converter para DDMMYYYY
-        let periodoIniArq = '';
-        let periodoFimArq = '';
+        // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD" → extrair MM-YYYY
+        let periodoLabel = '';
         const partesArq = periodoApuracao.split(' a ');
         if (partesArq.length === 2) {
-            const [a0, m0, d0] = partesArq[0].trim().split('-');
-            const [a1, m1, d1] = partesArq[1].trim().split('-');
-            if (d0 && m0 && a0) periodoIniArq = `${d0}${m0}${a0}`;
-            if (d1 && m1 && a1) periodoFimArq = `${d1}${m1}${a1}`;
+            const [a0, m0] = partesArq[0].trim().split('-');
+            if (a0 && m0) periodoLabel = `${m0}-${a0}`;
         }
-        const safeName = periodoIniArq
-            ? `${cnpjArq}_${periodoIniArq}_${periodoFimArq}.txt`
-            : `${cnpjArq}_${periodoApuracao.replace(/[\s\/\\:*?"<>|]+/g, '_')}.txt`;
-        res.setHeader('Content-disposition', `attachment; filename=${safeName}`);
+        // Buscar nome fantasia ou razão social da empresa
+        let nomeArquivo = '';
+        try {
+            const empRes = await dbClient.query(
+                `SELECT COALESCE(nome_fantasia, nome_empresa) as nome FROM empresas WHERE cnpj = $1`,
+                [cnpjArq]
+            );
+            if (empRes.rows.length > 0 && empRes.rows[0].nome) {
+                // Limpar: sem acentos, sem caracteres especiais, sem espaços (underscore)
+                nomeArquivo = empRes.rows[0].nome
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+                    .replace(/[^a-zA-Z0-9]/g, '_')                   // só letras, números, _
+                    .replace(/_+/g, '_')                              // múltiplos _ → um só
+                    .replace(/^_|_$/g, '')                            // remove _ no início/fim
+                    .substring(0, 30)                                 // máximo 30 caracteres
+                    .toUpperCase();
+            }
+        } catch (_) { /* fallback: sem nome */ }
+        const safeName = nomeArquivo && periodoLabel
+            ? `${cnpjArq}_${nomeArquivo}_${periodoLabel}.txt`
+            : periodoLabel
+                ? `${cnpjArq}_${periodoLabel}.txt`
+                : `${cnpjArq}_${periodoApuracao.replace(/[\s\/\\:*?"<>|]+/g, '_')}.txt`;
+        res.setHeader('Content-disposition', `attachment; filename=${encodeURIComponent(safeName)}`);
         res.setHeader('Content-type', 'text/plain; charset=iso-8859-1');
 
         // Detecta lacuna no 1300 do arquivo de origem (não bloqueia — apenas alerta no log
