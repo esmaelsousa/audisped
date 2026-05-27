@@ -83,6 +83,52 @@ async function carregarCombustiveis() {
             }
         }
     } catch(e) { console.error('Erro ao carregar combustíveis:', e) }
+
+    // Carregar resumo
+    await carregarResumo()
+}
+
+const resumo = ref([])
+
+async function carregarResumo() {
+    if (!arquivoSelecionado.value) return
+    const token = localStorage.getItem('token')
+    try {
+        const res = await axios.get(`${API_BASE_URL}/api/lmc/${arquivoSelecionado.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        })
+        const termosCombustivel = ['GASOLINA', 'ETANOL', 'DIESEL', 'GNV', 'BIODIESEL', 'QUEROSENE', 'GLP', 'ALCOOL']
+        const porProduto = {}
+        ;(res.data || []).forEach(r => {
+            const cod = r.cod_item?.trim()
+            const nome = (r.nome_combustivel || '').toUpperCase()
+            if (!cod || !termosCombustivel.some(t => nome.includes(t))) return
+
+            if (!porProduto[cod]) {
+                porProduto[cod] = {
+                    cod, nome: r.nome_combustivel || cod,
+                    entradas: 0, saidas: 0, perdas: 0, ganhos: 0, dias: 0,
+                    aberturaInicial: null, fechamentoFinal: null
+                }
+            }
+            const p = porProduto[cod]
+            const entr = parseFloat(r.vol_entr_lmc || r.vol_entr || 0)
+            const saida = parseFloat(r.vol_saidas_final || r.vol_saidas || 0)
+            const perda = parseFloat(r.val_perda || 0)
+            const ganho = parseFloat(r.val_ganho || 0)
+            const abert = parseFloat(r.estq_abert_final || r.estq_abert || 0)
+            const fech = parseFloat(r.fech_fisico_final || r.fech_fisico || 0)
+
+            p.entradas += entr
+            p.saidas += saida
+            p.perdas += perda
+            p.ganhos += ganho
+            p.dias++
+            if (p.aberturaInicial === null) p.aberturaInicial = abert
+            p.fechamentoFinal = fech
+        })
+        resumo.value = Object.values(porProduto)
+    } catch(e) { console.error('Erro ao carregar resumo:', e) }
 }
 
 async function salvarObservacao() {
@@ -186,6 +232,54 @@ async function gerarPDF() {
                     <label class="block text-xs font-semibold text-slate-600 mb-1">Data Fim</label>
                     <input type="date" v-model="dataFim"
                         class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent" />
+                </div>
+            </div>
+
+            <!-- Resumo por Combustível -->
+            <div v-if="resumo.length > 0" class="border border-slate-200 rounded-xl overflow-hidden">
+                <div class="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                    <p class="text-xs font-bold text-slate-700">Resumo do Período</p>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-[11px]">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600">
+                                <th class="px-3 py-1.5 text-left font-semibold">Combustível</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">Entradas (L)</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">Saídas (L)</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">Perdas (L)</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">Ganhos (L)</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">Variação</th>
+                                <th class="px-3 py-1.5 text-right font-semibold">% ANP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="r in resumo" :key="r.cod" class="border-t border-slate-100 hover:bg-blue-50/30">
+                                <td class="px-3 py-1.5 font-semibold text-slate-800">{{ r.nome }}</td>
+                                <td class="px-3 py-1.5 text-right text-green-700 font-mono">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-3 py-1.5 text-right text-red-600 font-mono">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-3 py-1.5 text-right text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-3 py-1.5 text-right text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-3 py-1.5 text-right font-mono" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">
+                                    {{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}
+                                </td>
+                                <td class="px-3 py-1.5 text-right font-mono" :class="r.fechamentoFinal > 0 && (Math.abs(r.perdas - r.ganhos) / r.fechamentoFinal * 100) > 0.6 ? 'text-red-600 font-bold' : 'text-green-700'">
+                                    {{ r.fechamentoFinal > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="border-t-2 border-slate-300 bg-slate-50 font-bold text-[11px]">
+                                <td class="px-3 py-1.5 text-slate-700">TOTAIS</td>
+                                <td class="px-3 py-1.5 text-right text-green-700 font-mono">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-3 py-1.5 text-right text-red-600 font-mono">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-3 py-1.5 text-right text-orange-600 font-mono">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-3 py-1.5 text-right text-blue-600 font-mono">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-3 py-1.5 text-right font-mono">{{ (resumo.reduce((s,r) => s + r.ganhos - r.perdas, 0)).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-3 py-1.5"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
                 </div>
             </div>
 
