@@ -6417,16 +6417,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     //    (flush diferente, mesmo dia). Detectado via Map GLOBAL ultimoEncOrigPorBico.
                     if (!bicosProcessadosNesteFlush.has(bicoNum) && ultimoEncOrigPorBico.has(bicoNum)) {
                         const encOrigAnterior = ultimoEncOrigPorBico.get(bicoNum);
+                        logger.info(`[MULTIPRODUTO CHECK] bico=${bicoNum} encAbertOrig=${encAbertOrig} encOrigAnterior=${encOrigAnterior} diff=${Math.abs(encAbertOrig - encOrigAnterior).toFixed(3)}`);
                         if (Math.abs(encAbertOrig - encOrigAnterior) < 0.01) {
                             // Multiproduto: mesmo bico, mesmo enc_inic → troca de produto
-                            const encAtual = encerrantesBombasMap[bicoNum] || 0;
-                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
-                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
-                            bFields[11] = volVendasOrig > 0
-                                ? Number((volVendasOrig * (curated.nSaida > 0 ? curated.nSaida / (curated.tOrigSaida || curated.nSaida) : 0)).toFixed(3)).toString().replace('.', ',')
-                                : '0,000';
-                            bFields[10] = '0,000';
-                            linhas1310.push(bFields.join('|'));
+                            // OMITIR este registro — o bico já foi emitido no primeiro produto.
+                            // Emitir nos dois geraria "salto" de continuidade entre dias.
                             continue;
                         }
                     }
