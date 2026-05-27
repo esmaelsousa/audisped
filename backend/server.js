@@ -6420,8 +6420,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         logger.info(`[MULTIPRODUTO CHECK] bico=${bicoNum} encAbertOrig=${encAbertOrig} encOrigAnterior=${encOrigAnterior} diff=${Math.abs(encAbertOrig - encOrigAnterior).toFixed(3)}`);
                         if (Math.abs(encAbertOrig - encOrigAnterior) < 0.01) {
                             // Multiproduto: mesmo bico, mesmo enc_inic → troca de produto
-                            // OMITIR este registro — o bico já foi emitido no primeiro produto.
-                            // Emitir nos dois geraria "salto" de continuidade entre dias.
+                            // Emitir com enc_inic=enc_final=acumulado e vendas=0
+                            // (PVA exige pelo menos um 1320 por 1310)
+                            const encAtual = encerrantesBombasMap[bicoNum] || 0;
+                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[11] = '0,000';
+                            bFields[10] = '0,000';
+                            linhas1310.push(bFields.join('|'));
                             continue;
                         }
                     }
