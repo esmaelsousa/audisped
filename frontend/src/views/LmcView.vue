@@ -659,14 +659,20 @@ async function exportarSped() {
         const reader = new FileReader();
         reader.onloadend = () => {
             const link = document.createElement('a');
-            link.href = reader.result; // Data URI gerado pelo FileReader (Bypassa bloqueios HTTP)
-            const cnpjLimpo = String(arquivoInfo.value?.cnpj || '').replace(/\D/g, '');
-            const partes = String(arquivoInfo.value?.periodo || '').split(' a ');
-            const periodoIni = (partes[0] || '').replace(/\D/g, '');
-            const periodoFim = (partes[1] || partes[0] || '').replace(/\D/g, '');
-            const nomeExport = cnpjLimpo && periodoIni
-                ? `${cnpjLimpo}_${periodoIni}_${periodoFim}.txt`
-                : `SPED_FISCAL_${arquivoInfo.value?.nome_arquivo || 'exportado'}.txt`;
+            link.href = reader.result;
+            // Usar nome do header Content-Disposition do servidor (se disponível)
+            const disposition = response.headers['content-disposition'] || '';
+            const filenameMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            let nomeExport = filenameMatch ? decodeURIComponent(filenameMatch[1].replace(/['"]/g, '')) : '';
+            if (!nomeExport) {
+                const cnpjLimpo = String(arquivoInfo.value?.cnpj || '').replace(/\D/g, '');
+                const partes = String(arquivoInfo.value?.periodo || '').split(' a ');
+                const periodoIni = (partes[0] || '').replace(/\D/g, '');
+                const periodoFim = (partes[1] || partes[0] || '').replace(/\D/g, '');
+                nomeExport = cnpjLimpo && periodoIni
+                    ? `${cnpjLimpo}_${periodoIni}_${periodoFim}.txt`
+                    : `SPED_FISCAL_${arquivoInfo.value?.nome_arquivo || 'exportado'}.txt`;
+            }
             link.setAttribute('download', nomeExport);
             document.body.appendChild(link);
             link.click();
