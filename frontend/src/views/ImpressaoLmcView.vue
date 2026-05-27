@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { Printer, FileText } from 'lucide-vue-next'
+import { empresaSelecionada as empresaStore, arquivoInfo as arquivoStore } from '../store'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -24,6 +25,16 @@ onMounted(async () => {
             headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
         empresas.value = res.data || []
+
+        // Pré-selecionar empresa e arquivo se já estão no contexto
+        if (empresaStore.value?.id) {
+            empresaSelecionada.value = empresaStore.value.id
+            await carregarArquivos()
+            if (arquivoStore.value?.id) {
+                arquivoSelecionado.value = arquivoStore.value.id
+                await carregarCombustiveis()
+            }
+        }
     } catch(e) { console.error('Erro ao carregar empresas:', e) }
 })
 
