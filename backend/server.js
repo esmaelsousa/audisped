@@ -6045,6 +6045,48 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 realFisico += nFisico;
             }
 
+            // ── Redistribuição de excesso entre tanques ─────────────────────
+            // Quando um tanque teve saída cortada (nSaida < proporcional) porque
+            // nDisp era insuficiente, transferir o excesso para tanques com folga.
+            // Sem isso, realSaida < novo.saida → escritural inflado → ANP estoura.
+            if (realSaida < novo.saida - 0.01 && pending1310s.length > 1) {
+                const deficit = Number((novo.saida - realSaida).toFixed(3));
+                let restante = deficit;
+                // Tanques com folga: nDisp - nSaida > 1
+                for (const tk of pending1310s) {
+                    if (restante <= 0.01) break;
+                    const c = tk._curated;
+                    const folga = c.nDisp - c.nSaida - 0.001;
+                    if (folga > 1) {
+                        const transferir = Math.min(restante, folga);
+                        c.nSaida = Number((c.nSaida + transferir).toFixed(3));
+                        c.nEscr = Number((c.nDisp - c.nSaida).toFixed(3));
+                        // Recalcular perda/ganho com escudo ANP
+                        const baseT = c.nAbert + c.nEntr;
+                        const maxDevT = baseT * 0.0055;
+                        if (c.nEscr >= c.nFisico) {
+                            c.nPerda = Math.min(Number((c.nEscr - c.nFisico).toFixed(3)), maxDevT);
+                            c.nGanho = 0;
+                            c.nFisico = Number((c.nEscr - c.nPerda).toFixed(3));
+                        } else {
+                            c.nGanho = Math.min(Number((c.nFisico - c.nEscr).toFixed(3)), maxDevT);
+                            c.nPerda = 0;
+                            c.nFisico = Number((c.nEscr + c.nGanho).toFixed(3));
+                        }
+                        restante = Number((restante - transferir).toFixed(3));
+                    }
+                }
+                // Recalcular totais reais
+                realSaida = 0; realEscr = 0; realPerda = 0; realGanho = 0; realFisico = 0;
+                realAbert = 0; realEntr = 0; realDisp = 0;
+                for (const tk of pending1310s) {
+                    const c = tk._curated;
+                    realAbert += c.nAbert; realEntr += c.nEntr; realDisp += c.nDisp;
+                    realSaida += c.nSaida; realEscr += c.nEscr;
+                    realPerda += c.nPerda; realGanho += c.nGanho; realFisico += c.nFisico;
+                }
+            }
+
             // ── Recálculo consistente do 1300 mãe ──────────────────────────
             // Recalcula ESCR a partir dos totais primários (não soma dos tanques)
             // e decide FECH: âncora (banco) se dentro do ANP, ou escudo se fora.
