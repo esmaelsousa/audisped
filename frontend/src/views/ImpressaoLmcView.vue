@@ -47,9 +47,13 @@ async function carregarCombustiveis() {
         })
         const cods = new Set()
         const lista = []
+        // Filtrar apenas combustíveis (pelo nome ou NCM)
+        const termosCombustivel = ['GASOLINA', 'ETANOL', 'DIESEL', 'GNV', 'BIODIESEL', 'QUEROSENE', 'GLP', 'ALCOOL']
         ;(res.data || []).forEach(r => {
             const cod = r.cod_item?.trim()
-            if (cod && !cods.has(cod)) {
+            const nome = (r.nome_combustivel || '').toUpperCase()
+            const ehCombustivel = termosCombustivel.some(t => nome.includes(t))
+            if (cod && !cods.has(cod) && ehCombustivel) {
                 cods.add(cod)
                 lista.push({ cod, nome: r.nome_combustivel || cod })
             }

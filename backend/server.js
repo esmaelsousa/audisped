@@ -5603,6 +5603,17 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
         } catch(_) {}
 
         // 2. Produtos/combustíveis disponíveis
+        // Nomes dos produtos — filtrar apenas combustíveis
+        const prodNomes = {};
+        const nomesRes = await dbClient.query('SELECT DISTINCT TRIM(cod_item) as cod_item, descr_item FROM sped_produtos WHERE id_sped_arquivo = $1', [arquivoId]);
+        const termosCombustivel = ['GASOLINA', 'ETANOL', 'DIESEL', 'GNV', 'BIODIESEL', 'QUEROSENE', 'GLP', 'ALCOOL'];
+        nomesRes.rows.forEach(r => {
+            const nome = (r.descr_item || '').toUpperCase();
+            if (termosCombustivel.some(t => nome.includes(t))) {
+                prodNomes[r.cod_item.trim()] = r.descr_item;
+            }
+        });
+
         let prodQuery = `SELECT DISTINCT TRIM(cod_item) as cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1`;
         const prodParams = [arquivoId];
         if (combustivelFiltro !== 'todos') {
@@ -5610,11 +5621,6 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
             prodParams.push(combustivelFiltro.trim());
         }
         const produtos = await dbClient.query(prodQuery, prodParams);
-
-        // Nomes dos produtos
-        const prodNomes = {};
-        const nomesRes = await dbClient.query('SELECT DISTINCT TRIM(cod_item) as cod_item, descr_item FROM sped_produtos WHERE id_sped_arquivo = $1', [arquivoId]);
-        nomesRes.rows.forEach(r => { prodNomes[r.cod_item.trim()] = r.descr_item; });
 
         // 3. Dados LMC por dia/produto
         let lmcQuery = `
@@ -5635,7 +5641,9 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
         if (dataInicio) { lmcQuery += ` AND data_mov >= $${lmcParams.length + 1}`; lmcParams.push(dataInicio); }
         if (dataFim) { lmcQuery += ` AND data_mov <= $${lmcParams.length + 1}`; lmcParams.push(dataFim); }
         lmcQuery += ` ORDER BY data_mov, cod_item, num_tanque`;
-        const lmcRows = await dbClient.query(lmcQuery, lmcParams);
+        const lmcRowsRaw = await dbClient.query(lmcQuery, lmcParams);
+        // Filtrar apenas combustíveis (produtos que estão em prodNomes)
+        const lmcRows = { rows: lmcRowsRaw.rows.filter(r => prodNomes[r.cod_item.trim()]) };
 
         // 4. Encerrantes (1320) do SPED original
         const bicosData = {};
