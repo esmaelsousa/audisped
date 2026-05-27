@@ -1,4 +1,5 @@
-co# PLANO DE CORREÇÃO: Continuidade LMC e Encerrantes na Exportação SPED
+co
+# PLANO DE CORREÇÃO: Continuidade LMC e Encerrantes na Exportação SPED
 
 **Data:** 21/05/2026
 **Baseado em:** Auditoria PRECO BOM II + Auto Posto Apache (Amaral)
