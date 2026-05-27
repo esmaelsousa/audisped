@@ -6339,24 +6339,32 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
 
                     // 0) Bomba parada: enc_inic == enc_final no SPED original (não vendeu nada).
-                    //    Se existe outro registro do MESMO bico em OUTRO tanque → OMITIR este
-                    //    (emitir dois 1320 do mesmo bico com enc diferentes quebra continuidade).
-                    //    Se é o ÚNICO registro deste bico → manter com vendas=0.
+                    //    Pode ser: intervenção (mesmo tanque tem outro registro real do mesmo bico),
+                    //    bico compartilhado entre tanques, ou dia sem vendas (feriado).
                     const isBombaParada = encFechaOrig > 0 && Math.abs(encFechaOrig - encAbertOrig) < 0.01 && volVendasOrig === 0;
                     if (isBombaParada) {
-                        // Verificar se existe outro registro do MESMO bico em OUTRO tanque
+                        // Caso A: mesmo bico tem registro REAL no MESMO tanque (intervenção)
+                        const mesmoBicoMesmoTanqueReal = bicosDesteTanque.some(bf => {
+                            if (bf === bFields) return false;
+                            if (bf[2] !== bicoNum) return false;
+                            const vv = parseFloat((bf[11] || '0').replace(',', '.'));
+                            const ef = parseFloat((bf[8] || '0').replace(',', '.'));
+                            const ei = parseFloat((bf[9] || '0').replace(',', '.'));
+                            return vv > 0 || Math.abs(ef - ei) > 0.01;
+                        });
+                        if (mesmoBicoMesmoTanqueReal) {
+                            continue; // OMITIR — registro real do mesmo bico/tanque será processado
+                        }
+                        // Caso B: mesmo bico existe em OUTRO tanque
                         const outroTanqueTemMesmoBico = Object.entries(pending1320s).some(([tCod, bicos]) => {
                             if (tCod === tanqueCod) return false;
                             return bicos.some(bf => bf[2] === bicoNum);
                         });
                         if (outroTanqueTemMesmoBico) {
-                            // OMITIR este registro — o outro tanque processará o mesmo bico
-                            continue;
+                            continue; // OMITIR — outro tanque processará o mesmo bico
                         }
-                        // Único registro deste bico (dia sem vendas / feriado)
-                        // NÃO usar enc original — usar encerrantesBombasMap para manter
-                        // cadeia acumulada. Vendas=0, aferição=0.
-                        // Deixar o processamento normal abaixo tratar (volVendasOrig=0).
+                        // Caso C: único registro deste bico (feriado/dia sem vendas)
+                        // Processamento normal com enc acumulado e vendas=0
                     }
 
                     // 1) Entrada fantasma (todos os campos zero):
