@@ -7,7 +7,7 @@ function formatNum(v, decimals = 2) {
 }
 
 function gerarPaginaLMC(doc, dados, pageNum) {
-    const { empresa, combustivel, data, tanques, bicos, estoque, entradas, vendas } = dados;
+    const { empresa, combustivel, data, tanques, bicos, estoque, entradas, vendas, observacao } = dados;
     const m = 28;
     const w = doc.page.width - m * 2;
     const pH = doc.page.height;
@@ -209,12 +209,25 @@ function gerarPaginaLMC(doc, dados, pageNum) {
 
     t('13) Observações', m + 4, y + 3, { size: 7 });
     let oy = y + 16;
+    // Preços por bico
     bicos.forEach(bico => {
-        if (bico.preco && oy < y + hObs - 10) {
+        if (bico.preco && oy < y + hObs - 20) {
             t(`Bico ${bico.num} R$ ${formatNum(bico.preco, 3)}`, m + 6, oy, { size: 7 });
             oy += 10;
         }
     });
+    // Observação digitada pelo usuário
+    if (observacao && observacao.trim()) {
+        if (oy < y + hObs - 20) {
+            doc.fontSize(7).font('Helvetica').fillColor('#000000');
+            doc.text(observacao.trim(), m + 6, oy, {
+                width: lW - 14,
+                lineBreak: true,
+                height: y + hObs - oy - 8
+            });
+            doc.y = oy;
+        }
+    }
 
     t('12) Destinado à Fiscalização', m + lW + 4, y + 3, { size: 7 });
     t('ANP', m + lW + 6, y + 18, { size: 8, bold: true });

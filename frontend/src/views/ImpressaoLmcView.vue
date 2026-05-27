@@ -16,7 +16,9 @@ const combustivelSelecionado = ref('todos')
 const dataInicio = ref('')
 const dataFim = ref('')
 const folhaInicial = ref(1)
+const observacao = ref('')
 const carregando = ref(false)
+const salvandoObs = ref(false)
 
 onMounted(async () => {
     const token = localStorage.getItem('token')
@@ -83,8 +85,36 @@ async function carregarCombustiveis() {
     } catch(e) { console.error('Erro ao carregar combustíveis:', e) }
 }
 
-function gerarPDF() {
+async function salvarObservacao() {
+    if (!arquivoSelecionado.value || !observacao.value.trim()) return
+    const token = localStorage.getItem('token')
+    salvandoObs.value = true
+    try {
+        // Salvar para cada dia do período selecionado e combustível
+        const codComb = combustivelSelecionado.value !== 'todos' ? combustivelSelecionado.value : combustiveis.value[0]?.cod
+        if (!codComb) return
+
+        const inicio = new Date(dataInicio.value)
+        const fim = new Date(dataFim.value)
+        for (let d = new Date(inicio); d <= fim; d.setDate(d.getDate() + 1)) {
+            const dt = d.toISOString().split('T')[0]
+            await axios.post(`${API_BASE_URL}/api/lmc/observacoes`, {
+                id_sped_arquivo: arquivoSelecionado.value,
+                cod_item: codComb,
+                data_mov: dt,
+                observacao: observacao.value
+            }, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        }
+    } catch(e) { console.error('Erro ao salvar observação:', e) }
+    finally { salvandoObs.value = false }
+}
+
+async function gerarPDF() {
     if (!arquivoSelecionado.value) return
+
+    // Salvar observação antes de gerar (se preenchida)
+    if (observacao.value.trim()) await salvarObservacao()
+
     const token = localStorage.getItem('token')
     const params = new URLSearchParams()
     if (combustivelSelecionado.value !== 'todos') params.set('combustivel', combustivelSelecionado.value)
@@ -163,12 +193,20 @@ function gerarPDF() {
                 <p class="text-[10px] text-slate-400 mt-1">Ex: se o livro anterior terminou na Fl. 120, inicie na 121</p>
             </div>
 
+            <!-- Observações -->
+            <div v-if="arquivoSelecionado">
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Observações (Campo 13 do LMC)</label>
+                <textarea v-model="observacao" rows="3" placeholder="Digite observações que serão impressas no campo 13 do LMC..."
+                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent resize-none"></textarea>
+                <p class="text-[10px] text-slate-400 mt-1">Será salva e impressa no campo "13) Observações" de cada página do período</p>
+            </div>
+
             <!-- Botão Gerar -->
             <div v-if="arquivoSelecionado" class="pt-2">
-                <button @click="gerarPDF"
-                    class="flex items-center gap-2 px-6 py-2.5 bg-brand-accent hover:bg-blue-600 text-white text-sm font-bold rounded-xl shadow-lg transition-all">
+                <button @click="gerarPDF" :disabled="salvandoObs"
+                    class="flex items-center gap-2 px-6 py-2.5 bg-brand-accent hover:bg-blue-600 text-white text-sm font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
                     <FileText class="w-4 h-4" />
-                    Gerar PDF do LMC
+                    {{ salvandoObs ? 'Salvando...' : 'Gerar PDF do LMC' }}
                 </button>
             </div>
         </div>

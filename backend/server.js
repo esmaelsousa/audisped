@@ -5563,6 +5563,37 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
     }
 });
 
+// --- ROTAS DE OBSERVAÇÕES DO LMC ---
+app.get('/api/lmc/observacoes/:id_sped', authMiddleware, async (req, res) => {
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query(
+            'SELECT cod_item, data_mov, observacao FROM lmc_observacoes WHERE id_sped_arquivo = $1 ORDER BY data_mov, cod_item',
+            [parseInt(req.params.id_sped)]
+        );
+        res.json(r.rows);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+    finally { dbClient.release(); }
+});
+
+app.post('/api/lmc/observacoes', authMiddleware, async (req, res) => {
+    const { id_sped_arquivo, cod_item, data_mov, observacao } = req.body;
+    if (!id_sped_arquivo || !cod_item || !data_mov) return res.status(400).json({ error: 'Parâmetros obrigatórios' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query(`
+            INSERT INTO lmc_observacoes (id_sped_arquivo, cod_item, data_mov, observacao)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (id_sped_arquivo, cod_item, data_mov)
+            DO UPDATE SET observacao = $4
+        `, [id_sped_arquivo, cod_item.trim(), data_mov, observacao || '']);
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+    finally { dbClient.release(); }
+});
+
 // --- ROTA DE IMPRESSÃO DO LMC (PDF modelo AutoSystem) ---
 app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
@@ -5726,6 +5757,19 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
             }
         } catch(e) { logger.warn('Erro ao buscar NF-e entrada para LMC PDF:', e.message); }
 
+        // 6.5 Observações do LMC
+        const obsMap = {};
+        try {
+            const obsRes = await dbClient.query(
+                'SELECT cod_item, data_mov, observacao FROM lmc_observacoes WHERE id_sped_arquivo = $1',
+                [arquivoId]
+            );
+            obsRes.rows.forEach(r => {
+                const dt = r.data_mov.toISOString().split('T')[0];
+                obsMap[`${dt}_${r.cod_item.trim()}`] = r.observacao;
+            });
+        } catch(_) {}
+
         // 7. Gerar PDF
         const doc = new PDFDocument({ size: 'A4', margin: 30, bufferPages: true, autoFirstPage: true });
         res.setHeader('Content-Type', 'application/pdf');
@@ -5763,6 +5807,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
                 bicos: bicos.map(b => ({ ...b, preco: null })),
                 estoque: est,
                 entradas: entradasMap[`${dp.dt}_${dp.cod}`] || [],
+                observacao: obsMap[`${dp.dt}_${dp.cod}`] || '',
                 vendas: { valor_dia: null, valor_acumulado: null, litros_acumulado: litrosAcumulado[dp.cod] }
             }, pageNum);
 
