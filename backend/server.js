@@ -7185,6 +7185,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // arquivo ficam incorretas. Aqui corrigimos antes de escrever na resposta.
         const regCountMap = new Map();
         let block0LineCount = 0;
+        let block1LineCount = 0;
         for (const l of outputLines) {
             const parts = l.split('|');
             if (parts.length >= 2 && parts[1]) {
@@ -7192,6 +7193,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 regCountMap.set(reg, (regCountMap.get(reg) || 0) + 1);
                 // Block 0: todos os registros 0000..0990 (inclusivo)
                 if (reg.startsWith('0')) block0LineCount++;
+                // Block 1: todos os registros 1001..1990 (inclusivo)
+                if (reg.startsWith('1')) block1LineCount++;
             }
         }
         const totalLines = outputLines.length;
@@ -7206,6 +7209,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             } else if (parts.length >= 3 && parts[1] === '0990') {
                 // |0990|QTD_LIN_0| — contagem de linhas do bloco 0 (0001..0990)
                 parts[2] = String(block0LineCount);
+                res.write(parts.join('|') + '\r\n');
+            } else if (parts.length >= 3 && parts[1] === '1990') {
+                // |1990|QTD_LIN_1| — contagem de linhas do bloco 1 (1001..1990)
+                parts[2] = String(block1LineCount);
                 res.write(parts.join('|') + '\r\n');
             } else if (parts.length >= 3 && parts[1] === '9999') {
                 // |9999|QTD_LIN| — total de linhas do arquivo
