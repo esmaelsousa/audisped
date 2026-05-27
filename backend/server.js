@@ -6345,19 +6345,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     const isBombaParada = encFechaOrig > 0 && Math.abs(encFechaOrig - encAbertOrig) < 0.01 && volVendasOrig === 0;
                     if (isBombaParada) {
                         // Verificar se existe outro registro do MESMO bico em OUTRO tanque
-                        // E que esse outro registro TENHA VENDAS (bico ativo)
-                        const outroTanqueTemBicoAtivo = Object.entries(pending1320s).some(([tCod, bicos]) => {
-                            if (tCod === tanqueCod) return false; // mesmo tanque, ignorar
-                            return bicos.some(bf => {
-                                if (bf[2] !== bicoNum) return false;
-                                const vv = parseFloat((bf[11] || '0').replace(',', '.'));
-                                const ef = parseFloat((bf[8] || '0').replace(',', '.'));
-                                const ei = parseFloat((bf[9] || '0').replace(',', '.'));
-                                return vv > 0 || Math.abs(ef - ei) > 0.01; // ativo = tem vendas ou enc diferente
-                            });
+                        const outroTanqueTemMesmoBico = Object.entries(pending1320s).some(([tCod, bicos]) => {
+                            if (tCod === tanqueCod) return false;
+                            return bicos.some(bf => bf[2] === bicoNum);
                         });
-                        if (outroTanqueTemBicoAtivo) {
-                            // OMITIR — o bico ativo no outro tanque será emitido
+                        if (outroTanqueTemMesmoBico) {
+                            // OMITIR este registro — o outro tanque processará o mesmo bico
+                            // (seja ativo com vendas, ou duplicata com encerrantesBombasMap)
                             continue;
                         }
                         // Único registro deste bico → manter com vendas=0
