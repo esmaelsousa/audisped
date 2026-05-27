@@ -44,7 +44,10 @@ function gerarPaginaLMC(doc, dados, pageNum) {
         doc.fillColor(opts.color || '#333333')
            .fontSize(opts.size || 8)
            .font(opts.bold ? 'Helvetica-Bold' : 'Helvetica')
-           .text(String(str || ''), x, ty, { width: opts.width, align: opts.align || 'left', lineBreak: false });
+           .text(String(str || ''), x, ty, { width: opts.width, align: opts.align || 'left', lineBreak: false, continued: false });
+        // Resetar cursor para evitar auto page break
+        doc.x = m;
+        doc.y = ty;
     };
 
     // ═══════════════════════════════════════════════
@@ -220,10 +223,16 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     txt('(*) ATENÇÃO - SE O RESULTADO FOR NEGATIVO, PODE ESTAR HAVENDO VAZAMENTO PARA O MEIO AMBIENTE.', m + 4, y + 3, { size: 6, bold: true });
     y += avisoH;
 
-    // RODAPÉ
-    doc.fontSize(6).fillColor('#999999')
-       .text('Audisped - audisped.com.br', m, doc.page.height - 22, { width: w / 2, align: 'left' })
-       .text(`${empresa.razao_social} - ${new Date().toLocaleDateString('pt-BR')} - Pág. ${pageNum}`, m + w / 2, doc.page.height - 22, { width: w / 2, align: 'right' });
+    // RODAPÉ (posicionamento absoluto, sem mover cursor do pdfkit)
+    const footY = doc.page.height - 22;
+    doc.save();
+    doc.fontSize(6).fillColor('#999999');
+    doc.text('Audisped - audisped.com.br', m, footY, { width: w / 2, align: 'left', lineBreak: false });
+    doc.text(`${empresa.razao_social} - ${new Date().toLocaleDateString('pt-BR')} - Pag. ${pageNum}`, m + w / 2, footY, { width: w / 2, align: 'right', lineBreak: false });
+    doc.restore();
+    // Resetar posição do cursor para evitar que pdfkit crie página extra
+    doc.x = m;
+    doc.y = y;
 }
 
 module.exports = { gerarPaginaLMC, formatNum };
