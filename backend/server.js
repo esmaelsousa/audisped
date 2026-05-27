@@ -6412,19 +6412,36 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         }
                     }
 
-                    // 2) Duplicata real: mesmo bico já processado neste flush (mesmo dia,
-                    //    outro produto). O encerrante já foi contabilizado → zerar volume
-                    //    e usar encerrantes atuais para não inflar a cadeia.
-                    //    EXCEÇÃO: se o bico já processado tinha vendas=0 (fantasma no outro tanque)
-                    //    e este tem vendas > 0 (real), manter as vendas reais.
+                    // 2) Duplicata / Troca de produto: mesmo bico já processado neste flush.
                     if (bicosProcessadosNesteFlush.has(bicoNum)) {
-                        // Verificar se a ocorrência anterior era fantasma (vendas=0)
-                        const anteriorEraFantasma = bicosProcessadosNesteFlush.get(bicoNum) === 0;
+                        const anterior = bicosProcessadosNesteFlush.get(bicoNum);
+
+                        // 2a) Troca de produto (bico multiproduto): mesmo bico, mesmo enc_inic original.
+                        //     O posto trocou o combustível do bico no meio do período.
+                        //     O encerrante já avançou no 1º produto → NÃO avançar de novo.
+                        //     Emitir com enc_inic = enc_final = acumulado atual, vendas do fator.
+                        const isMultiproduto = anterior && anterior.encOrig !== undefined
+                            && Math.abs(encAbertOrig - anterior.encOrig) < 0.01;
+
+                        if (isMultiproduto) {
+                            const encAtual = encerrantesBombasMap[bicoNum] || 0;
+                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[11] = volVendasOrig > 0
+                                ? Number((volVendasOrig * (curated.nSaida > 0 ? curated.nSaida / (curated.tOrigSaida || curated.nSaida) : 0)).toFixed(3)).toString().replace('.', ',')
+                                : '0,000';
+                            bFields[10] = '0,000';
+                            linhas1310.push(bFields.join('|'));
+                            // NÃO atualizar encerrantesBombasMap (já avançou no 1º produto)
+                            continue;
+                        }
+
+                        // 2b) Duplicata normal: zerar vendas se anterior tinha vendas
+                        const anteriorEraFantasma = anterior && anterior.vendas === 0;
                         if (!anteriorEraFantasma) {
                             bFields[11] = '0,000';
                             bFields[10] = '0,000';
                         }
-                        // Se anterior era fantasma e este tem vendas, manter vendas reais
                         const encAtual = encerrantesBombasMap[bicoNum] || 0;
                         bFields[9] = encAtual.toFixed(3).replace('.', ',');
                         bFields[8] = encAtual.toFixed(3).replace('.', ',');
@@ -6475,7 +6492,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     bFields[11] = (volVendasFinal < 0 ? 0 : volVendasFinal).toFixed(3).replace('.', ',');
 
                     encerrantesBombasMap[bicoNum] = encFinalNovo;
-                    bicosProcessadosNesteFlush.set(bicoNum, volBicoCalculado);
+                    bicosProcessadosNesteFlush.set(bicoNum, { vendas: volBicoCalculado, encOrig: encAbertOrig });
 
                     linhas1310.push(bFields.join('|'));
                 }
