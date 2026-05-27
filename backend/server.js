@@ -6351,16 +6351,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         });
                         if (outroTanqueTemMesmoBico) {
                             // OMITIR este registro — o outro tanque processará o mesmo bico
-                            // (seja ativo com vendas, ou duplicata com encerrantesBombasMap)
                             continue;
                         }
-                        // Único registro deste bico → manter com vendas=0
-                        bFields[11] = '0,000';
-                        bFields[8] = encFechaOrig.toFixed(3).replace('.', ',');
-                        bFields[9] = encAbertOrig.toFixed(3).replace('.', ',');
-                        bFields[10] = volAferiOrig.toFixed(3).replace('.', ',');
-                        linhas1310.push(bFields.join('|'));
-                        continue;
+                        // Único registro deste bico (dia sem vendas / feriado)
+                        // NÃO usar enc original — usar encerrantesBombasMap para manter
+                        // cadeia acumulada. Vendas=0, aferição=0.
+                        // Deixar o processamento normal abaixo tratar (volVendasOrig=0).
                     }
 
                     // 1) Entrada fantasma (todos os campos zero):
