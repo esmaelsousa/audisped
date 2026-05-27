@@ -236,47 +236,49 @@ async function gerarPDF() {
             </div>
 
             <!-- Resumo por Combustível -->
-            <div v-if="resumo.length > 0" class="border border-slate-200 rounded-xl overflow-hidden">
-                <div class="bg-slate-50 px-4 py-2 border-b border-slate-200">
-                    <p class="text-xs font-bold text-slate-700">Resumo do Período</p>
+            <div v-if="resumo.length > 0" class="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-3">
+                    <p class="text-sm font-bold text-white tracking-wide">Resumo do Período</p>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-[11px]">
+                    <table class="w-full">
                         <thead>
-                            <tr class="bg-slate-100 text-slate-600">
-                                <th class="px-3 py-1.5 text-left font-semibold">Combustível</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">Entradas (L)</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">Saídas (L)</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">Perdas (L)</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">Ganhos (L)</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">Variação</th>
-                                <th class="px-3 py-1.5 text-right font-semibold">% ANP</th>
+                            <tr class="bg-slate-100 text-slate-600 text-xs">
+                                <th class="px-4 py-2.5 text-left font-bold">Combustível</th>
+                                <th class="px-4 py-2.5 text-right font-bold">Entradas (L)</th>
+                                <th class="px-4 py-2.5 text-right font-bold">Saídas (L)</th>
+                                <th class="px-4 py-2.5 text-right font-bold">Perdas (L)</th>
+                                <th class="px-4 py-2.5 text-right font-bold">Ganhos (L)</th>
+                                <th class="px-4 py-2.5 text-right font-bold">Variação</th>
+                                <th class="px-4 py-2.5 text-right font-bold">% ANP</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="r in resumo" :key="r.cod" class="border-t border-slate-100 hover:bg-blue-50/30">
-                                <td class="px-3 py-1.5 font-semibold text-slate-800">{{ r.nome }}</td>
-                                <td class="px-3 py-1.5 text-right text-green-700 font-mono">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-3 py-1.5 text-right text-red-600 font-mono">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-3 py-1.5 text-right text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-3 py-1.5 text-right text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-3 py-1.5 text-right font-mono" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">
+                            <tr v-for="r in resumo" :key="r.cod" class="border-t border-slate-100 hover:bg-blue-50/40 transition-colors">
+                                <td class="px-4 py-3 text-sm font-bold text-slate-800">{{ r.nome }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-green-700 font-mono font-semibold">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-red-600 font-mono font-semibold">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-4 py-3 text-sm text-right font-mono font-semibold" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">
                                     {{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}
                                 </td>
-                                <td class="px-3 py-1.5 text-right font-mono" :class="r.fechamentoFinal > 0 && (Math.abs(r.perdas - r.ganhos) / r.fechamentoFinal * 100) > 0.6 ? 'text-red-600 font-bold' : 'text-green-700'">
-                                    {{ r.fechamentoFinal > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
+                                <td class="px-4 py-3 text-sm text-right font-mono font-bold">
+                                    <span :class="r.saidas > 0 && (Math.abs(r.perdas - r.ganhos) / r.saidas * 100) > 0.6 ? 'text-red-600 bg-red-50 px-2 py-0.5 rounded-full' : 'text-green-700 bg-green-50 px-2 py-0.5 rounded-full'">
+                                        {{ r.saidas > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
+                                    </span>
                                 </td>
                             </tr>
                         </tbody>
                         <tfoot>
-                            <tr class="border-t-2 border-slate-300 bg-slate-50 font-bold text-[11px]">
-                                <td class="px-3 py-1.5 text-slate-700">TOTAIS</td>
-                                <td class="px-3 py-1.5 text-right text-green-700 font-mono">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-3 py-1.5 text-right text-red-600 font-mono">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-3 py-1.5 text-right text-orange-600 font-mono">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-3 py-1.5 text-right text-blue-600 font-mono">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-3 py-1.5 text-right font-mono">{{ (resumo.reduce((s,r) => s + r.ganhos - r.perdas, 0)).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-3 py-1.5"></td>
+                            <tr class="border-t-2 border-slate-300 bg-slate-50">
+                                <td class="px-4 py-3 text-sm font-black text-slate-800">TOTAIS</td>
+                                <td class="px-4 py-3 text-sm text-right text-green-700 font-mono font-black">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-red-600 font-mono font-black">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-orange-600 font-mono font-bold">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-4 py-3 text-sm text-right text-blue-600 font-mono font-bold">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-4 py-3 text-sm text-right font-mono font-bold">{{ (resumo.reduce((s,r) => s + r.ganhos - r.perdas, 0)).toFixed(1).replace('.', ',') }}</td>
+                                <td class="px-4 py-3"></td>
                             </tr>
                         </tfoot>
                     </table>
