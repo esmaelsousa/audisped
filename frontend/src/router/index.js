@@ -92,6 +92,12 @@ const router = createRouter({
       name: 'cfops',
       component: () => import('../views/CfopView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/impressao-lmc',
+      name: 'impressao-lmc',
+      component: () => import('../views/ImpressaoLmcView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

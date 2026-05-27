@@ -5563,6 +5563,192 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
     }
 });
 
+// --- ROTA DE IMPRESSÃO DO LMC (PDF modelo AutoSystem) ---
+app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_sped);
+    if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
+
+    const combustivelFiltro = req.query.combustivel || 'todos';
+    const dataInicio = req.query.data_inicio || null;
+    const dataFim = req.query.data_fim || null;
+    const folhaInicial = parseInt(req.query.folha_inicial || '1');
+
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+
+    try {
+        const PDFDocument = require('pdfkit');
+        const { gerarPaginaLMC } = require('./lmc-pdf');
+
+        // 1. Info da empresa
+        const arqRes = await dbClient.query('SELECT * FROM sped_arquivos WHERE id = $1', [arquivoId]);
+        if (arqRes.rows.length === 0) return res.status(404).json({ error: 'Arquivo não encontrado' });
+        const arq = arqRes.rows[0];
+        const cnpj = arq.cnpj_empresa.replace(/\D/g, '');
+
+        const empRes = await dbClient.query('SELECT * FROM empresas WHERE cnpj = $1', [cnpj]);
+        const emp = empRes.rows[0] || {};
+        const empresa = {
+            razao_social: emp.nome_empresa || 'N/A',
+            cnpj: cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'),
+            ie: 'N/A'
+        };
+
+        // Buscar IE do SPED original
+        try {
+            const spContent = fs.readFileSync(arq.caminho_arquivo, 'latin1');
+            const m0005 = spContent.match(/\|0005\|[^|]*\|/);
+            const m0000 = spContent.match(/\|0000\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|([^|]*)\|/);
+            if (m0000) empresa.ie = m0000[1] || 'N/A';
+        } catch(_) {}
+
+        // 2. Produtos/combustíveis disponíveis
+        let prodQuery = `SELECT DISTINCT TRIM(cod_item) as cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1`;
+        const prodParams = [arquivoId];
+        if (combustivelFiltro !== 'todos') {
+            prodQuery += ` AND TRIM(cod_item) = $2`;
+            prodParams.push(combustivelFiltro.trim());
+        }
+        const produtos = await dbClient.query(prodQuery, prodParams);
+
+        // Nomes dos produtos
+        const prodNomes = {};
+        const nomesRes = await dbClient.query('SELECT DISTINCT TRIM(cod_item) as cod_item, descr_item FROM sped_produtos WHERE id_sped_arquivo = $1', [arquivoId]);
+        nomesRes.rows.forEach(r => { prodNomes[r.cod_item.trim()] = r.descr_item; });
+
+        // 3. Dados LMC por dia/produto
+        let lmcQuery = `
+            SELECT data_mov, cod_item, num_tanque,
+                COALESCE(estq_abert_ajustado::numeric, estq_abert::numeric) as estq_abert,
+                COALESCE(vol_entr_ajustado::numeric, vol_entr::numeric) as vol_entr,
+                COALESCE(vol_saidas_ajustado::numeric, vol_saidas::numeric) as vol_saidas,
+                COALESCE(fech_fisico_ajustado::numeric, fech_fisico::numeric) as fech_fisico,
+                COALESCE(val_perda_ajustado::numeric, val_perda::numeric) as val_perda,
+                COALESCE(val_ganho_ajustado::numeric, val_ganho::numeric) as val_ganho
+            FROM lmc_movimentacao WHERE id_sped_arquivo = $1
+        `;
+        const lmcParams = [arquivoId];
+        if (combustivelFiltro !== 'todos') {
+            lmcQuery += ` AND TRIM(cod_item) = $2`;
+            lmcParams.push(combustivelFiltro.trim());
+        }
+        if (dataInicio) { lmcQuery += ` AND data_mov >= $${lmcParams.length + 1}`; lmcParams.push(dataInicio); }
+        if (dataFim) { lmcQuery += ` AND data_mov <= $${lmcParams.length + 1}`; lmcParams.push(dataFim); }
+        lmcQuery += ` ORDER BY data_mov, cod_item, num_tanque`;
+        const lmcRows = await dbClient.query(lmcQuery, lmcParams);
+
+        // 4. Encerrantes (1320) do SPED original
+        const bicosData = {};
+        try {
+            const spContent = fs.readFileSync(arq.caminho_arquivo, 'latin1');
+            const lines = spContent.split(/\r?\n/);
+            let curr1300Dt = '', curr1300Cod = '', currTanque = '';
+            for (const line of lines) {
+                const p = line.split('|');
+                if (p[1] === '1300') { curr1300Dt = p[3]; curr1300Cod = (p[2]||'').trim(); }
+                if (p[1] === '1310') { currTanque = p[2]; }
+                if (p[1] === '1320' && curr1300Dt) {
+                    const key = `${curr1300Dt}_${curr1300Cod}`;
+                    if (!bicosData[key]) bicosData[key] = [];
+                    bicosData[key].push({
+                        tanque: currTanque, num: p[2],
+                        enc_final: parseFloat((p[8]||'0').replace(',','.')),
+                        enc_inicial: parseFloat((p[9]||'0').replace(',','.')),
+                        aferição: parseFloat((p[10]||'0').replace(',','.')),
+                        vendas: parseFloat((p[11]||'0').replace(',','.'))
+                    });
+                }
+            }
+        } catch(_) {}
+
+        // 5. Agrupar LMC por dia/produto
+        const diasProdutos = new Map();
+        for (const row of lmcRows.rows) {
+            const dt = row.data_mov.toISOString().split('T')[0];
+            const cod = row.cod_item.trim();
+            const key = `${dt}_${cod}`;
+            if (!diasProdutos.has(key)) diasProdutos.set(key, { dt, cod, tanques: [], total: null });
+            const dp = diasProdutos.get(key);
+
+            if (row.num_tanque === '0' || dp.tanques.length === 0) {
+                dp.total = {
+                    abertura: parseFloat(row.estq_abert), entradas: parseFloat(row.vol_entr),
+                    saidas: parseFloat(row.vol_saidas), fechamento: parseFloat(row.fech_fisico),
+                    perda: parseFloat(row.val_perda), ganho: parseFloat(row.val_ganho)
+                };
+            }
+            if (row.num_tanque !== '0') {
+                dp.tanques.push({
+                    num: row.num_tanque, abertura: parseFloat(row.estq_abert),
+                    fechamento: parseFloat(row.fech_fisico)
+                });
+            }
+        }
+
+        // 6. Vendas NFC-e por dia/produto (valor R$)
+        const vendasMap = {};
+        try {
+            const vendasAcum = {};
+            // Simplificado: vendas totais por dia (sem separar por produto)
+        } catch(_) {}
+
+        // 7. Gerar PDF
+        const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
+        res.setHeader('Content-Type', 'application/pdf');
+        const nomeEmpresa = (emp.nome_fantasia || emp.nome_empresa || 'LMC')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').substring(0, 25);
+        res.setHeader('Content-Disposition', `inline; filename=LMC_${nomeEmpresa}_${arq.periodo_apuracao.substring(0,7)}.pdf`);
+        doc.pipe(res);
+
+        let pageNum = folhaInicial;
+        let litrosAcumulado = {};
+
+        for (const [key, dp] of diasProdutos) {
+            if (pageNum > folhaInicial) doc.addPage();
+
+            const dd = dp.dt.substring(8,10), mm = dp.dt.substring(5,7), yy = dp.dt.substring(0,4);
+            const dataFormatada = `${dd}/${mm}/${yy}`;
+            const dtSped = `${dd}${mm}${yy}`;
+
+            const est = dp.total || { abertura: 0, entradas: 0, saidas: 0, fechamento: 0, perda: 0, ganho: 0 };
+            est.disponivel = est.abertura + est.entradas;
+            est.escritural = est.disponivel - est.saidas;
+
+            // Acumulado de litros no mês por produto
+            if (!litrosAcumulado[dp.cod]) litrosAcumulado[dp.cod] = 0;
+            litrosAcumulado[dp.cod] += est.saidas;
+
+            const bicos = bicosData[`${dtSped}_${dp.cod}`] || [];
+
+            gerarPaginaLMC(doc, {
+                empresa,
+                combustivel: { nome: prodNomes[dp.cod] || dp.cod, cod: dp.cod },
+                data: dataFormatada,
+                tanques: dp.tanques.length > 0 ? dp.tanques : [{ num: '1', abertura: est.abertura, fechamento: est.fechamento }],
+                bicos: bicos.map(b => ({ ...b, preco: null })),
+                estoque: est,
+                entradas: [],
+                vendas: { valor_dia: null, valor_acumulado: null, litros_acumulado: litrosAcumulado[dp.cod] }
+            }, pageNum);
+
+            pageNum++;
+        }
+
+        if (diasProdutos.size === 0) {
+            doc.fontSize(14).text('Nenhum dado de LMC encontrado para os filtros selecionados.', 40, 100);
+        }
+
+        doc.end();
+
+    } catch (error) {
+        logger.error('Erro ao gerar PDF do LMC:', error);
+        if (!res.headersSent) res.status(500).json({ error: error.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // --- ROTA DE EXPORTAÇÃO RETIFICADA (FASE 10) ---
 app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
