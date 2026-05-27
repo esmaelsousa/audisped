@@ -5788,6 +5788,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         let lastC100 = { numDoc: '', chvNfe: '' };
 
         let encerrantesBombasMap = {}; // Rastreador global contínuo (Bico -> Último Encerrante Final)
+        const ultimoEncOrigPorBico = new Map(); // Bico -> enc_inic original do último processamento (detecção multiproduto)
 
         // ── Fix B: período do arquivo (DDMMYYYY) para autocorreção de COD_SIT ──
         // Convertidos para Date (UTC) no bloco 0000 para comparação com DT_E_S
@@ -6412,7 +6413,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                         }
                     }
 
-                    // 2) Duplicata / Troca de produto: mesmo bico já processado neste flush.
+                    // 2) Troca de produto ENTRE FLUSHES: mesmo bico processado em outro produto
+                    //    (flush diferente, mesmo dia). Detectado via Map GLOBAL ultimoEncOrigPorBico.
+                    if (!bicosProcessadosNesteFlush.has(bicoNum) && ultimoEncOrigPorBico.has(bicoNum)) {
+                        const encOrigAnterior = ultimoEncOrigPorBico.get(bicoNum);
+                        if (Math.abs(encAbertOrig - encOrigAnterior) < 0.01) {
+                            // Multiproduto: mesmo bico, mesmo enc_inic → troca de produto
+                            const encAtual = encerrantesBombasMap[bicoNum] || 0;
+                            bFields[9] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[8] = encAtual.toFixed(3).replace('.', ',');
+                            bFields[11] = volVendasOrig > 0
+                                ? Number((volVendasOrig * (curated.nSaida > 0 ? curated.nSaida / (curated.tOrigSaida || curated.nSaida) : 0)).toFixed(3)).toString().replace('.', ',')
+                                : '0,000';
+                            bFields[10] = '0,000';
+                            linhas1310.push(bFields.join('|'));
+                            continue;
+                        }
+                    }
+
+                    // 3) Duplicata / Troca de produto DENTRO do mesmo flush.
                     if (bicosProcessadosNesteFlush.has(bicoNum)) {
                         const anterior = bicosProcessadosNesteFlush.get(bicoNum);
 
@@ -6493,6 +6512,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                     encerrantesBombasMap[bicoNum] = encFinalNovo;
                     bicosProcessadosNesteFlush.set(bicoNum, { vendas: volBicoCalculado, encOrig: encAbertOrig });
+                    ultimoEncOrigPorBico.set(bicoNum, encAbertOrig); // global: detecção multiproduto entre flushes
 
                     linhas1310.push(bFields.join('|'));
                 }
