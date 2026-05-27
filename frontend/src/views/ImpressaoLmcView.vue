@@ -178,7 +178,7 @@ async function gerarPDF() {
 </script>
 
 <template>
-    <div class="p-6 max-w-2xl mx-auto">
+    <div class="p-6 max-w-4xl mx-auto">
         <div class="flex items-center gap-3 mb-6">
             <Printer class="w-6 h-6 text-brand-accent" />
             <h1 class="text-xl font-bold text-slate-800">Impressão do LMC</h1>
@@ -235,53 +235,78 @@ async function gerarPDF() {
                 </div>
             </div>
 
-            <!-- Resumo por Combustível -->
-            <div v-if="resumo.length > 0" class="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-5 py-3">
-                    <p class="text-sm font-bold text-white tracking-wide">Resumo do Período</p>
+            <!-- Resumo por Combustível — Cards -->
+            <div v-if="resumo.length > 0" class="space-y-3">
+                <div class="flex items-center gap-2 mb-1">
+                    <p class="text-sm font-bold text-slate-700">Resumo do Período</p>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead>
-                            <tr class="bg-slate-100 text-slate-600 text-xs">
-                                <th class="px-4 py-2.5 text-left font-bold">Combustível</th>
-                                <th class="px-4 py-2.5 text-right font-bold">Entradas (L)</th>
-                                <th class="px-4 py-2.5 text-right font-bold">Saídas (L)</th>
-                                <th class="px-4 py-2.5 text-right font-bold">Perdas (L)</th>
-                                <th class="px-4 py-2.5 text-right font-bold">Ganhos (L)</th>
-                                <th class="px-4 py-2.5 text-right font-bold">Variação</th>
-                                <th class="px-4 py-2.5 text-right font-bold">% ANP</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="r in resumo" :key="r.cod" class="border-t border-slate-100 hover:bg-blue-50/40 transition-colors">
-                                <td class="px-4 py-3 text-sm font-bold text-slate-800">{{ r.nome }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-green-700 font-mono font-semibold">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-red-600 font-mono font-semibold">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-4 py-3 text-sm text-right font-mono font-semibold" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">
-                                    {{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}
-                                </td>
-                                <td class="px-4 py-3 text-sm text-right font-mono font-bold">
-                                    <span :class="r.saidas > 0 && (Math.abs(r.perdas - r.ganhos) / r.saidas * 100) > 0.6 ? 'text-red-600 bg-red-50 px-2 py-0.5 rounded-full' : 'text-green-700 bg-green-50 px-2 py-0.5 rounded-full'">
-                                        {{ r.saidas > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
-                                    </span>
-                                </td>
-                            </tr>
-                        </tbody>
-                        <tfoot>
-                            <tr class="border-t-2 border-slate-300 bg-slate-50">
-                                <td class="px-4 py-3 text-sm font-black text-slate-800">TOTAIS</td>
-                                <td class="px-4 py-3 text-sm text-right text-green-700 font-mono font-black">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-red-600 font-mono font-black">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-orange-600 font-mono font-bold">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-4 py-3 text-sm text-right text-blue-600 font-mono font-bold">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-4 py-3 text-sm text-right font-mono font-bold">{{ (resumo.reduce((s,r) => s + r.ganhos - r.perdas, 0)).toFixed(1).replace('.', ',') }}</td>
-                                <td class="px-4 py-3"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
+
+                <div v-for="r in resumo" :key="r.cod" class="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-2 flex items-center justify-between">
+                        <span class="text-sm font-bold text-white">{{ r.nome }}</span>
+                        <span :class="r.saidas > 0 && (Math.abs(r.perdas - r.ganhos) / r.saidas * 100) > 0.6 ? 'bg-red-500 text-white' : 'bg-green-500 text-white'" class="text-xs font-bold px-2.5 py-0.5 rounded-full">
+                            ANP {{ r.saidas > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-px bg-slate-100">
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Estoque Inicial</p>
+                            <p class="text-base font-black text-slate-800 font-mono">{{ r.aberturaInicial !== null ? r.aberturaInicial.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-green-600 font-semibold uppercase">Entradas</p>
+                            <p class="text-base font-black text-green-700 font-mono">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-red-500 font-semibold uppercase">Saídas</p>
+                            <p class="text-base font-black text-red-600 font-mono">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Estoque Final</p>
+                            <p class="text-base font-black text-slate-800 font-mono">{{ r.fechamentoFinal !== null ? r.fechamentoFinal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-2.5 text-center">
+                            <p class="text-[10px] text-orange-500 font-semibold uppercase">Perdas</p>
+                            <p class="text-sm font-bold text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-2.5 text-center">
+                            <p class="text-[10px] text-blue-500 font-semibold uppercase">Ganhos</p>
+                            <p class="text-sm font-bold text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-2.5 text-center">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Variação</p>
+                            <p class="text-sm font-bold font-mono" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">{{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-2.5 text-center">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Dias</p>
+                            <p class="text-sm font-bold text-slate-700 font-mono">{{ r.dias }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Totais gerais -->
+                <div class="border-2 border-slate-300 rounded-xl overflow-hidden">
+                    <div class="bg-slate-800 px-4 py-2">
+                        <span class="text-sm font-black text-white">TOTAIS GERAIS</span>
+                    </div>
+                    <div class="grid grid-cols-4 gap-px bg-slate-200">
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-green-600 font-semibold uppercase">Total Entradas</p>
+                            <p class="text-lg font-black text-green-700 font-mono">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-red-500 font-semibold uppercase">Total Saídas</p>
+                            <p class="text-lg font-black text-red-600 font-mono">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-orange-500 font-semibold uppercase">Total Perdas</p>
+                            <p class="text-lg font-black text-orange-600 font-mono">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</p>
+                        </div>
+                        <div class="bg-white px-4 py-3 text-center">
+                            <p class="text-[10px] text-blue-500 font-semibold uppercase">Total Ganhos</p>
+                            <p class="text-lg font-black text-blue-600 font-mono">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
