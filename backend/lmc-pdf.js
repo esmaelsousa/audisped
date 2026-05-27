@@ -96,28 +96,23 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     drawRect(m + w * 0.6, y, w * 0.4, recebidoH);
 
     txt('4) Volume Recebido no dia (em litros)', m + 4, y + 3, { size: 7 });
+    // Lado esquerdo: NF-e de entrada com volume
     let ey = y + 16;
-    entradas.forEach(ent => {
-        txt(`NF ${ent.num_doc} - ${formatNum(ent.volume, 3)} L`, m + 6, ey, { size: 6.5 });
-        ey += 11;
-    });
-
-    txt('4.1) Nr. TQ. Descarga', m + w * 0.6 + 4, y + 3, { size: 6.5 });
-    // Listar tanques que receberam descarga
-    let tyDesc = y + 14;
-    if (entradas.length > 0 && tanques.length > 0) {
-        tanques.forEach(tq => {
-            txt(`TQ ${tq.num}`, m + w * 0.6 + 6, tyDesc, { size: 6.5 });
-            tyDesc += 10;
+    if (entradas.length > 0) {
+        entradas.forEach(ent => {
+            txt(`NF ${ent.num_doc} — ${formatNum(ent.volume, 3)} L`, m + 6, ey, { size: 7 });
+            ey += 12;
         });
     }
-    txt('4.2) Volume Recebido', m + w * 0.6 + 4, tyDesc, { size: 6.5 });
-    // Listar volumes por NF
-    let tyVol = tyDesc + 10;
-    entradas.forEach(ent => {
-        txt(`NF ${ent.num_doc}: ${formatNum(ent.volume, 3)} L`, m + w * 0.6 + 6, tyVol, { size: 6.5, bold: true });
-        tyVol += 10;
-    });
+
+    // Lado direito: resumo numérico
+    txt('4.1) Nr. TQ. Descarga', m + w * 0.6 + 4, y + 3, { size: 6.5 });
+    // Tanques que receberam descarga (só se houve entrada)
+    if (estoque.entradas > 0 && tanques.length > 0) {
+        txt(tanques.map(tq => tq.num).join(', '), m + w - 60, y + 3, { size: 7, bold: true, align: 'right', width: 55 });
+    }
+    txt('4.2) Volume Recebido', m + w * 0.6 + 4, y + 16, { size: 6.5 });
+    txt(formatNum(estoque.entradas, 3), m + w - 60, y + 16, { size: 8, bold: true, align: 'right', width: 55 });
     txt('4.3) Total Recebido', m + w * 0.6 + 4, y + recebidoH - 28, { size: 6.5 });
     txt(formatNum(estoque.entradas, 3), m + w - 60, y + recebidoH - 28, { size: 8, bold: true, align: 'right', width: 55 });
     txt('4.4) Vol. Disponível (3.1 + 4.3)', m + w * 0.6 + 4, y + recebidoH - 14, { size: 6.5 });
