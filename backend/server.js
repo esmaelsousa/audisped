@@ -6519,6 +6519,80 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 }
             }
 
+            // ── PASS 3.5: Ajustar 1310 quando bicos multiproduto zeraram vendas ──
+            // Recalcula a saída de cada 1310 baseada na soma real dos 1320 emitidos.
+            // Sem isso, 1310.saida ≠ Σ(1320.vendas) quando bicos foram zerados.
+            if (linhas1310.length > 0) {
+                // Agrupar linhas1310 por tipo: 1310 (tanques) e 1320 (bicos)
+                let currentTk1310Idx = -1;
+                const tk1310Indices = []; // índices dos 1310 em linhas1310
+                const tk1320VendasPorTanque = []; // soma vendas 1320 por tanque
+
+                for (let li = 0; li < linhas1310.length; li++) {
+                    const lParts = linhas1310[li].split('|');
+                    if (lParts[1] === '1310') {
+                        currentTk1310Idx = li;
+                        tk1310Indices.push(li);
+                        tk1320VendasPorTanque.push(0);
+                    } else if (lParts[1] === '1320' && tk1310Indices.length > 0) {
+                        const v = parseFloat((lParts[11] || '0').replace(',', '.'));
+                        tk1320VendasPorTanque[tk1320VendasPorTanque.length - 1] += v;
+                    }
+                }
+
+                // Ajustar saída do 1310 para bater com soma dos 1320
+                let somaSaidaAjustada = 0;
+                for (let ti = 0; ti < tk1310Indices.length; ti++) {
+                    const idx = tk1310Indices[ti];
+                    const tkParts = linhas1310[idx].split('|');
+                    const saidaTk = parseFloat((tkParts[6] || '0').replace(',', '.'));
+                    const somaBicos = Number(tk1320VendasPorTanque[ti].toFixed(3));
+
+                    if (Math.abs(saidaTk - somaBicos) > 0.01) {
+                        // Ajustar saída do 1310 para = soma dos 1320
+                        tkParts[6] = somaBicos.toFixed(3).replace('.', ',');
+                        // Recalcular escritural, perda/ganho, físico
+                        const abert = parseFloat((tkParts[3] || '0').replace(',', '.'));
+                        const entr = parseFloat((tkParts[4] || '0').replace(',', '.'));
+                        const disp = abert + entr;
+                        const escr = Math.max(0, Number((disp - somaBicos).toFixed(3)));
+                        tkParts[5] = Number((disp).toFixed(3)).toString().replace('.', ',');
+                        tkParts[7] = escr.toFixed(3).replace('.', ',');
+                        // Físico: manter o original ou recalcular com escudo ANP
+                        const fisico = parseFloat((tkParts[10] || '0').replace(',', '.'));
+                        let perda = 0, ganho = 0;
+                        if (fisico >= escr) { ganho = Number((fisico - escr).toFixed(3)); }
+                        else { perda = Number((escr - fisico).toFixed(3)); }
+                        // Escudo ANP por tanque
+                        const maxDev = disp * 0.0055;
+                        if (perda > maxDev) { perda = Number(maxDev.toFixed(3)); }
+                        if (ganho > maxDev) { ganho = Number(maxDev.toFixed(3)); }
+                        const fisicoFinal = Number((escr - perda + ganho).toFixed(3));
+                        tkParts[8] = perda.toFixed(3).replace('.', ',');
+                        tkParts[9] = ganho.toFixed(3).replace('.', ',');
+                        tkParts[10] = fisicoFinal.toFixed(3).replace('.', ',');
+                        linhas1310[idx] = tkParts.join('|');
+                    }
+                    somaSaidaAjustada += somaBicos;
+                }
+
+                // Recalcular soma1310 com valores ajustados
+                soma1310 = { abert: 0, entr: 0, disp: 0, saida: 0, escr: 0, perda: 0, ganho: 0, fisico: 0 };
+                for (const l of linhas1310) {
+                    const p = l.split('|');
+                    if (p[1] === '1310') {
+                        soma1310.abert += parseFloat((p[3] || '0').replace(',', '.'));
+                        soma1310.entr += parseFloat((p[4] || '0').replace(',', '.'));
+                        soma1310.disp += parseFloat((p[5] || '0').replace(',', '.'));
+                        soma1310.saida += parseFloat((p[6] || '0').replace(',', '.'));
+                        soma1310.escr += parseFloat((p[7] || '0').replace(',', '.'));
+                        soma1310.perda += parseFloat((p[8] || '0').replace(',', '.'));
+                        soma1310.ganho += parseFloat((p[9] || '0').replace(',', '.'));
+                        soma1310.fisico += parseFloat((p[10] || '0').replace(',', '.'));
+                    }
+                }
+            }
+
             // ── PASS 4: Emitir 1300 com soma exata dos 1310 finalizados ──────
             // Garante 1300 = Σ(1310) sem divergência de arredondamento.
             if (pending1310s.length > 0) {
