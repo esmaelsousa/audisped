@@ -223,16 +223,17 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     txt('(*) ATENÇÃO - SE O RESULTADO FOR NEGATIVO, PODE ESTAR HAVENDO VAZAMENTO PARA O MEIO AMBIENTE.', m + 4, y + 3, { size: 6, bold: true });
     y += avisoH;
 
-    // RODAPÉ (posicionamento absoluto, sem mover cursor do pdfkit)
+    // RODAPÉ — desenhar diretamente sem doc.text() para evitar auto page break
     const footY = doc.page.height - 22;
-    doc.save();
-    doc.fontSize(6).fillColor('#999999');
-    doc.text('Audisped - audisped.com.br', m, footY, { width: w / 2, align: 'left', lineBreak: false });
-    doc.text(`${empresa.razao_social} - ${new Date().toLocaleDateString('pt-BR')} - Pag. ${pageNum}`, m + w / 2, footY, { width: w / 2, align: 'right', lineBreak: false });
-    doc.restore();
-    // Resetar posição do cursor para evitar que pdfkit crie página extra
-    doc.x = m;
-    doc.y = y;
+    doc.fontSize(6).font('Helvetica').fillColor('#999999');
+    // Usar widthOfString para posicionar manualmente
+    const leftText = 'Audisped - audisped.com.br';
+    const rightText = `${empresa.razao_social} - ${new Date().toLocaleDateString('pt-BR')} - Pag. ${pageNum}`;
+    const rightW = doc.widthOfString(rightText);
+    doc.text(leftText, m, footY, { lineBreak: false });
+    doc.y = footY; // forçar Y de volta
+    doc.text(rightText, m + w - rightW, footY, { lineBreak: false });
+    doc.y = m; // travar cursor longe do final para impedir nova página
 }
 
 module.exports = { gerarPaginaLMC, formatNum };
