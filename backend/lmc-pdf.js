@@ -130,33 +130,38 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     t('5) Volume Vendido no dia (em litro)', m + 4, y + 3, { size: 7 });
     y += 14;
 
-    // Header bicos
-    const cw1 = 55, cw2 = 42, cw3 = 95, cw4 = 12; // espaço restante para 5.4, 5.5, 5.6
-    const cwRest = lW - cw1 - cw2 - cw3;
-    rect(m, y, cw1, 14); rect(m + cw1, y, cw2, 14); rect(m + cw1 + cw2, y, cw3, 14);
-    rect(m + lW, y, rW, 14);
-    t('5.1) Tanque', m + 2, y + 3, { size: 6.5 });
-    t('5.2) Bico', m + cw1 + 2, y + 3, { size: 6.5 });
-    t('5.3) + Fechamento', m + cw1 + cw2 + 2, y + 3, { size: 6.5 });
-    t('5.4) - Abertura', m + lW + 2, y + 3, { size: 6.5 });
-    t('5.5) - Aferições', m + lW + rW * 0.45, y + 3, { size: 6.5 });
-    t('5.6) = Vendas Bico', m + lW + rW * 0.75, y + 3, { size: 6.5 });
+    // Header bicos — 6 colunas distribuídas na largura total
+    const bc1 = Math.floor(w * 0.09);  // 5.1 Tanque
+    const bc2 = Math.floor(w * 0.07);  // 5.2 Bico
+    const bc3 = Math.floor(w * 0.21);  // 5.3 Fechamento
+    const bc4 = Math.floor(w * 0.21);  // 5.4 Abertura
+    const bc5 = Math.floor(w * 0.18);  // 5.5 Aferições
+    const bc6 = w - bc1 - bc2 - bc3 - bc4 - bc5; // 5.6 Vendas Bico
+    const bcX = [m, m+bc1, m+bc1+bc2, m+bc1+bc2+bc3, m+bc1+bc2+bc3+bc4, m+bc1+bc2+bc3+bc4+bc5];
+    const bcW = [bc1, bc2, bc3, bc4, bc5, bc6];
+
+    for (let i = 0; i < 6; i++) rect(bcX[i], y, bcW[i], 14);
+    t('5.1) Tanque', bcX[0] + 3, y + 3, { size: 6.5 });
+    t('5.2) Bico', bcX[1] + 3, y + 3, { size: 6.5 });
+    t('5.3) + Fechamento', bcX[2] + 3, y + 3, { size: 6.5 });
+    t('5.4) - Abertura', bcX[3] + 3, y + 3, { size: 6.5 });
+    t('5.5) - Aferições', bcX[4] + 3, y + 3, { size: 6.5 });
+    t('5.6) = Vendas Bico', bcX[5] + 3, y + 3, { size: 6.5 });
     y += 14;
 
     // Linhas bicos
     bicos.forEach(bico => {
-        rect(m, y, cw1, hBicoLin); rect(m + cw1, y, cw2, hBicoLin); rect(m + cw1 + cw2, y, cw3, hBicoLin);
-        rect(m + lW, y, rW, hBicoLin);
-        t(bico.tanque, m + 2, y + 3, { size: 7.5 });
-        t(bico.num, m + cw1 + 2, y + 3, { size: 7.5 });
-        t(formatNum(bico.enc_final, 3), m + cw1 + cw2 + 2, y + 3, { size: 7 });
-        t(formatNum(bico.enc_inicial, 3), m + lW + 2, y + 3, { size: 7 });
-        t(formatNum(bico.aferição, 3), m + lW + rW * 0.45, y + 3, { size: 7 });
-        tR(formatNum(bico.vendas, 3), m + lW + rW * 0.65, y + 3, rW * 0.3);
+        for (let i = 0; i < 6; i++) rect(bcX[i], y, bcW[i], hBicoLin);
+        t(bico.tanque, bcX[0] + 3, y + 3, { size: 7.5 });
+        t(bico.num, bcX[1] + 3, y + 3, { size: 7.5 });
+        t(formatNum(bico.enc_final, 3), bcX[2] + 3, y + 3, { size: 7 });
+        t(formatNum(bico.enc_inicial, 3), bcX[3] + 3, y + 3, { size: 7 });
+        t(formatNum(bico.aferição, 3), bcX[4] + 3, y + 3, { size: 7 });
+        tR(formatNum(bico.vendas, 3), bcX[5], y + 3, bcW[5] - 4);
         y += hBicoLin;
     });
     if (bicos.length === 0) {
-        rect(m, y, lW, hBicoLin); rect(m + lW, y, rW, hBicoLin);
+        rect(m, y, w, hBicoLin);
         y += hBicoLin;
     }
 
