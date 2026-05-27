@@ -6052,10 +6052,20 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (realSaida < novo.saida - 0.01 && pending1310s.length > 1) {
                 const deficit = Number((novo.saida - realSaida).toFixed(3));
                 let restante = deficit;
-                // Tanques com folga: nDisp - nSaida > 1
+                // Tanques com folga E bicos ativos (não transferir para bomba parada)
                 for (const tk of pending1310s) {
                     if (restante <= 0.01) break;
                     const c = tk._curated;
+                    const tanqueCodR = tk[2];
+                    // Verificar se tanque tem bicos ativos (não todos parados/omitidos)
+                    const bicosDoTanque = pending1320s[tanqueCodR] || [];
+                    const temBicoAtivo = bicosDoTanque.some(bf => {
+                        const ef = parseFloat((bf[8] || '0').replace(',', '.'));
+                        const ei = parseFloat((bf[9] || '0').replace(',', '.'));
+                        const vv = parseFloat((bf[11] || '0').replace(',', '.'));
+                        return vv > 0 || Math.abs(ef - ei) > 0.01;
+                    });
+                    if (!temBicoAtivo) continue; // Tanque sem bico ativo → pular
                     const folga = c.nDisp - c.nSaida - 0.001;
                     if (folga > 1) {
                         const transferir = Math.min(restante, folga);
