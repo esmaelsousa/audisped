@@ -5746,11 +5746,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
         const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');
-        // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD" → extrair MM-YYYY
+        // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD"
+        let periodoIniArq = '';
+        let periodoFimArq = '';
         let periodoLabel = '';
         const partesArq = periodoApuracao.split(' a ');
         if (partesArq.length === 2) {
-            const [a0, m0] = partesArq[0].trim().split('-');
+            const [a0, m0, d0] = partesArq[0].trim().split('-');
+            const [a1, m1, d1] = partesArq[1].trim().split('-');
+            if (d0 && m0 && a0) periodoIniArq = `${d0}${m0}${a0}`;
+            if (d1 && m1 && a1) periodoFimArq = `${d1}${m1}${a1}`;
             if (a0 && m0) periodoLabel = `${m0}-${a0}`;
         }
         // Buscar nome fantasia ou razão social da empresa
