@@ -5693,12 +5693,34 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
             }
         }
 
-        // 6. Vendas NFC-e por dia/produto (valor R$)
-        const vendasMap = {};
+        // 6. NF-e de entrada por dia/produto (notas de compra de combustível)
+        const entradasMap = {};
         try {
-            const vendasAcum = {};
-            // Simplificado: vendas totais por dia (sem separar por produto)
-        } catch(_) {}
+            const entRes = await dbClient.query(`
+                SELECT c.dt_doc, c.num_doc, c.dt_e_s, i.cod_item, SUM(i.qtd::numeric) as volume
+                FROM documentos_c100 c
+                JOIN documentos_itens_c170 i ON c.id = i.id_documento_c100
+                WHERE c.id_sped_arquivo = $1
+                  AND c.cod_mod IN ('01','55')
+                  AND SUBSTRING(i.cfop, 1, 1) IN ('1','2','3')
+                  AND TRIM(i.cod_item) IN (${Object.keys(prodNomes).map((_, idx) => `$${idx + 2}`).join(',')})
+                GROUP BY c.dt_doc, c.num_doc, c.dt_e_s, i.cod_item
+                ORDER BY c.dt_doc, c.num_doc
+            `, [arquivoId, ...Object.keys(prodNomes)]);
+
+            for (const row of entRes.rows) {
+                const dt = (row.dt_e_s || row.dt_doc);
+                if (!dt) continue;
+                const dtStr = dt.toISOString().split('T')[0];
+                const cod = row.cod_item.trim();
+                const key = `${dtStr}_${cod}`;
+                if (!entradasMap[key]) entradasMap[key] = [];
+                entradasMap[key].push({
+                    num_doc: row.num_doc,
+                    volume: parseFloat(row.volume)
+                });
+            }
+        } catch(e) { logger.warn('Erro ao buscar NF-e entrada para LMC PDF:', e.message); }
 
         // 7. Gerar PDF
         const doc = new PDFDocument({ size: 'A4', margin: 30, bufferPages: true, autoFirstPage: true });
@@ -5736,7 +5758,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
                 tanques: dp.tanques.length > 0 ? dp.tanques : [{ num: '1', abertura: est.abertura, fechamento: est.fechamento }],
                 bicos: bicos.map(b => ({ ...b, preco: null })),
                 estoque: est,
-                entradas: [],
+                entradas: entradasMap[`${dp.dt}_${dp.cod}`] || [],
                 vendas: { valor_dia: null, valor_acumulado: null, litros_acumulado: litrosAcumulado[dp.cod] }
             }, pageNum);
 
