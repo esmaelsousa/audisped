@@ -5696,29 +5696,33 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
         // 6. NF-e de entrada por dia/produto (notas de compra de combustível)
         const entradasMap = {};
         try {
-            const entRes = await dbClient.query(`
-                SELECT c.dt_doc, c.num_doc, c.dt_e_s, i.cod_item, SUM(i.qtd::numeric) as volume
-                FROM documentos_c100 c
-                JOIN documentos_itens_c170 i ON c.id = i.id_documento_c100
-                WHERE c.id_sped_arquivo = $1
-                  AND c.cod_mod IN ('01','55')
-                  AND SUBSTRING(i.cfop, 1, 1) IN ('1','2','3')
-                  AND TRIM(i.cod_item) IN (${Object.keys(prodNomes).map((_, idx) => `$${idx + 2}`).join(',')})
-                GROUP BY c.dt_doc, c.num_doc, c.dt_e_s, i.cod_item
-                ORDER BY c.dt_doc, c.num_doc
-            `, [arquivoId, ...Object.keys(prodNomes)]);
+            const combustiveisCods = Object.keys(prodNomes);
+            if (combustiveisCods.length > 0) {
+                const entRes = await dbClient.query(`
+                    SELECT c.dt_doc, c.num_doc, COALESCE(c.dt_e_s, c.dt_doc) as dt_entrada,
+                           TRIM(i.cod_item) as cod_item, SUM(i.qtd::numeric) as volume
+                    FROM documentos_c100 c
+                    JOIN documentos_itens_c170 i ON c.id = i.id_documento_c100
+                    WHERE c.id_sped_arquivo = $1
+                      AND c.cod_mod IN ('01','55')
+                      AND SUBSTRING(i.cfop, 1, 1) IN ('1','2','3')
+                    GROUP BY c.dt_doc, c.num_doc, dt_entrada, i.cod_item
+                    ORDER BY dt_entrada, c.num_doc
+                `, [arquivoId]);
 
-            for (const row of entRes.rows) {
-                const dt = (row.dt_e_s || row.dt_doc);
-                if (!dt) continue;
-                const dtStr = dt.toISOString().split('T')[0];
-                const cod = row.cod_item.trim();
-                const key = `${dtStr}_${cod}`;
-                if (!entradasMap[key]) entradasMap[key] = [];
-                entradasMap[key].push({
-                    num_doc: row.num_doc,
-                    volume: parseFloat(row.volume)
-                });
+                for (const row of entRes.rows) {
+                    const cod = row.cod_item.trim();
+                    if (!prodNomes[cod]) continue; // filtrar só combustíveis
+                    const dt = row.dt_entrada;
+                    if (!dt) continue;
+                    const dtStr = dt.toISOString().split('T')[0];
+                    const key = `${dtStr}_${cod}`;
+                    if (!entradasMap[key]) entradasMap[key] = [];
+                    entradasMap[key].push({
+                        num_doc: row.num_doc,
+                        volume: parseFloat(row.volume)
+                    });
+                }
             }
         } catch(e) { logger.warn('Erro ao buscar NF-e entrada para LMC PDF:', e.message); }
 

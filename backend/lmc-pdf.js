@@ -103,7 +103,21 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     });
 
     txt('4.1) Nr. TQ. Descarga', m + w * 0.6 + 4, y + 3, { size: 6.5 });
-    txt('4.2) Volume Recebido', m + w * 0.6 + 4, y + 16, { size: 6.5 });
+    // Listar tanques que receberam descarga
+    let tyDesc = y + 14;
+    if (entradas.length > 0 && tanques.length > 0) {
+        tanques.forEach(tq => {
+            txt(`TQ ${tq.num}`, m + w * 0.6 + 6, tyDesc, { size: 6.5 });
+            tyDesc += 10;
+        });
+    }
+    txt('4.2) Volume Recebido', m + w * 0.6 + 4, tyDesc, { size: 6.5 });
+    // Listar volumes por NF
+    let tyVol = tyDesc + 10;
+    entradas.forEach(ent => {
+        txt(`NF ${ent.num_doc}: ${formatNum(ent.volume, 3)} L`, m + w * 0.6 + 6, tyVol, { size: 6.5, bold: true });
+        tyVol += 10;
+    });
     txt('4.3) Total Recebido', m + w * 0.6 + 4, y + recebidoH - 28, { size: 6.5 });
     txt(formatNum(estoque.entradas, 3), m + w - 60, y + recebidoH - 28, { size: 8, bold: true, align: 'right', width: 55 });
     txt('4.4) Vol. Disponível (3.1 + 4.3)', m + w * 0.6 + 4, y + recebidoH - 14, { size: 6.5 });
