@@ -1095,10 +1095,37 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov) 
 
 // Após injeção de XMLs, sincroniza os C100/C170 no banco usando dt_doc como data de entrada.
 // Garante que a NF apareça no LMC e no Analisador do período onde foi injetada.
-async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
+async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes, spedFilePath = null) {
     if (!parsedNotes || parsedNotes.length === 0) return;
     const dbClient = await safeConnect(null);
     if (!dbClient) return;
+
+    // Pré-indexa o C190 por chave a partir do arquivo final (fonte da verdade): garante que o
+    // analítico no banco bata 100% com o .txt exportado (evita "SEM C190" na tela de auditoria).
+    const c190PorChave = new Map();
+    try {
+        if (spedFilePath && fs.existsSync(spedFilePath)) {
+            let chaveAtual = null;
+            for (const line of fs.readFileSync(spedFilePath, 'latin1').split(/\r?\n/)) {
+                if (!line || line[0] !== '|') continue;
+                const f = line.split('|');
+                if (f[1] === 'C100') {
+                    chaveAtual = f[9] || null;
+                } else if (f[1] === 'C190' && chaveAtual) {
+                    if (!c190PorChave.has(chaveAtual)) c190PorChave.set(chaveAtual, []);
+                    // C190: f[2]=CST, f[3]=CFOP, f[4]=ALIQ, f[5]=VL_OPR, f[6]=VL_BC_ICMS, f[7]=VL_ICMS
+                    c190PorChave.get(chaveAtual).push({
+                        cst: f[2], cfop: f[3],
+                        aliq: parseFloat((f[4] || '0').replace(',', '.')) || 0,
+                        vlOpr: parseFloat((f[5] || '0').replace(',', '.')) || 0,
+                        vlBc: parseFloat((f[6] || '0').replace(',', '.')) || 0,
+                        vlIcms: parseFloat((f[7] || '0').replace(',', '.')) || 0
+                    });
+                }
+            }
+        }
+    } catch (e) { logger.warn('sincronizarNotasInjetadas: falha ao indexar C190 do arquivo: ' + e.message); }
+
     try {
         for (const nota of parsedNotes) {
             if (!nota.c100?.chv_nfe && !nota.c100?.num_doc) continue;
@@ -1187,6 +1214,17 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
                         (id_documento_c100, num_item, cod_item, qtd, unid, vl_item, cst_icms, cfop, cst_pis, cst_cofins)
                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
                     [c100Id, numItem++, codItemFinal, qtd, unid, vlIt, cstIcms, cfop, '07', '07']
+                );
+            }
+
+            // Grava o analítico C190 (extraído do arquivo final) para a tela de auditoria não exibir "SEM C190"
+            const c190s = (c.chv_nfe && c190PorChave.get(c.chv_nfe)) || [];
+            for (const a of c190s) {
+                await dbClient.query(
+                    `INSERT INTO documentos_c190
+                        (id_documento_c100, cst_icms, cfop, aliq_icms, vl_opr, vl_bc_icms, vl_icms)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+                    [c100Id, a.cst, a.cfop, a.aliq, a.vlOpr, a.vlBc, a.vlIcms]
                 );
             }
         }
@@ -1729,7 +1767,7 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                 const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes, spedBaseObj?.periodo_apuracao);
 
                 // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
-                await sincronizarNotasInjetadas(pool, idSpedBase, parsedNotes);
+                await sincronizarNotasInjetadas(pool, idSpedBase, parsedNotes, fullSpedPath);
 
                 return res.json({
                     message: 'Injeção concluída com sucesso.',
@@ -1966,7 +2004,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas, spedBaseObj.periodo_apuracao);
 
         // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
-        await sincronizarNotasInjetadas(pool, idSpedBase, todasNotasInjetadas);
+        await sincronizarNotasInjetadas(pool, idSpedBase, todasNotasInjetadas, fullSpedPath);
 
         limparTemps();
         return res.json({
