@@ -1097,7 +1097,7 @@ async function atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, data_mov) 
 // Garante que a NF apareça no LMC e no Analisador do período onde foi injetada.
 async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
     if (!parsedNotes || parsedNotes.length === 0) return;
-    const dbClient = await safeConnect(res);
+    const dbClient = await safeConnect(null);
     if (!dbClient) return;
     try {
         for (const nota of parsedNotes) {
@@ -1106,15 +1106,14 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
             const dtDoc = c.dt_doc || null;       // data de emissão (YYYY-MM-DD)
             const dtEs  = dtDoc;                  // usa emissão como data de entrada
 
-            // Ignora se já existe neste arquivo (evita duplicata na reinjeção)
-            const existe = await dbClient.query(
-                `SELECT 1 FROM documentos_c100
+            // Reinjeção/forceReplace: remove a versão anterior desta nota no banco para regravar
+            // com os dados atualizados (CST do De-Para, etc). ON DELETE CASCADE limpa C170/C190.
+            await dbClient.query(
+                `DELETE FROM documentos_c100
                  WHERE id_sped_arquivo = $1
-                   AND (chv_nfe = $2 OR (num_doc = $3 AND chv_nfe IS NULL))
-                 LIMIT 1`,
+                   AND (chv_nfe = $2 OR (num_doc = $3 AND chv_nfe IS NULL))`,
                 [id_arquivo, c.chv_nfe || null, c.num_doc || null]
             );
-            if (existe.rowCount > 0) continue;
 
             // Resolve cod_part pelo CNPJ do emitente
             let codPart = nota.emitente?.cnpj || null;
@@ -1126,7 +1125,16 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
                      LIMIT 1`,
                     [id_arquivo, codPart]
                 );
-                if (partRes.rowCount > 0) codPart = partRes.rows[0].cod_part;
+                if (partRes.rowCount > 0) {
+                    codPart = partRes.rows[0].cod_part;
+                } else {
+                    // Cria o participante (0150) no banco para a tela de Notas não exibir "Desconhecido"
+                    await dbClient.query(
+                        `INSERT INTO sped_participantes (id_sped_arquivo, cod_part, nome, cnpj)
+                         VALUES ($1,$2,$3,$4) ON CONFLICT (id_sped_arquivo, cod_part) DO NOTHING`,
+                        [id_arquivo, codPart, (nota.emitente?.nome || ('FORNECEDOR ' + codPart)), codPart]
+                    );
+                }
             }
 
             const vlDoc = parseFloat((c.vl_doc || '0').toString().replace(',', '.')) || 0;
@@ -1150,14 +1158,14 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
                 const qtd  = parseFloat(rawQtd.toString().replace(',', '.'))  || 0;
                 const vlIt = parseFloat(rawVlIt.toString().replace(',', '.')) || 0;
                 const unid = item.unid || item.ucom || 'UN';
-                const cstIcms = item.cst_icms_original || item.cst_icms || '000';
+                let cstIcms = item.cst_icms_original || item.cst_icms || '000';
 
-                // Resolve cod_item e cfop via de_para_xml (mesmo lookup que xmlInjectorService usa)
+                // Resolve cod_item, cfop e cst via de_para_xml (mesmo lookup que xmlInjectorService usa)
                 let codItemFinal = item.cod_item;
                 let cfop = item.cfop_original || item.cfop || '1102';
                 if (cnpjEmitente) {
                     const deparaRes = await dbClient.query(
-                        `SELECT cod_interno, novo_cfop FROM de_para_xml
+                        `SELECT cod_interno, novo_cfop, novo_cst FROM de_para_xml
                          WHERE cnpj_emissor = $1 AND cod_produto_xml = $2 LIMIT 1`,
                         [cnpjEmitente, item.cod_item]
                     );
@@ -1165,6 +1173,7 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes) {
                         const dep = deparaRes.rows[0];
                         if (dep.cod_interno) codItemFinal = dep.cod_interno;
                         if (dep.novo_cfop)   cfop = dep.novo_cfop;
+                        if (dep.novo_cst)    cstIcms = dep.novo_cst;   // De-Para tem prioridade sobre o CST original
                     } else {
                         // Fallback: converte CFOP da perspectiva do emitente para destinatário (5xxx→1xxx, 6xxx→2xxx)
                         const cfopStr = String(cfop);
@@ -1312,7 +1321,7 @@ const extractNfeData = (nfeNode) => {
         const cofinsNode = imposto?.COFINS?.COFINSAliq || imposto?.COFINS?.COFINSNT || imposto?.COFINS?.COFINSOutr || {};
 
         return {
-            num_item: det.$?.nItem || '0',
+            num_item: det.$?.nItem || String(detArray.indexOf(det) + 1),
             cod_item: prod.cProd,
             descr_item: prod.xProd,
             ncm: prod.NCM || prod.ncm || '',
@@ -1675,7 +1684,14 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                 cnpjDest: nota.destinatario?.cnpj,
                 dtDoc: nota.c100?.dt_doc
             }));
-            const { avisos: avisosP } = validarXmls(itensVal, spedBaseObj.cnpj_empresa, spedBaseObj.periodo_apuracao, forcePeriodo);
+            const { bloqueados, avisos: avisosP } = validarXmls(itensVal, spedBaseObj.cnpj_empresa, spedBaseObj.periodo_apuracao, forcePeriodo);
+            if (bloqueados.length > 0) {
+                return res.status(422).json({
+                    tipo: 'cnpj_divergente',
+                    message: `${bloqueados.length} XML(s) com CNPJ destinatário diferente da empresa do SPED.`,
+                    bloqueados
+                });
+            }
             if (avisosP.length > 0) {
                 return res.status(422).json({
                     tipo: 'periodo_divergente',
@@ -1886,9 +1902,12 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
                 ? duplicatasDoGrupo.map(n => n.c100?.chv_nfe).filter(Boolean)
                 : [];
 
-            const notasParaInjetar = config.pularDuplicados && !forceReplace
-                ? parsedNotes.filter(n => !chavesExistentes.has(n.c100?.chv_nfe))
-                : parsedNotes;
+            // Idempotência por padrão: NUNCA injeta C100 cuja chave já existe no SPED base.
+            // (Antes, com pularDuplicados desligado, reinjetar a mesma nota gerava C100 duplicado.)
+            // forceReplace remove a antiga (via chavesParaSubstituirGrupo) e reinjeta com o novo CFOP.
+            const notasParaInjetar = forceReplace
+                ? parsedNotes
+                : parsedNotes.filter(n => !chavesExistentes.has(n.c100?.chv_nfe));
 
             if (notasParaInjetar.length === 0) {
                 resultadosGrupos.push({ grupo: i + 1, status: 'todas_duplicadas', injetados: 0, duplicadas: duplicadasGrupo, dica: 'Ative "Substituir Existentes" no grupo para reinjetar com o novo CFOP.' });
@@ -1921,7 +1940,13 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
             notasParaInjetar.forEach(n => { if (n.c100?.chv_nfe) chavesExistentes.add(n.c100.chv_nfe); });
             todasNotasInjetadas.push(...notasParaInjetar);
             totalInjetados += notasParaInjetar.length;
-            resultadosGrupos.push({ grupo: i + 1, status: 'ok', injetados: notasParaInjetar.length });
+            resultadosGrupos.push({
+                grupo: i + 1,
+                status: 'ok',
+                injetados: notasParaInjetar.length,
+                duplicadas_puladas: forceReplace ? 0 : duplicadasGrupo,
+                erros_parse: errosParseGrupo.length ? errosParseGrupo : undefined
+            });
         }
 
         if (linhasAtuais === null) {
@@ -1981,6 +2006,8 @@ app.post('/api/xml-injector/standalone', authMiddleware, uploadXml.array('xmlFil
         }
 
         const parser = new xml2js.Parser({ explicitArray: false });
+        const parsedNotes = [];
+        const erros = [];
 
         for (const file of req.files) {
             try {
@@ -2029,7 +2056,7 @@ app.post('/api/xml-injector/standalone', authMiddleware, uploadXml.array('xmlFil
                 };
                 let detArray = inf.det;
                 if (!Array.isArray(detArray)) detArray = [detArray];
-                const itens = detArray.map(det => {
+                const itens = detArray.map((det, idx) => {
                     const prod = det.prod;
                     const imposto = det.imposto;
                     let cstOringinal = '';
@@ -2038,7 +2065,7 @@ app.post('/api/xml-injector/standalone', authMiddleware, uploadXml.array('xmlFil
                         cstOringinal = (icmsNode.CST) ? icmsNode.CST : ((icmsNode.CSOSN) ? icmsNode.CSOSN : '000');
                     }
                     return {
-                        num_item: det.$.nItem,
+                        num_item: det.$?.nItem || String(idx + 1),
                         cod_item: prod.cProd,
                         descr_item: prod.xProd,
                         qtd: prod.qCom,
@@ -5629,7 +5656,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
         try {
             const spContent = fs.readFileSync(arq.caminho_arquivo, 'latin1');
             const m0005 = spContent.match(/\|0005\|[^|]*\|/);
-            const m0000 = spContent.match(/\|0000\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|([^|]*)\|/);
+            const m0000 = spContent.match(/\|0000\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|([^|]*)\|/);
             if (m0000) empresa.ie = m0000[1] || 'N/A';
         } catch(_) {}
 
@@ -5757,6 +5784,39 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
             }
         } catch(e) { logger.warn('Erro ao buscar NF-e entrada para LMC PDF:', e.message); }
 
+        // 6.4 Valor de vendas por dia (NFC-e totais + distribuição proporcional por volume LMC)
+        const nfceTotalDia = {};
+        const lmcTotalDia = {};
+        const lmcProdDia = {};
+        try {
+            // Total NFC-e por dia
+            const nfceRes = await dbClient.query(`
+                SELECT dt_doc, SUM(vl_doc::numeric) as total
+                FROM documentos_c100
+                WHERE id_sped_arquivo = $1 AND cod_mod = '65' AND ind_oper = '1'
+                GROUP BY dt_doc
+            `, [arquivoId]);
+            for (const row of nfceRes.rows) {
+                if (!row.dt_doc) continue;
+                nfceTotalDia[row.dt_doc.toISOString().split('T')[0]] = parseFloat(row.total);
+            }
+            // Total litros LMC por dia (todos os combustíveis somados) e por produto
+            const lmcTotRes = await dbClient.query(`
+                SELECT data_mov, TRIM(cod_item) as cod_item, SUM(vol_saidas::numeric) as litros
+                FROM lmc_movimentacao
+                WHERE id_sped_arquivo = $1 AND num_tanque = '0'
+                GROUP BY data_mov, cod_item
+            `, [arquivoId]);
+            for (const row of lmcTotRes.rows) {
+                const dtStr = row.data_mov.toISOString().split('T')[0];
+                const cod = row.cod_item.trim();
+                if (!prodNomes[cod]) continue;
+                const litros = parseFloat(row.litros);
+                lmcProdDia[`${dtStr}_${cod}`] = litros;
+                lmcTotalDia[dtStr] = (lmcTotalDia[dtStr] || 0) + litros;
+            }
+        } catch(e) { logger.warn('Erro ao buscar totais NFC-e para LMC PDF:', e.message); }
+
         // 6.5 Observações do LMC
         const obsMap = {};
         try {
@@ -5781,6 +5841,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
 
         let pageNum = folhaInicial;
         let litrosAcumulado = {};
+        let valorAcumulado = {};
 
         for (const [key, dp] of diasProdutos) {
             if (pageNum > folhaInicial) doc.addPage();
@@ -5797,6 +5858,15 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
             if (!litrosAcumulado[dp.cod]) litrosAcumulado[dp.cod] = 0;
             litrosAcumulado[dp.cod] += est.saidas;
 
+            // Valor das vendas do dia — proporcional ao volume do produto no total NFC-e
+            const nfceTotal = nfceTotalDia[dp.dt] || 0;
+            const litrosProd = lmcProdDia[`${dp.dt}_${dp.cod}`] || est.saidas;
+            const litrosDia = lmcTotalDia[dp.dt] || 1;
+            const valorDia = litrosDia > 0 ? nfceTotal * (litrosProd / litrosDia) : 0;
+            const precoMedio = litrosProd > 0 ? valorDia / litrosProd : 0;
+            if (!valorAcumulado[dp.cod]) valorAcumulado[dp.cod] = 0;
+            valorAcumulado[dp.cod] += valorDia;
+
             const bicos = bicosData[`${dtSped}_${dp.cod}`] || [];
 
             gerarPaginaLMC(doc, {
@@ -5804,11 +5874,11 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
                 combustivel: { nome: prodNomes[dp.cod] || dp.cod, cod: dp.cod },
                 data: dataFormatada,
                 tanques: dp.tanques.length > 0 ? dp.tanques : [{ num: '1', abertura: est.abertura, fechamento: est.fechamento }],
-                bicos: bicos.map(b => ({ ...b, preco: null })),
+                bicos: bicos.map(b => ({ ...b, preco: precoMedio > 0 ? precoMedio : null })),
                 estoque: est,
                 entradas: entradasMap[`${dp.dt}_${dp.cod}`] || [],
                 observacao: obsMap[`${dp.dt}_${dp.cod}`] || '',
-                vendas: { valor_dia: null, valor_acumulado: null, litros_acumulado: litrosAcumulado[dp.cod] }
+                vendas: { valor_dia: valorDia || null, valor_acumulado: valorAcumulado[dp.cod] || null, preco_medio: precoMedio || null, litros_acumulado: litrosAcumulado[dp.cod] }
             }, pageNum);
 
             pageNum++;
@@ -6007,7 +6077,60 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Leitura via readFileSync + split: elimina bug de FUSE/Google Drive onde
         // createReadStream começava do meio do arquivo (perdia bloco 0 inteiro).
         const fileContent = fs.readFileSync(pathOrig, 'latin1');
-        const fileLines = fileContent.split(/\r?\n/);
+        let fileLines = fileContent.split(/\r?\n/);
+
+        // Deduplicar D100 (CT-e duplicados no arquivo original)
+        {
+            const d100Keys = new Set();
+            let skipD100 = false;
+            const dedupLines = [];
+            let dedupCount = 0;
+            for (const line of fileLines) {
+                if (!line || !line.startsWith('|')) { dedupLines.push(line); continue; }
+                const reg = line.split('|')[1];
+                if (reg === 'D100') {
+                    const f = line.split('|');
+                    const key = `${f[9]}_${f[5]}_${f[6]}_${f[7]}_${f[8]}_${f[10]}_${f[4]}`;
+                    if (d100Keys.has(key)) { skipD100 = true; dedupCount++; continue; }
+                    d100Keys.add(key);
+                    skipD100 = false;
+                } else if (skipD100 && reg && reg.startsWith('D') && reg > 'D100' && reg < 'D200') {
+                    continue;
+                } else { skipD100 = false; }
+                dedupLines.push(line);
+            }
+            if (dedupCount > 0) {
+                fileLines = dedupLines;
+                logger.info(`[Export] Removidos ${dedupCount} D100 duplicados do arquivo ${arquivoId}.`);
+            }
+        }
+
+        // Deduplicar C100 por chave de acesso (NF-e reinjetada gera C100 repetido no arquivo).
+        // Espelha o dedup de D100: remove a 2ª+ ocorrência de uma chave e seus filhos C1xx (C170/C190 etc).
+        // Chave de acesso vazia NUNCA é deduplicada (evita fundir notas distintas sem chave).
+        {
+            const c100Keys = new Set();
+            let skipC100 = false;
+            const dedupLines = [];
+            let dedupCount = 0;
+            for (const line of fileLines) {
+                if (!line || !line.startsWith('|')) { dedupLines.push(line); continue; }
+                const reg = line.split('|')[1];
+                if (reg === 'C100') {
+                    const chave = (line.split('|')[9] || '').trim();
+                    if (chave && c100Keys.has(chave)) { skipC100 = true; dedupCount++; continue; }
+                    if (chave) c100Keys.add(chave);
+                    skipC100 = false;
+                } else if (skipC100 && reg && reg.startsWith('C') && reg > 'C100' && reg < 'C200') {
+                    continue;
+                } else { skipC100 = false; }
+                dedupLines.push(line);
+            }
+            if (dedupCount > 0) {
+                fileLines = dedupLines;
+                logger.info(`[Export] Removidos ${dedupCount} C100 duplicados (chave repetida) do arquivo ${arquivoId}.`);
+            }
+        }
 
         const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
         const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');

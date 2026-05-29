@@ -365,7 +365,8 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             }
 
             if (forcarUsoConsumo && finalCfop === '1556') {
-                finalCst = '040';
+                // De-Para tem prioridade sobre o CST: só força 040 (isento) quando NÃO há novo_cst configurado.
+                if (!(m && m.novo_cst)) finalCst = '040';
                 vlItem += vlIcmsSt;
                 vlItem += vlIpi;
                 vlItem += vIpiDevol;
@@ -379,6 +380,7 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
                 aliqIpi = 0;
                 vIpiDevol = 0;
                 bcIcmsXml = 0;
+                vlIcmsXml = 0; // zera tb a fonte que vIcmsCalc lê (senão item tributado mantém ICMS em CST isento/uso-consumo)
             }
 
             // Prioridade para Base de ICMS do XML, senão calcula.
