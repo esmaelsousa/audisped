@@ -83,11 +83,11 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     tanques.forEach((tq, i) => {
         if (i < 6) {
             t(`TQ) ${tq.num}`, m + 3 + i * tqW, y + 2, { size: 6.5 });
-            t(formatNum(tq.abertura, 3), m + 3 + i * tqW, y + 12, { size: 7.5, bold: true });
+            t(formatNum(tq.abertura), m + 3 + i * tqW, y + 12, { size: 7.5, bold: true });
         }
     });
     t('3.1) Estoque Abertura', m + w - 128, y + 2, { size: 6.5 });
-    t(formatNum(estoque.abertura, 3), m + w - 128, y + 12, { size: 8, bold: true });
+    t(formatNum(estoque.abertura), m + w - 128, y + 12, { size: 8, bold: true });
     y += 24;
 
     // ══════════════════════════════════════════════════════════════════
@@ -101,7 +101,7 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     let ey = y + 14;
     entradas.forEach(ent => {
         if (ey < y + hReceb - 10) {
-            t(`NF ${ent.num_doc} — ${formatNum(ent.volume, 3)} L`, m + 6, ey, { size: 7 });
+            t(`NF ${ent.num_doc} — ${formatNum(ent.volume)} L`, m + 6, ey, { size: 7 });
             ey += 11;
         }
     });
@@ -113,13 +113,13 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     // Linha 4.3
     line(m + lW, y + hReceb - 28, m + w, y + hReceb - 28);
     t('4.3) Total Recebido', m + lW + 4, y + hReceb - 26, { size: 6.5 });
-    tR(formatNum(estoque.entradas, 3), m + lW, y + hReceb - 26, rW - 6);
+    tR(formatNum(estoque.entradas), m + lW, y + hReceb - 26, rW - 6);
 
     // Linha 4.4
     line(m + lW, y + hReceb - 14, m + w, y + hReceb - 14);
     t('4.4) Vol. Disponível', m + lW + 4, y + hReceb - 12, { size: 6.5 });
     t('(3.1 + 4.3)', m + lW + 4 + 80, y + hReceb - 12, { size: 5.5 });
-    tR(formatNum(estoque.disponivel, 3), m + lW, y + hReceb - 12, rW - 6);
+    tR(formatNum(estoque.disponivel), m + lW, y + hReceb - 12, rW - 6);
     y += hReceb;
 
     // ══════════════════════════════════════════════════════════════════
@@ -154,10 +154,10 @@ function gerarPaginaLMC(doc, dados, pageNum) {
         for (let i = 0; i < 6; i++) rect(bcX[i], y, bcW[i], hBicoLin);
         t(bico.tanque, bcX[0] + 3, y + 3, { size: 7.5 });
         t(bico.num, bcX[1] + 3, y + 3, { size: 7.5 });
-        t(formatNum(bico.enc_final, 3), bcX[2] + 3, y + 3, { size: 7 });
-        t(formatNum(bico.enc_inicial, 3), bcX[3] + 3, y + 3, { size: 7 });
-        t(formatNum(bico.aferição, 3), bcX[4] + 3, y + 3, { size: 7 });
-        tR(formatNum(bico.vendas, 3), bcX[5], y + 3, bcW[5] - 4);
+        t(formatNum(bico.enc_final), bcX[2] + 3, y + 3, { size: 7 });
+        t(formatNum(bico.enc_inicial), bcX[3] + 3, y + 3, { size: 7 });
+        t(formatNum(bico.aferição), bcX[4] + 3, y + 3, { size: 7 });
+        tR(formatNum(bico.vendas), bcX[5], y + 3, bcW[5] - 4);
         y += hBicoLin;
     });
     if (bicos.length === 0) {
@@ -176,33 +176,34 @@ function gerarPaginaLMC(doc, dados, pageNum) {
 
     // Lado esquerdo
     t('10) Valor Vendas (R$)', m + 4, y + 3, { size: 6.5 });
-    tR('', m, y + 3, lW - 6);
+    tR(vendas.valor_dia ? `R$ ${formatNum(vendas.valor_dia)}` : '', m, y + 3, lW - 6);
 
     t('Valor médio do preço por litro', m + 4, y + vLH + 3, { size: 6.5 });
+    tR(vendas.preco_medio ? `R$ ${formatNum(vendas.preco_medio)}` : '', m, y + vLH + 3, lW - 6);
 
     t('10.1) Valor das Vendas do dia (Página atual) (5.7 x Preço Bomba)', m + 4, y + vLH * 2 + 3, { size: 6 });
-    tR(vendas.valor_dia ? formatNum(vendas.valor_dia) : '', m, y + vLH * 2 + 3, lW - 6);
+    tR(vendas.valor_dia ? `R$ ${formatNum(vendas.valor_dia)}` : '', m, y + vLH * 2 + 3, lW - 6);
 
     t('10.2) Valor Acumulado no mês (Todas Páginas)', m + 4, y + vLH * 3 + 3, { size: 6 });
-    tR(vendas.valor_acumulado ? formatNum(vendas.valor_acumulado) : '', m, y + vLH * 3 + 3, lW - 6);
+    tR(vendas.valor_acumulado ? `R$ ${formatNum(vendas.valor_acumulado)}` : '', m, y + vLH * 3 + 3, lW - 6);
 
     t('11) Para uso do Revendedor (Venda em litros no mês) (Todas', m + 4, y + vLH * 4 + 1, { size: 6 });
     t('Páginas):', m + 4, y + vLH * 4 + 8, { size: 6 });
-    tR(formatNum(vendas.litros_acumulado, 3), m, y + vLH * 4 + 3, lW - 6);
+    tR(formatNum(vendas.litros_acumulado), m, y + vLH * 4 + 3, lW - 6);
 
     // Lado direito
     t('5.7) Vendas no dia (Página atual)', m + lW + 4, y + 3, { size: 6.5 });
-    tR(formatNum(estoque.saidas, 3), m + lW, y + 3, rW - 6);
+    tR(formatNum(estoque.saidas), m + lW, y + 3, rW - 6);
 
     t('6) Estoque Escritural (Todas Páginas) (4.4 - 5.7)', m + lW + 4, y + vLH + 3, { size: 6 });
-    tR(formatNum(estoque.escritural, 3), m + lW, y + vLH + 3, rW - 6);
+    tR(formatNum(estoque.escritural), m + lW, y + vLH + 3, rW - 6);
 
     t('7) Estoque de Fechamento (9.1) (Todas Páginas)', m + lW + 4, y + vLH * 2 + 3, { size: 6 });
-    tR(formatNum(estoque.fechamento, 3), m + lW, y + vLH * 2 + 3, rW - 6);
+    tR(formatNum(estoque.fechamento), m + lW, y + vLH * 2 + 3, rW - 6);
 
     t('8) - Perdas + Sobras (*) (Todas Páginas)', m + lW + 4, y + vLH * 3 + 3, { size: 6 });
     const perdaSobra = (estoque.ganho || 0) - (estoque.perda || 0);
-    tR(formatNum(perdaSobra, 3), m + lW, y + vLH * 3 + 3, rW - 6);
+    tR(formatNum(perdaSobra), m + lW, y + vLH * 3 + 3, rW - 6);
 
     y += vLH * 5;
 
@@ -217,7 +218,7 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     // Preços por bico
     bicos.forEach(bico => {
         if (bico.preco && oy < y + hObs - 20) {
-            t(`Bico ${bico.num} R$ ${formatNum(bico.preco, 3)}`, m + 6, oy, { size: 7 });
+            t(`Bico ${bico.num} R$ ${formatNum(bico.preco)}`, m + 6, oy, { size: 7 });
             oy += 10;
         }
     });
@@ -252,12 +253,12 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     tanques.forEach((tq, i) => {
         if (i < 6) {
             t(`TQ) ${tq.num}`, m + 60 + i * tqCW, y + 12, { size: 6.5 });
-            t(formatNum(tq.fechamento, 3), m + 60 + i * tqCW, y + 20, { size: 7.5 });
+            t(formatNum(tq.fechamento), m + 60 + i * tqCW, y + 20, { size: 7.5 });
         }
     });
     line(m + w - 80, y, m + w - 80, y + hConc);
     t('9.1) Total', m + w - 78, y + 12, { size: 6.5 });
-    t(formatNum(estoque.fechamento, 3), m + w - 78, y + 20, { size: 8, bold: true });
+    t(formatNum(estoque.fechamento), m + w - 78, y + 20, { size: 8, bold: true });
     y += hConc;
 
     // AVISO

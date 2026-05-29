@@ -368,6 +368,12 @@ async function parseXmls(forceReplace = false) {
 
             if (confirm(msg)) return parseXmls(true);
             else logs.value.push(`[INFO] Injeção cancelada pelo usuário.`);
+        } else if (e.response?.data?.tipo === 'cnpj_divergente') {
+            const data = e.response.data;
+            const listaStr = data.bloqueados.map(b => `${b.arquivo}: CNPJ XML=${b.cnpj_xml}, CNPJ SPED=${b.cnpj_sped}`).join('\n');
+            logs.value.push(`[ERROR] ${data.message}`);
+            data.bloqueados.forEach(b => logs.value.push(`  → ${b.arquivo}: CNPJ do XML (${b.cnpj_xml}) ≠ CNPJ do SPED (${b.cnpj_sped})`));
+            alert(`BLOQUEADO: ${data.message}\n\n${listaStr}\n\nVerifique se selecionou a empresa correta.`);
         } else if (e.response?.data?.tipo === 'periodo_divergente') {
             const data = e.response.data;
             _pendingFdNfe = formData;
