@@ -285,6 +285,30 @@ async function setupDatabase() {
         `);
         console.log('Tabela encerrantes_bicos_exportados garantida.');
 
+        // Registro 1320 (encerrantes por bico) — base para validacao fiscal de bicos.
+        // Camada ADITIVA: guarda o 1320 ORIGINAL do arquivo + colunas paralelas _corrigido (auditor),
+        // sem alterar lmc_movimentacao. Layout real do .txt: enc_fin[8], enc_ini[9], qtd_af[10], vol[11].
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS sped_1320 (
+                id                SERIAL PRIMARY KEY,
+                id_sped_arquivo   INTEGER NOT NULL REFERENCES sped_arquivos(id) ON DELETE CASCADE,
+                data_mov          DATE,
+                cod_item          TEXT,
+                num_tanque        TEXT,
+                num_bico          TEXT,
+                enc_ini           NUMERIC(15,3),
+                enc_fin           NUMERIC(15,3),
+                qtd_af            NUMERIC(15,3),
+                vol_bico          NUMERIC(15,3),
+                enc_ini_corrigido NUMERIC(15,3),
+                enc_fin_corrigido NUMERIC(15,3),
+                qtd_af_corrigido  NUMERIC(15,3),
+                corrigido         BOOLEAN DEFAULT FALSE,
+                UNIQUE (id_sped_arquivo, data_mov, cod_item, num_tanque, num_bico)
+            );
+        `);
+        console.log('Tabela sped_1320 garantida.');
+
         console.log('Estrutura de Auditoria Avançada, Cofre A1 e Cadastro de CFOPs estabilizada.');
     } catch (err) {
         console.error('Erro ao configurar banco:', err);

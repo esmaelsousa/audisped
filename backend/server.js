@@ -506,7 +506,7 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
         if (!parsedData) {
             throw new Error("A análise do arquivo SPED não retornou dados.");
         }
-        const { fileInfo, documents, participants, lmc, produtos } = parsedData;
+        const { fileInfo, documents, participants, lmc, produtos, bicos } = parsedData;
 
         logger.info(`Passo 2: Arquivo analisado. Iniciando transação...`);
         await dbClient.query('BEGIN');
@@ -567,6 +567,19 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
             }
         }
         logger.info(`Passo 4: Dados LMC (Bloco 1) inseridos.`);
+
+        // Inserir registros 1320 (encerrantes por bico) — base para validacao fiscal de bicos
+        if (bicos && bicos.length > 0) {
+            for (const b of bicos) {
+                await dbClient.query(
+                    `INSERT INTO sped_1320 (id_sped_arquivo, data_mov, cod_item, num_tanque, num_bico, enc_ini, enc_fin, qtd_af, vol_bico)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                     ON CONFLICT (id_sped_arquivo, data_mov, cod_item, num_tanque, num_bico) DO NOTHING`,
+                    [sped_arquivo_id, b.data_mov, b.cod_item, b.num_tanque, b.num_bico, b.enc_ini, b.enc_fin, b.qtd_af, b.vol_bico]
+                );
+            }
+            logger.info(`Passo 4.1: Registros 1320 (${bicos.length} bicos) inseridos.`);
+        }
 
         // Inserir Bloco D (D100)
         if (parsedData.blocoD && parsedData.blocoD.length > 0) {
@@ -2681,6 +2694,89 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
             });
         }
 
+        // REGRAS 12-14: Validacao de encerrantes por bico (Registro 1320) — usa sped_1320 (1320 cru importado)
+        try {
+            const r1320 = await dbClient.query(
+                `SELECT data_mov, cod_item, num_tanque, num_bico,
+                        COALESCE(enc_ini_corrigido, enc_ini) AS enc_ini,
+                        COALESCE(enc_fin_corrigido, enc_fin) AS enc_fin,
+                        COALESCE(qtd_af_corrigido, qtd_af) AS qtd_af,
+                        CASE WHEN corrigido
+                             THEN (COALESCE(enc_fin_corrigido,enc_fin) - COALESCE(enc_ini_corrigido,enc_ini) - COALESCE(qtd_af_corrigido,0))
+                             ELSE vol_bico END AS vol_bico
+                 FROM sped_1320 WHERE id_sped_arquivo = $1
+                 ORDER BY cod_item, num_bico, data_mov`, [arquivoId]);
+            const bicos1320 = r1320.rows;
+            const fmtD = (d) => d ? (d instanceof Date ? d.toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : String(d)) : '';
+            const n3 = (v) => Number(v || 0).toFixed(3);
+
+            // CRIT-1320-01: volume negativo no bico
+            for (const b of bicos1320) {
+                if (Number(b.vol_bico) < -0.001) {
+                    erros.push({
+                        tipo_erro: 'CRITICAL', regra_id: 'CRIT-1320-01',
+                        titulo_erro: 'Volume negativo no bico (1320)',
+                        descricao_erro: `O bico **${b.num_bico}** (produto ${b.cod_item}, tanque ${b.num_tanque || '-'}) apresentou VOLUME NEGATIVO de ${n3(b.vol_bico)} L em ${fmtD(b.data_mov)}: encerrante final (${n3(b.enc_fin)}) menor que inicial (${n3(b.enc_ini)}) + aferição (${n3(b.qtd_af)}).`,
+                        sugestao_correcao: 'Revise as leituras ENC_INI/ENC_FIN e a aferição QTD_AF deste bico no dia.',
+                        linha_arquivo: 0,
+                        conteudo_linha: `Bico ${b.num_bico} | ENC_INI ${n3(b.enc_ini)} | ENC_FIN ${n3(b.enc_fin)} | AFERI ${n3(b.qtd_af)} | VOL ${n3(b.vol_bico)}`,
+                        data_erro: b.data_mov, cod_item_erro: b.cod_item, num_tanque_erro: b.num_tanque
+                    });
+                }
+            }
+            // CRIT-1320-02: encerrante nao-continuo entre DIAS CONSECUTIVOS (mesmo produto+bico)
+            const _diffDias = (x, y) => Math.round((new Date(y) - new Date(x)) / 86400000);
+            for (let i = 1; i < bicos1320.length; i++) {
+                const a = bicos1320[i - 1], c = bicos1320[i];
+                if (a.cod_item === c.cod_item && a.num_bico === c.num_bico && _diffDias(a.data_mov, c.data_mov) === 1) {
+                    const salto = Math.abs(Number(c.enc_ini) - Number(a.enc_fin));
+                    if (salto > 0.05) {
+                        erros.push({
+                            tipo_erro: 'WARNING', regra_id: 'CRIT-1320-02',
+                            titulo_erro: 'Encerrante não-contínuo entre dias (1320)',
+                            descricao_erro: `O bico **${c.num_bico}** (produto ${c.cod_item}) teve salto de ${n3(salto)} L entre o encerrante final do dia anterior (${n3(a.enc_fin)}) e o inicial do dia ${fmtD(c.data_mov)} (${n3(c.enc_ini)}). O inicial de um dia deve igualar o final do dia anterior.`,
+                            sugestao_correcao: 'Corrija a leitura do encerrante inicial para dar continuidade ao bico.',
+                            linha_arquivo: 0,
+                            conteudo_linha: `Bico ${c.num_bico} | Fim ant ${n3(a.enc_fin)} | Ini atual ${n3(c.enc_ini)} | salto ${n3(salto)}`,
+                            data_erro: c.data_mov, cod_item_erro: c.cod_item, num_tanque_erro: c.num_tanque
+                        });
+                    }
+                }
+            }
+            // CRIT-1320-03: soma dos bicos (1320) diverge da saida consolidada (1300)
+            if (bicos1320.length > 0) {
+                const isoD = (d) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d).substring(0, 10));
+                const somaPorDiaProduto = new Map();
+                for (const b of bicos1320) {
+                    const k = `${String(b.cod_item).trim()}|${isoD(b.data_mov)}`;
+                    somaPorDiaProduto.set(k, (somaPorDiaProduto.get(k) || 0) + Number(b.vol_bico));
+                }
+                const saidas1300 = await dbClient.query(
+                    `SELECT cod_item, data_mov, vol_saidas AS saida
+                     FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND num_tanque = '0'`, [arquivoId]);
+                for (const s of saidas1300.rows) {
+                    const k = `${String(s.cod_item).trim()}|${isoD(s.data_mov)}`;
+                    if (somaPorDiaProduto.has(k)) {
+                        const somaBicos = somaPorDiaProduto.get(k);
+                        const diff = Math.abs(somaBicos - Number(s.saida));
+                        if (diff > 0.9) {
+                            erros.push({
+                                tipo_erro: 'WARNING', regra_id: 'CRIT-1320-03',
+                                titulo_erro: 'Soma dos bicos (1320) diverge da saída (1300)',
+                                descricao_erro: `Produto ${String(s.cod_item).trim()} em ${fmtD(s.data_mov)}: soma das vendas dos bicos (1320) = ${n3(somaBicos)} L, mas a saída consolidada do 1300 = ${n3(s.saida)} L (diferença ${n3(diff)} L).`,
+                                sugestao_correcao: 'Verifique se todos os bicos foram informados e se as vendas batem com o total do dia.',
+                                linha_arquivo: 0,
+                                conteudo_linha: `Soma 1320 ${n3(somaBicos)} | Saída 1300 ${n3(s.saida)} | dif ${n3(diff)}`,
+                                data_erro: s.data_mov, cod_item_erro: String(s.cod_item).trim(), num_tanque_erro: null
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            logger.warn('Validação 1320 (CRIT-1320) ignorada: ' + e.message);
+        }
+
         // Insere todos os erros no banco com padronização de data para ISO
         if (erros.length > 0) {
             const chunkSize = 1000;
@@ -2734,6 +2830,67 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
         if (dbClient) dbClient.release();
         releaseHeavySlot();
     }
+});
+
+// --- Validação de encerrantes por bico (Registro 1320) — somente leitura ---
+app.get('/api/lmc/validacoes-1320/:id', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query(
+            `SELECT data_mov, cod_item, num_tanque, num_bico,
+                    COALESCE(enc_ini_corrigido, enc_ini) AS enc_ini,
+                    COALESCE(enc_fin_corrigido, enc_fin) AS enc_fin,
+                    COALESCE(qtd_af_corrigido, qtd_af) AS qtd_af,
+                    CASE WHEN corrigido THEN (COALESCE(enc_fin_corrigido,enc_fin)-COALESCE(enc_ini_corrigido,enc_ini)-COALESCE(qtd_af_corrigido,0)) ELSE vol_bico END AS vol_bico,
+                    corrigido
+             FROM sped_1320 WHERE id_sped_arquivo=$1 ORDER BY cod_item, num_bico, data_mov`, [arquivoId]);
+        const bicos = r.rows;
+        const isoD = (d) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d).substring(0, 10));
+        const volumes_negativos = bicos.filter(b => Number(b.vol_bico) < -0.001);
+        const encerrantes_divergentes = [];
+        const _ddDias = (x, y) => Math.round((new Date(y) - new Date(x)) / 86400000);
+        for (let i = 1; i < bicos.length; i++) {
+            const a = bicos[i - 1], c = bicos[i];
+            if (a.cod_item === c.cod_item && a.num_bico === c.num_bico && _ddDias(a.data_mov, c.data_mov) === 1) {
+                const salto = Math.abs(Number(c.enc_ini) - Number(a.enc_fin));
+                if (salto > 0.05) encerrantes_divergentes.push({ ...c, fim_anterior: Number(a.enc_fin), ini_atual: Number(c.enc_ini), salto: Number(salto.toFixed(3)) });
+            }
+        }
+        const soma = new Map();
+        for (const b of bicos) { const k = `${String(b.cod_item).trim()}|${isoD(b.data_mov)}`; soma.set(k, (soma.get(k) || 0) + Number(b.vol_bico)); }
+        const sd = await dbClient.query(`SELECT cod_item, data_mov, vol_saidas AS saida FROM lmc_movimentacao WHERE id_sped_arquivo=$1 AND num_tanque='0'`, [arquivoId]);
+        const divergencias_1320_1300 = [];
+        for (const s of sd.rows) {
+            const k = `${String(s.cod_item).trim()}|${isoD(s.data_mov)}`;
+            if (soma.has(k)) {
+                const sb = soma.get(k), diff = Math.abs(sb - Number(s.saida));
+                if (diff > 0.9) divergencias_1320_1300.push({ cod_item: String(s.cod_item).trim(), data_mov: s.data_mov, soma_bicos: Number(sb.toFixed(3)), saida_1300: Number(Number(s.saida).toFixed(3)), diferenca: Number(diff.toFixed(3)) });
+            }
+        }
+        res.json({ total_erros: volumes_negativos.length + encerrantes_divergentes.length + divergencias_1320_1300.length, volumes_negativos, encerrantes_divergentes, divergencias_1320_1300 });
+    } catch (e) { logger.warn('validacoes-1320: ' + e.message); res.status(500).json({ message: 'Erro ao validar 1320.', error: e.message }); }
+    finally { if (dbClient) dbClient.release(); }
+});
+
+// --- Correção manual de um bico (1320) — grava camada paralela _corrigido, sem tocar o original ---
+app.post('/api/lmc/1320-corrigir', authMiddleware, async (req, res) => {
+    const { id_sped_arquivo, cod_item, num_bico, num_tanque, data_mov, enc_ini_corrigido, enc_fin_corrigido, qtd_af_corrigido } = req.body || {};
+    if (!id_sped_arquivo || !cod_item || !num_bico || !data_mov) return res.status(400).json({ message: 'Parâmetros obrigatórios: id_sped_arquivo, cod_item, num_bico, data_mov.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const params = [enc_ini_corrigido, enc_fin_corrigido, qtd_af_corrigido, id_sped_arquivo, cod_item, num_bico, data_mov];
+        let sql = `UPDATE sped_1320 SET enc_ini_corrigido=$1, enc_fin_corrigido=$2, qtd_af_corrigido=$3, corrigido=TRUE
+                   WHERE id_sped_arquivo=$4 AND cod_item=$5 AND num_bico=$6 AND data_mov=$7`;
+        if (num_tanque != null) { sql += ' AND num_tanque=$8'; params.push(num_tanque); }
+        const upd = await dbClient.query(sql, params);
+        if (upd.rowCount === 0) return res.status(404).json({ message: 'Bico/dia não encontrado no 1320.' });
+        res.json({ message: 'Correção registrada. Reexporte o SPED para aplicá-la.', atualizados: upd.rowCount });
+    } catch (e) { res.status(500).json({ message: 'Erro ao corrigir 1320.', error: e.message }); }
+    finally { if (dbClient) dbClient.release(); }
 });
 
 // --- ROTA PARA BUSCAR ERROS (PRESENTE) ---
@@ -6172,6 +6329,24 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         const cnpjArq = String(arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
         const periodoApuracao = String(arqInfo.rows[0].periodo_apuracao || '');
+
+        // OPÇÃO A: correções manuais do 1320 (auditor) entram como BASE do recálculo do bico.
+        // Map key = 'YYYY-MM-DD|cod_item|num_bico'. Map vazio => export 100% idêntico ao atual.
+        const correcoes1320 = new Map();
+        try {
+            const _c1320 = await dbClient.query(
+                `SELECT data_mov, cod_item, num_bico, enc_ini_corrigido, enc_fin_corrigido, qtd_af_corrigido
+                 FROM sped_1320 WHERE id_sped_arquivo = $1 AND corrigido = TRUE`, [arquivoId]);
+            for (const c of _c1320.rows) {
+                const iso = (c.data_mov instanceof Date) ? c.data_mov.toISOString().split('T')[0] : String(c.data_mov).substring(0, 10);
+                correcoes1320.set(`${iso}|${String(c.cod_item || '').trim()}|${String(c.num_bico || '').trim()}`, {
+                    enc_ini: Number(c.enc_ini_corrigido || 0),
+                    enc_fin: Number(c.enc_fin_corrigido || 0),
+                    qtd_af: Number(c.qtd_af_corrigido || 0)
+                });
+            }
+            if (correcoes1320.size > 0) logger.info(`[Export] ${correcoes1320.size} correção(ões) manuais de 1320 carregadas.`);
+        } catch (e) { logger.warn('[Export] sped_1320 indisponível (sem correções 1320): ' + e.message); }
         // periodo_apuracao formato: "YYYY-MM-DD a YYYY-MM-DD"
         let periodoIniArq = '';
         let periodoFimArq = '';
@@ -6786,6 +6961,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     let encAbertOrig = parseFloat((bFields[9] || '0').replace(',', '.'));
                     let volAferiOrig = parseFloat((bFields[10] || '0').replace(',', '.'));
                     let volVendasOrig = parseFloat((bFields[11] || '0').replace(',', '.'));
+
+                    // OPÇÃO A: se o auditor corrigiu este bico/dia, os valores corrigidos viram a base do recálculo.
+                    if (correcoes1320.size > 0) {
+                        const _cor = correcoes1320.get(`${formatDate(pending1300.line.split('|')[3] || '')}|${String(orig.codItem || '').trim()}|${String(bicoNum || '').trim()}`);
+                        if (_cor) {
+                            encAbertOrig = _cor.enc_ini;
+                            encFechaOrig = _cor.enc_fin;
+                            volAferiOrig = _cor.qtd_af;
+                            volVendasOrig = Number((_cor.enc_fin - _cor.enc_ini - _cor.qtd_af).toFixed(3));
+                        }
+                    }
 
                     // 0) Bomba parada: enc_inic == enc_final no SPED original (não vendeu nada).
                     //    Pode ser: intervenção (mesmo tanque tem outro registro real do mesmo bico),
@@ -7844,10 +8030,12 @@ function parseSpedFile(filePath, originalFilename) {
             participants: [],
             blocoD: [],
             lmc: new Map(),
-            produtos: []
+            produtos: [],
+            bicos: []   // registros 1320 (encerrantes por bico) crus do arquivo
         };
         let currentC100 = null;
         let current1300 = null;
+        const ctx1320 = { codItem: null, dataMov: null, numTanque: null }; // contexto p/ vincular 1320
         let lineCounter = 0;
 
         rl.on('error', (err) => {
@@ -7911,9 +8099,26 @@ function parseSpedFile(filePath, originalFilename) {
                         tanks: []
                     };
                     data.lmc.get(codItem).set(dtFech, current1300);
+                    // Contexto para os registros 1310/1320 que seguem este 1300
+                    ctx1320.codItem = codItem;
+                    ctx1320.dataMov = formatDate(dtFech); // 'YYYY-MM-DD'
+                    ctx1320.numTanque = null;
                 } else if (reg === '1310' && current1300) {
-                    // Ignoramos a divisão em tanques do 1310 para calcular quebras 
-                    // globais porque a métrica fiscal do SPED exige Fechamento Total vs Notas Fiscais
+                    // Guardamos o tanque corrente para vincular aos 1320 seguintes
+                    // (continuamos ignorando o 1310 para o LMC consolidado)
+                    ctx1320.numTanque = String(fields[2] || '').trim();
+                } else if (reg === '1320' && current1300 && ctx1320.codItem) {
+                    // Encerrantes por bico. Layout real: [2]=bico, [8]=enc_fin, [9]=enc_ini, [10]=qtd_af, [11]=vol
+                    data.bicos.push({
+                        data_mov: ctx1320.dataMov,
+                        cod_item: ctx1320.codItem,
+                        num_tanque: ctx1320.numTanque,
+                        num_bico: String(fields[2] || '').trim(),
+                        enc_ini: parseFloatSped(fields[9]),
+                        enc_fin: parseFloatSped(fields[8]),
+                        qtd_af: parseFloatSped(fields[10]),
+                        vol_bico: parseFloatSped(fields[11])
+                    });
                 } else if (reg === 'C100') {
                     currentC100 = {
                         ind_oper: fields[2], num_doc: fields[8], cod_mod: fields[5],
