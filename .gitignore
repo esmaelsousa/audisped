@@ -46,3 +46,6 @@ speds/
 .gemini/
 antigravity-awesome-skills/
 frontend/dist/
+
+# Cache de compilacao Node (nao versionar)
+node-compile-cache/
