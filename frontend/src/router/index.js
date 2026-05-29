@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { token } from '../store'
 
 // Importação das Views
-import EmpresasView from '../views/HomeView.vue'
+import EmpresasView from '../views/homeView.vue'
 import ExploradorView from '../views/ExploradorView.vue'
 import AnalisadorView from '../views/AnalisadorView.vue'
 import LoginView from '../views/LoginView.vue'

@@ -3,15 +3,17 @@ import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import VueApexCharts from "vue3-apexcharts";
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, setIdArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped, token } from '../store'
 import { Loader2 } from 'lucide-vue-next'
 
 const route = useRoute();
+const router = useRouter();
 
 const status = ref('Pronto para iniciar');
 const spedButtonDisabled = ref(false);
-const activeTab = ref('novo');
+// Dashboard como primeira aba quando ja ha um arquivo carregado; senao, Upload.
+const activeTab = ref(arquivoInfo.value ? 'dashboard' : 'novo');
 const showCorrectionModal = ref(false);
 const itemToCorrect = ref(null);
 const correctedValue = ref('');
@@ -36,6 +38,30 @@ const showLmcLacunaModal = ref(false);
 const showSequenciaModal = ref(false);
 const sequenciaInfo = ref(null);
 let pendingUploadFile = null;
+
+// --- Arquivos recentes da empresa + linha do tempo de meses (camada de seguranca visual) ---
+const arquivosRecentes = ref([]);
+const loadingRecentes = ref(false);
+const sequenciaTimeline = ref([]);   // [{ mes:'YYYY-MM', carregado, ativo, id }]
+const sequenciaAlerta = ref(null);   // { faltantes:[...], mesAtivo } quando ha lacuna
+
+function mesDoPeriodo(p) {
+    // 'YYYY-MM-DD a ...' -> 'YYYY-MM'
+    if (!p || !/^\d{4}-\d{2}/.test(p)) return null;
+    return p.substring(0, 7);
+}
+function fmtMes(ym) {
+    if (!ym) return '';
+    const [y, m] = ym.split('-');
+    return `${m}/${y}`;
+}
+function addMeses(ym, n) {
+    let [y, m] = ym.split('-').map(Number);
+    m += n;
+    while (m > 12) { m -= 12; y++; }
+    while (m < 1) { m += 12; y--; }
+    return `${y}-${String(m).padStart(2, '0')}`;
+}
 
 function connectToLogStream() {
     if (logEventSource) logEventSource.close();
@@ -667,6 +693,7 @@ onMounted(async () => {
             isHistoryLoading.value = false;
         }
     }
+    if (empresaSelecionada.value?.id) loadArquivosRecentes();
 });
 
 // --- Funções de Exportação ---
@@ -739,6 +766,10 @@ function openCorrection(erro) {
 // --- Funções Auxiliares ---
 const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 const formatNumber = (value) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 3 }).format(value);
+const formatCnpj = (c) => {
+    const d = String(c || '').replace(/\D/g, '');
+    return d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : (c || '');
+};
 
 // --- Verificação de Sequência de Período ---
 function parseSpedHeader(file) {
@@ -904,6 +935,7 @@ async function executarUpload(file) {
 
         setArquivoInfo({ id: idArquivoSped.value, nome: file.name, cnpj: fileInfo.cnpj_empresa, periodo: fileInfo.periodo_apuracao });
         setEmpresaSelecionada({ id: fileInfo.id_empresa, nome_empresa: fileInfo.nome_empresa, cnpj: fileInfo.cnpj_empresa, uf: fileInfo.uf });
+        loadArquivosRecentes();
 
         // Alerta de LMC incompleto (dias do período sem Registro 1300, por produto).
         if (response.data.avisos_lmc?.tem_lacuna) {
@@ -1014,6 +1046,82 @@ const getStatusColor = (score) => {
     if (score < 70) return 'text-amber-500';
     return 'text-red-500';
 };
+
+// --- Arquivos recentes da empresa (alimenta painel lateral do Upload + linha do tempo) ---
+async function loadArquivosRecentes() {
+    if (!empresaSelecionada.value?.id) return;
+    loadingRecentes.value = true;
+    try {
+        const t = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/arquivos/${empresaSelecionada.value.id}`, {
+            headers: t ? { Authorization: `Bearer ${t}` } : {}
+        });
+        const lista = (res.data || [])
+            .map(a => ({ ...a, mes: mesDoPeriodo(a.periodo_apuracao) }))
+            .filter(a => a.mes)
+            .sort((a, b) => a.mes.localeCompare(b.mes)); // ordena por competencia (nao por upload)
+        arquivosRecentes.value = lista;
+        construirTimeline(lista);
+    } catch (e) {
+        console.warn('Erro ao carregar arquivos recentes:', e.message);
+    } finally {
+        loadingRecentes.value = false;
+    }
+}
+
+function construirTimeline(lista) {
+    if (!lista.length) { sequenciaTimeline.value = []; sequenciaAlerta.value = null; return; }
+    const carregados = new Set(lista.map(a => a.mes));
+    const mesAtivo = arquivoInfo.value?.periodo ? mesDoPeriodo(arquivoInfo.value.periodo) : null;
+    const min = lista[0].mes;
+    const max = lista[lista.length - 1].mes;
+    const linha = [];
+    let cur = min, guard = 0;
+    while (guard++ < 240) {
+        const arq = lista.find(a => a.mes === cur);
+        linha.push({ mes: cur, carregado: carregados.has(cur), ativo: cur === mesAtivo, id: arq ? arq.id : null });
+        if (cur === max) break;
+        cur = addMeses(cur, 1);
+    }
+    sequenciaTimeline.value = linha;
+    const faltantes = linha.filter(x => !x.carregado).map(x => x.mes);
+    sequenciaAlerta.value = faltantes.length ? { faltantes, mesAtivo } : null;
+}
+
+// Abre rapidamente um arquivo ja carregado (painel lateral / linha do tempo)
+async function abrirArquivo(arqId) {
+    if (!arqId) return;
+    if (String(arqId) === String(idArquivoSped.value)) { activeTab.value = 'dashboard'; return; }
+    try {
+        const res = await axios.get(`${API_BASE_URL}/api/arquivo/info/${arqId}`);
+        setIdArquivoSped(res.data.id);
+        setArquivoInfo(res.data);
+        setEmpresaSelecionada({ id: res.data.id_empresa, nome_empresa: res.data.empresa, cnpj: res.data.cnpj });
+        activeTab.value = 'dashboard';
+        await runAnalysis();
+        await loadArquivosRecentes();
+    } catch (e) {
+        alert('Erro ao abrir arquivo: ' + (e.response?.data?.message || e.message));
+    }
+}
+
+function trocarEmpresa() {
+    resetArquivoSped();
+    router.push('/');
+}
+
+// Total oficial de entradas/saidas (vem de /api/resumo, ja exclui canceladas) — fonte unica
+const totalEntradaNotas = computed(() => auditResumoGerencial.value?.total_entradas || 0);
+const totalSaidaNotas = computed(() => auditResumoGerencial.value?.total_saidas || 0);
+
+// Status ANP consolidado do arquivo (pior status entre os combustiveis) para a faixa de saude
+const statusAnpGeral = computed(() => {
+    const es = auditResumoGerencial.value?.estoqueResumo || [];
+    if (!es.length) return null;
+    if (es.some(x => x.status === 'CRITICAL')) return 'CRITICAL';
+    if (es.some(x => x.status === 'WARNING')) return 'WARNING';
+    return 'OK';
+});
 </script>
 
 <template>
@@ -1043,6 +1151,15 @@ const getStatusColor = (score) => {
         <h2 class="text-xl font-extrabold text-slate-800 tracking-tight">
           Motor de <span class="text-brand-accent">Auditoria</span>
         </h2>
+        <div v-if="empresaSelecionada" class="flex flex-wrap items-center gap-2 mt-1.5">
+          <span class="inline-flex items-center gap-1.5 bg-brand-accent/10 text-brand-accent px-2.5 py-1 rounded-lg text-xs font-bold max-w-[340px] truncate" :title="empresaSelecionada.nome_empresa">
+            🏢 {{ empresaSelecionada.nome_empresa }}
+          </span>
+          <span v-if="empresaSelecionada.cnpj" class="inline-flex items-center bg-slate-800 text-white px-2.5 py-1 rounded-lg text-xs font-mono font-bold tracking-tight" title="CNPJ da empresa">
+            <span class="opacity-50 text-[9px] uppercase tracking-widest mr-1.5">CNPJ</span>{{ formatCnpj(empresaSelecionada.cnpj) }}
+          </span>
+          <button @click="trocarEmpresa" class="text-[10px] text-slate-400 hover:text-slate-600 font-bold underline underline-offset-2">trocar</button>
+        </div>
       </div>
 
       <div v-if="arquivoInfo" class="flex items-center gap-2">
@@ -1067,19 +1184,38 @@ const getStatusColor = (score) => {
       </div>
     </header>
 
+    <!-- Banner persistente: sequência de meses quebrada -->
+    <div v-if="sequenciaAlerta && sequenciaAlerta.faltantes.length" class="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+      <span class="text-amber-500 text-lg leading-none mt-0.5">⚠</span>
+      <div class="flex-1">
+        <p class="text-xs font-black text-amber-800 uppercase tracking-wide">Sequência de períodos quebrada</p>
+        <p class="text-[11px] text-amber-700 mt-0.5">
+          Faltam os meses <strong>{{ sequenciaAlerta.faltantes.map(fmtMes).join(', ') }}</strong> desta empresa.
+          Auditar/exportar fora da ordem cronológica pode gerar estoque de abertura e encerrantes inconsistentes.
+        </p>
+      </div>
+      <button @click="activeTab = 'novo'" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg whitespace-nowrap shrink-0">Ver arquivos</button>
+    </div>
+
     <!-- Tabs Estilizadas -->
     <div class="flex flex-wrap gap-1 p-1 bg-slate-200/50 rounded-xl w-fit">
-      <button
-        @click="activeTab = 'novo'"
-        :class="activeTab === 'novo' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
-        Upload
-      </button>
       <button
         @click="activeTab = 'dashboard'"
         :class="activeTab === 'dashboard' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
         class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
         Dashboard
+      </button>
+      <button
+        @click="activeTab = 'notas'"
+        :class="activeTab === 'notas' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Notas
+      </button>
+      <button
+        @click="activeTab = 'saidas'"
+        :class="activeTab === 'saidas' ? 'bg-white shadow text-emerald-600' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        Saídas NF
       </button>
       <button
         @click="activeTab = 'lmc'"
@@ -1106,16 +1242,10 @@ const getStatusColor = (score) => {
         </span>
       </button>
       <button
-        @click="activeTab = 'notas'"
-        :class="activeTab === 'notas' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
+        @click="activeTab = 'novo'"
+        :class="activeTab === 'novo' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
         class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
-        Notas
-      </button>
-      <button
-        @click="activeTab = 'saidas'"
-        :class="activeTab === 'saidas' ? 'bg-white shadow text-emerald-600' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
-        Saídas NF
+        Upload
       </button>
     </div>
 
@@ -1282,7 +1412,11 @@ const getStatusColor = (score) => {
                 <h3 class="text-lg font-bold text-slate-800">Notas Fiscais vs Produtos</h3>
                 <p class="text-xs text-slate-500">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
              </div>
-             <div class="flex items-center gap-3">
+             <div class="flex items-center gap-4">
+                 <div class="text-right">
+                    <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Total Entradas</p>
+                    <p class="text-lg font-black text-blue-600 leading-none mt-0.5">{{ formatCurrency(totalEntradaNotas) }}</p>
+                 </div>
                  <input v-model="buscaNF" type="text" placeholder="Buscar por NF ou Fornecedor" class="px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-accent w-64 shadow-sm" />
              </div>
           </div>
@@ -1387,6 +1521,7 @@ const getStatusColor = (score) => {
           <div>
             <h3 class="text-lg font-bold text-slate-800">Notas Fiscais de Saída</h3>
             <p class="text-xs text-slate-500">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
+            <p class="text-sm font-black text-emerald-600 mt-1">Total Saídas: {{ formatCurrency(totalSaidaNotas) }}</p>
           </div>
           <div class="flex items-center gap-3">
             <div class="flex gap-1 p-1 bg-slate-200/50 rounded-xl">
@@ -1570,8 +1705,10 @@ const getStatusColor = (score) => {
       </div>
     </div>
 
-    <!-- Conteúdo: Upload (CENTRALIZADO E AUTOMÁTICO) -->
-    <div v-if="activeTab === 'novo'" class="flex justify-center items-center py-6 animate-fade-in">
+    <!-- Conteúdo: Upload (2 COLUNAS: carregar + recentes/linha do tempo) -->
+    <div v-if="activeTab === 'novo'" class="animate-fade-in">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <div class="lg:col-span-2 flex justify-center">
       <div class="bg-white rounded-2xl p-8 border-2 border-dashed border-slate-200 hover:border-brand-accent/50 transition-all group text-center space-y-5 max-w-lg w-full shadow-lg shadow-slate-100/50">
         <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-2xl group-hover:scale-110 transition-transform shadow-inner">
           {{ isUploading ? '⚙️' : '📥' }}
@@ -1645,11 +1782,72 @@ const getStatusColor = (score) => {
            </div>
         </div>
       </div>
+        </div>
+
+        <!-- PAINEL LATERAL: últimos arquivos + linha do tempo -->
+        <aside class="space-y-4">
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h4 class="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">Últimos arquivos</h4>
+            <div v-if="loadingRecentes" class="text-xs text-slate-400 py-4 text-center">Carregando…</div>
+            <p v-else-if="!arquivosRecentes.length" class="text-xs text-slate-400 italic py-4 text-center">Nenhum arquivo carregado para esta empresa ainda.</p>
+            <ul v-else class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+              <li v-for="a in [...arquivosRecentes].reverse()" :key="a.id">
+                <button @click="abrirArquivo(a.id)" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left hover:bg-slate-50 transition-colors" :class="String(a.id) === String(idArquivoSped) ? 'bg-brand-accent/5 ring-1 ring-brand-accent/20' : ''">
+                  <span class="w-2 h-2 rounded-full shrink-0" :class="String(a.id) === String(idArquivoSped) ? 'bg-brand-accent' : 'bg-slate-300'"></span>
+                  <span class="text-xs font-black text-slate-700 w-14 shrink-0">{{ fmtMes(a.mes) }}</span>
+                  <span class="text-[10px] text-slate-400 font-mono truncate flex-1" :title="a.nome_arquivo">{{ a.nome_arquivo }}</span>
+                  <span v-if="String(a.id) === String(idArquivoSped)" class="text-[8px] font-black uppercase text-brand-accent bg-brand-accent/10 px-1.5 py-0.5 rounded shrink-0">ativo</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="sequenciaTimeline.length" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h4 class="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">Linha do tempo</h4>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="t in sequenciaTimeline" :key="t.mes" @click="t.id && abrirArquivo(t.id)"
+                :class="t.carregado ? (t.ativo ? 'bg-brand-accent text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200') : 'bg-red-50 text-red-500 border border-dashed border-red-300 cursor-default'"
+                class="px-2 py-1 rounded-md text-[10px] font-black transition-colors">
+                {{ fmtMes(t.mes) }}<span v-if="!t.carregado"> ⚠</span>
+              </button>
+            </div>
+            <p class="text-[9px] text-slate-400 mt-3 leading-relaxed">🟢 carregado · 🟣 ativo · 🔴 mês faltante (quebra de sequência)</p>
+          </div>
+        </aside>
+      </div>
     </div>
 
     <!-- Conteúdo: Dashboard Analítico -->
     <div v-if="activeTab === 'dashboard'" class="space-y-6 animate-fade-in">
-      
+
+      <!-- FAIXA DE SAÚDE DO ARQUIVO -->
+      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-wrap items-center gap-4 justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Saúde do arquivo</span>
+          <span v-if="arquivoInfo" class="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{{ arquivoInfo.periodo }}</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-5">
+          <div class="text-right">
+            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Entradas</p>
+            <p class="text-sm font-black text-blue-600">{{ formatCurrency(totalEntradaNotas) }}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Saídas</p>
+            <p class="text-sm font-black text-emerald-600">{{ formatCurrency(totalSaidaNotas) }}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Variação ANP</p>
+            <p class="text-sm font-black" :class="statusAnpGeral === 'CRITICAL' ? 'text-red-500' : statusAnpGeral === 'WARNING' ? 'text-amber-500' : 'text-emerald-600'">
+              {{ statusAnpGeral === 'CRITICAL' ? '🔴 Crítico' : statusAnpGeral === 'WARNING' ? '⚠ Atenção' : statusAnpGeral === 'OK' ? '✓ OK' : '—' }}
+            </p>
+          </div>
+          <div class="text-right">
+            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Erros</p>
+            <p class="text-sm font-black" :class="auditErros.length ? 'text-red-500' : 'text-emerald-600'">{{ auditErros.length }}</p>
+          </div>
+        </div>
+      </div>
+
       <!-- Linha Macro: Faturamento e Compras (Ultra-Compact) -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group">
