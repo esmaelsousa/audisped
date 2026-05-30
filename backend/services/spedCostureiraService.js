@@ -170,8 +170,9 @@ function injetar0220ParaUnidadesDivergentes(linhas) {
         const novos0220 = [];
         for (const unidAlt of alternativas.get(codItem)) {
             if (!existing0220.has(unidAlt)) {
-                // |0220|UNID_CONV|FAT_CONV|
-                novos0220.push(`|0220|${unidAlt}|1,0000|`);
+                // |0220|UNID_CONV|FAT_CONV|COD_BARRA|  — 4 campos (COD_BARRA vazio), igual ao ERP.
+                // O PVA exige os 4 campos; sem o último '|' dava "número de campos difere do leiaute".
+                novos0220.push(`|0220|${unidAlt}|1,0000||`);
                 logger.info(`0220 injetado: 0200[${codItem}] UNID_INV=${unidade0200.get(codItem)} ≠ C170 UNID=${unidAlt}`);
             }
         }
@@ -180,6 +181,42 @@ function injetar0220ParaUnidadesDivergentes(linhas) {
             i += novos0220.length; // ajusta índice para não reprocessar os recém-inseridos
         }
     }
+}
+
+/**
+ * Gera o bloco E200 (Período da Apuração do ICMS-ST por UF) + E210 (Apuração) quando há
+ * lançamento de ICMS-ST no arquivo (C170/C190 com VL_ICMS_ST > 0) e o bloco E200 está AUSENTE.
+ * O PVA exige o E200 sempre que houver ICMS-ST; revendedor/substituído gera apuração ZERADA
+ * (IND_MOV_ST=0). O VL_RETENCAO_ST real (se o contribuinte for substituto) é preenchido depois,
+ * no recálculo do E210 durante a exportação. Inserido ANTES do recálculo de contadores, então
+ * recalcularAssinaturasBlocos atualiza E990/9900/9990/9999 automaticamente.
+ */
+function injetarE200E210SeNecessario(linhas) {
+    let temIcmsSt = false, temE200 = false, uf = '', dtIni = '', dtFin = '';
+    for (const l of linhas) {
+        if (!l || l[0] !== '|') continue;
+        const f = l.split('|');
+        const reg = f[1];
+        if (reg === '0000') { dtIni = f[4] || ''; dtFin = f[5] || ''; uf = f[9] || ''; }
+        else if (reg === 'E200') { temE200 = true; }
+        else if (reg === 'C190' || reg === 'C590' || reg === 'D590') {
+            // VL_ICMS_ST = campo 9 do C190/C590/D590
+            if (parseFloat(String(f[9] || '0').replace(',', '.')) > 0) temIcmsSt = true;
+        } else if (reg === 'C170') {
+            // VL_ICMS_ST = campo 18 do C170
+            if (parseFloat(String(f[18] || '0').replace(',', '.')) > 0) temIcmsSt = true;
+        }
+    }
+    if (!temIcmsSt || temE200 || !uf) return;
+
+    const idxE990 = linhas.findIndex(l => l.startsWith('|E990|'));
+    if (idxE990 === -1) return; // sem bloco E aberto — não força estrutura
+
+    // E200|UF|DT_INI|DT_FIN|  (4 campos) ; E210|IND_MOV_ST + 13 valores zerados (15 campos)
+    const e200 = `|E200|${uf}|${dtIni}|${dtFin}|`;
+    const e210 = `|E210|0|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|`;
+    linhas.splice(idxE990, 0, e200, e210);
+    logger.info(`E200/E210 gerado (UF ${uf}, ${dtIni}-${dtFin}) — havia ICMS-ST sem bloco E200.`);
 }
 
 /**
@@ -356,6 +393,7 @@ function processarLinhas(linhasOriginal, registrosBloco0, registrosBlocoC, chave
     recalcularE110(linhasOriginal);
     recalcularE210(linhasOriginal);
     injetar0220ParaUnidadesDivergentes(linhasOriginal);
+    injetarE200E210SeNecessario(linhasOriginal);
 
     return recalcularAssinaturasBlocos(linhasOriginal);
 }
@@ -639,6 +677,7 @@ function gerarSpedFragmentado(registrosBloco0, registrosBlocoC) {
     linhas.push("|9990|0|");
     linhas.push("|9999|0|");
 
+    injetarE200E210SeNecessario(linhas);
     // Recalcula todas as contagens (incluindo os 9900 que acabamos de criar)
     const linhasFinais = recalcularAssinaturasBlocos(linhas);
     return linhasFinais.join('\r\n') + '\r\n';

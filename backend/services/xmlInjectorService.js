@@ -1,7 +1,9 @@
 const logger = require('../logger');
 
-// Últimos 2 dígitos de CST válidos no EFD ICMS/IPI
-const SITUACOES_CST_VALIDAS = new Set(['00', '10', '20', '30', '40', '41', '50', '51', '60', '70', '90']);
+// Últimos 2 dígitos de CST válidos no EFD ICMS/IPI.
+// Inclui os CST monofásicos de combustível (Conv. ICMS 199/2022): 02, 15, 53, 61.
+// O CST 61 é aceito pelo PVA — não pode ser convertido para 60 (senão C170≠C190).
+const SITUACOES_CST_VALIDAS = new Set(['00', '02', '10', '15', '20', '30', '40', '41', '50', '51', '53', '60', '61', '70', '90']);
 
 // CSOSN (Simples Nacional) → CST equivalente para o destinatário regular
 const CSOSN_PARA_CST = {
@@ -20,8 +22,9 @@ const CSOSN_PARA_CST = {
 /**
  * Normaliza o CST/CSOSN para um código válido no EFD ICMS/IPI.
  * - Converte CSOSN (Simples Nacional) para CST equivalente
- * - Corrige situações inválidas (ex: '61' → '60')
+ * - Corrige situações realmente inválidas (ex: '11' → '10')
  * - Preserva o dígito de origem (1º dígito) quando presente
+ * NÃO converte monofásico (02/15/53/61) — são válidos e devem bater com o C170.
  */
 function normalizarCst(cst) {
     const cstStr = String(cst || '000').padStart(3, '0');
@@ -37,9 +40,9 @@ function normalizarCst(cst) {
         return cstStr; // Válido
     }
 
-    // Correções de situações próximas (comuns em XMLs com CST fora do padrão)
+    // Correções de situações próximas (comuns em XMLs com CST fora do padrão).
+    // OBS: 61 (monofásico) NÃO entra aqui — é válido (ver SITUACOES_CST_VALIDAS).
     const CORRECOES_SITUACAO = {
-        '61': '60', // ICMS monofásico não standard → ST cobrada anteriormente
         '11': '10',
         '21': '20',
         '31': '30',
@@ -344,10 +347,15 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
             let vSeg = parseValor(item.vseg);
             let vOutro = parseValor(item.voutro);
 
-            // Se for CST 60 ou 61, usamos os valores retidos como base de ST no C170
+            // Se for CST 60 ou 61 (combustível/lubrificante com ICMS cobrado anteriormente /
+            // monofásico): usa os valores retidos como base de ST no C170 E o PIS/COFINS DEVE ser
+            // CST 04 (operação tributável monofásica - revenda a alíquota zero), nunca 07 (isenta).
+            // Regra genérica p/ toda empresa; de-para explícito (cst_pis/cst_cofins) prevalece.
             if (finalCst === '060' || finalCst === '061') {
                 bcIcmsSt = bcIcmsStRet;
                 vlIcmsSt = vlIcmsStRet;
+                if (!(m && m.cst_pis)) cstPis = '04';
+                if (!(m && m.cst_cofins)) cstCofins = '04';
             }
 
             // Ajustes de Custo (Premium Feature)
