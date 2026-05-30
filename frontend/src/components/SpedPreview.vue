@@ -42,6 +42,17 @@ const itensDetectados = computed(() => {
   return props.data?.itensDetectados || [];
 });
 
+// Formata a data da NF (vem do backend como YYYY-MM-DD; aceita ISO/DDMMYYYY) → DD/MM/YYYY
+const fmtData = (d) => {
+  if (!d) return '—';
+  const s = String(d);
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  m = s.match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (m) return `${m[1]}/${m[2]}/${m[3]}`;
+  return s;
+};
+
 const apiClient = axios.create({
   baseURL: '',
   headers: { Authorization: `Bearer ${token.value}` }
@@ -184,6 +195,10 @@ function formatCurrency(value) {
                     </div>
                   </div>
                   <div class="flex items-center gap-6">
+                    <div class="flex flex-col items-end leading-tight">
+                      <span class="text-[9px] uppercase tracking-wide text-slate-400">Data NF</span>
+                      <span class="text-xs font-bold text-slate-600">{{ fmtData(nota.data) }}</span>
+                    </div>
                     <span class="text-sm font-bold text-slate-700">{{ formatCurrency(nota.valor_total) }}</span>
                     <component :is="expandedNota === nota.chave ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400" />
                   </div>
