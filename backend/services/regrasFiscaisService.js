@@ -138,9 +138,21 @@ function casa(regra, item, ctx) {
   return avaliarCondExtra(regra.cond_extra, item);
 }
 
+// Compõe o CFOP da ação preservando o GRUPO conforme o CFOP atual do item:
+// entrada interna 1xxx ↔ interestadual 2xxx; saída 5xxx ↔ 6xxx. Evita aplicar '1653'
+// (interna) numa operação interestadual que deveria ser '2653'.
+function comporCfop(cfopAtual, cfopAcao) {
+  if (!cfopAcao) return cfopAtual;
+  let c = String(cfopAcao);
+  const inter = ['2', '3', '6', '7'].includes(String(cfopAtual || '')[0]);
+  if (inter && c[0] === '1') c = '2' + c.slice(1);
+  else if (inter && c[0] === '5') c = '6' + c.slice(1);
+  return c;
+}
+
 function aplicarAcoes(regra, item) {
   if (regra.acao_cst_icms)   item.cst_icms   = comporComOrigem(item.cst_icms, regra.acao_cst_icms);
-  if (regra.acao_cfop)       item.cfop       = regra.acao_cfop;
+  if (regra.acao_cfop)       item.cfop       = comporCfop(item.cfop, regra.acao_cfop);
   if (regra.acao_cst_pis)    item.cst_pis    = regra.acao_cst_pis;
   if (regra.acao_cst_cofins) item.cst_cofins = regra.acao_cst_cofins;
   if (regra.acao_aliq_icms != null) item.aliq_icms = Number(regra.acao_aliq_icms);

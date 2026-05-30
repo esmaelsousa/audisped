@@ -8333,8 +8333,23 @@ app.post('/api/lmc/optimize', authMiddleware, async (req, res) => {
 });
 
 // --------------------------------------------------------------------------
-// ENDPOINTS: REGRAS FISCAIS (cadastro global condição→ação — read-only no MVP)
+// ENDPOINTS: REGRAS FISCAIS (cadastro global condição→ação) — CRUD + simulador.
+// NÃO toca a injeção/export; só lê/grava a tabela e invalida o cache do motor.
 // --------------------------------------------------------------------------
+const REGRA_CAMPOS = ['nome','descricao','fundamento_legal','prioridade','ativo','confianca','escopo_aplicacao','dt_ini','dt_fim','ind_oper','ncm_prefix','cst_icms_origem','cfop_origem','tipo_produto','regime','id_empresa','cnpj_emissor','uf_origem','cond_extra','acao_cst_icms','acao_cfop','acao_cst_pis','acao_cst_cofins','acao_aliq_icms','acao_bc_icms_mode','acao_bc_icms_valor','flag_zera_icms','flag_usar_st_ret','flag_soma_ipi_st_custo','flag_bloqueia_credito_st','flag_para_no_match','flag_apenas_alerta','acao_extra'];
+const REGRA_JSONB = new Set(['cond_extra', 'acao_extra']);
+function montarRegra(body) {
+    const cols = [], vals = [];
+    for (const c of REGRA_CAMPOS) {
+        if (!(c in body)) continue;
+        let v = body[c];
+        if (REGRA_JSONB.has(c)) v = (v == null) ? '{}' : (typeof v === 'string' ? v : JSON.stringify(v));
+        if (v === '') v = null;
+        cols.push(c); vals.push(v);
+    }
+    return { cols, vals };
+}
+
 app.get('/api/regras-fiscais', authMiddleware, async (req, res) => {
     try {
         await regrasFiscais.ensureTabelasRegras(pool);
@@ -8349,6 +8364,93 @@ app.get('/api/regras-fiscais', authMiddleware, async (req, res) => {
     } catch (e) {
         logger.error('[regras-fiscais] erro:', e.message);
         res.status(500).json({ message: 'Erro ao listar regras fiscais.', error: e.message });
+    }
+});
+
+app.post('/api/regras-fiscais', authMiddleware, async (req, res) => {
+    try {
+        await regrasFiscais.ensureTabelasRegras(pool);
+        if (!req.body.nome) return res.status(400).json({ message: 'Nome é obrigatório.' });
+        const { cols, vals } = montarRegra(req.body);
+        const ph = cols.map((_, i) => `$${i + 1}`).join(',');
+        const { rows } = await pool.query(`INSERT INTO regras_fiscais (${cols.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+        regrasFiscais.invalidarCache();
+        res.status(201).json(rows[0]);
+    } catch (e) {
+        logger.error('[regras-fiscais POST] erro:', e.message);
+        res.status(500).json({ message: 'Erro ao criar regra.', error: e.message });
+    }
+});
+
+app.put('/api/regras-fiscais/:id', authMiddleware, async (req, res) => {
+    try {
+        const { cols, vals } = montarRegra(req.body);
+        if (!cols.length) return res.status(400).json({ message: 'Nada para atualizar.' });
+        const set = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
+        vals.push(req.params.id);
+        const { rows } = await pool.query(`UPDATE regras_fiscais SET ${set}, updated_at = CURRENT_TIMESTAMP WHERE id = $${vals.length} RETURNING *`, vals);
+        if (!rows.length) return res.status(404).json({ message: 'Regra não encontrada.' });
+        regrasFiscais.invalidarCache();
+        res.status(200).json(rows[0]);
+    } catch (e) {
+        logger.error('[regras-fiscais PUT] erro:', e.message);
+        res.status(500).json({ message: 'Erro ao atualizar regra.', error: e.message });
+    }
+});
+
+app.patch('/api/regras-fiscais/:id/ativar', authMiddleware, async (req, res) => {
+    try {
+        const { rows } = await pool.query('UPDATE regras_fiscais SET ativo = NOT ativo, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *', [req.params.id]);
+        if (!rows.length) return res.status(404).json({ message: 'Regra não encontrada.' });
+        regrasFiscais.invalidarCache();
+        res.status(200).json(rows[0]);
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao ativar/desativar.', error: e.message });
+    }
+});
+
+app.post('/api/regras-fiscais/:id/duplicar', authMiddleware, async (req, res) => {
+    try {
+        const orig = await pool.query('SELECT * FROM regras_fiscais WHERE id = $1', [req.params.id]);
+        if (!orig.rows.length) return res.status(404).json({ message: 'Regra não encontrada.' });
+        const r = orig.rows[0];
+        r.nome = `${r.nome} (cópia)`; r.ativo = false;
+        const { cols, vals } = montarRegra(r);
+        const ph = cols.map((_, i) => `$${i + 1}`).join(',');
+        const { rows } = await pool.query(`INSERT INTO regras_fiscais (${cols.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+        regrasFiscais.invalidarCache();
+        res.status(201).json(rows[0]);
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao duplicar.', error: e.message });
+    }
+});
+
+app.delete('/api/regras-fiscais/:id', authMiddleware, async (req, res) => {
+    try {
+        const { rowCount } = await pool.query('DELETE FROM regras_fiscais WHERE id = $1', [req.params.id]);
+        if (!rowCount) return res.status(404).json({ message: 'Regra não encontrada.' });
+        regrasFiscais.invalidarCache();
+        res.status(200).json({ message: 'Regra excluída.' });
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao excluir.', error: e.message });
+    }
+});
+
+// Simulador: aplica as regras vigentes a um item de exemplo SEM persistir e SEM tocar arquivo.
+app.post('/api/regras-fiscais/simular', authMiddleware, async (req, res) => {
+    try {
+        await regrasFiscais.ensureTabelasRegras(pool);
+        const { item = {}, competencia, escopo = 'ambos' } = req.body;
+        const comp = (competencia && /^\d{4}-\d{2}/.test(competencia)) ? (competencia.slice(0, 7) + '-01') : '2000-01-01';
+        const regras = await regrasFiscais.carregarRegras(pool, comp, escopo);
+        const antes = { cst_icms: item.cst_icms, cfop: item.cfop, cst_pis: item.cst_pis, cst_cofins: item.cst_cofins };
+        const trilha = [];
+        const depois = { ...item };
+        regrasFiscais.aplicarRegrasFiscaisComLista(depois, regras, { origem: 'SIMULADOR', ind_oper: item.ind_oper, cnpj_emissor: item.cnpj_emissor, trilha });
+        res.status(200).json({ antes, depois: { cst_icms: depois.cst_icms, cfop: depois.cfop, cst_pis: depois.cst_pis, cst_cofins: depois.cst_cofins }, trilha, competencia: comp, total_regras: regras.length });
+    } catch (e) {
+        logger.error('[regras-fiscais simular] erro:', e.message);
+        res.status(500).json({ message: 'Erro ao simular.', error: e.message });
     }
 });
 
