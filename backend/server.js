@@ -19,6 +19,7 @@ const sefazService = require('./services/sefazService');
 const mdeService = require('./services/mdeService');
 const espiaoNfeService = require('./services/espiaoNfeService');
 const { runOptimization } = require('./test_optimize');
+const { parseNfeCompleta, ensureNfeCompletaTable, salvarNfeCompleta, buscarNfeCompleta } = require('./nfe-completa');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -905,12 +906,18 @@ const parseValorNFe = (val) => {
 function limparCnpjStr(s) { return String(s || '').replace(/\D/g, '').padStart(14, '0'); }
 
 function parsePeriodoSped(periodoStr) {
-    // "01/01/2022 a 31/01/2022" → { inicio: Date, fim: Date }
+    // Aceita o formato REAL do sistema "YYYY-MM-DD a YYYY-MM-DD" e o legado "DD/MM/YYYY a DD/MM/YYYY".
+    // (Bug anterior: só tratava DD/MM/YYYY -> com YYYY-MM-DD as datas viravam null e dataForaPeriodo
+    //  retornava sempre false, desligando a validacao de periodo.)
     const partes = String(periodoStr || '').split(' a ');
     const parseData = (s) => {
-        const p = s.trim().split('/');
-        if (p.length === 3) return new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
-        return null;
+        const t = (s || '').trim();
+        let y, m, d;
+        if (t.includes('-')) { [y, m, d] = t.split('-').map(Number); }      // YYYY-MM-DD
+        else if (t.includes('/')) { [d, m, y] = t.split('/').map(Number); } // DD/MM/YYYY
+        else return null;
+        if (!y || !m || !d) return null;
+        return new Date(y, m - 1, d);
     };
     return { inicio: parseData(partes[0] || ''), fim: parseData(partes[1] || partes[0] || '') };
 }
@@ -1044,6 +1051,8 @@ function detectarCombustivelNfe(parsedNotes) {
                     cfop,
                     qcom: parseFloat(item.qcom || 0),
                     descr: item.descr_item || NCM_COMBUSTIVEL_MAP[ncm] || 'Combustivel',
+                    cnpj_emissor: nota.emitente?.cnpj || null,
+                    cod_produto_xml: item.cod_item || null,
                 });
             }
         }
@@ -1248,6 +1257,34 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes, spedFile
     }
 }
 
+// Regra "seguir o físico": a entrada do LMC pertence ao dia em que os encerrantes/fechamento
+// físico (1300/1310 do SPED) registraram a descarga. É comum a NF ser emitida num dia (dt_doc)
+// e a mercadoria entrar no tanque em outro (ex.: NF 29/04, descarga 30/04). Se o físico já lançou
+// uma entrada de volume equivalente deste produto num dia próximo, a injeção NÃO deve criar um
+// lançamento ajustado no dt_doc — isso duplicaria o volume (fantasma na data da NF + real na
+// data física). Retorna a data física (YYYY-MM-DD) encontrada, ou null se a entrada não consta
+// do físico (caso em que a injeção lança normalmente, pois é entrada genuinamente faltante).
+async function fisicoJaRegistrouEntrada(dbClient, id_arquivo, cod_item, dataMov, qcom) {
+    const WINDOW_DIAS = 3;                              // tolerância de dias entre emissão e descarga
+    const tol = Math.max(5, qcom * 0.01);              // tolerância de volume (1% ou 5 L)
+    const r = await dbClient.query(`
+        SELECT data_mov, vol_entr
+          FROM lmc_movimentacao
+         WHERE id_sped_arquivo = $1 AND cod_item = $2 AND num_tanque = '0'
+           AND vol_entr > 0
+           AND data_mov BETWEEN ($3::date - ($4 || ' days')::interval)
+                            AND ($3::date + ($4 || ' days')::interval)
+         ORDER BY ABS(EXTRACT(EPOCH FROM (data_mov::date - $3::date)))`,
+        [id_arquivo, cod_item, dataMov, WINDOW_DIAS]);
+    for (const row of r.rows) {
+        if (Math.abs(parseFloat(row.vol_entr) - qcom) <= tol) {
+            const d = new Date(row.data_mov);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+    }
+    return null;
+}
+
 async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedPath, parsedNotes, periodoSped) {
     const combustiveis = detectarCombustivelNfe(parsedNotes);
     if (combustiveis.length === 0) return [];
@@ -1272,13 +1309,32 @@ async function processarAtualizacaoLmcPosInjecao(poolOrClient, id_arquivo, spedP
 
         for (const item of combustiveis) {
             if (item.qcom <= 0) continue;
-            const candidatos = ncmMap.get(item.ncm) || [];
+            // Resolve o cod_item ESPECÍFICO via De-Para (cod_interno) — evita atualizar produtos
+            // irmãos do mesmo NCM (ex: gasolina comum x aditivada) e códigos crus do XML órfãos.
+            let candidatos = [];
+            if (item.cnpj_emissor && item.cod_produto_xml) {
+                const dpr = await dbClient.query(
+                    `SELECT cod_interno FROM de_para_xml
+                     WHERE REGEXP_REPLACE(cnpj_emissor,'[^0-9]','','g') = REGEXP_REPLACE($1,'[^0-9]','','g')
+                       AND cod_produto_xml = $2 AND cod_interno IS NOT NULL AND cod_interno <> '' LIMIT 1`,
+                    [item.cnpj_emissor, item.cod_produto_xml]
+                );
+                if (dpr.rows.length) candidatos = [dpr.rows[0].cod_interno];
+            }
+            if (candidatos.length === 0) candidatos = ncmMap.get(item.ncm) || []; // fallback: mapeamento por NCM
             if (candidatos.length === 0) {
                 atualizados.push({ ...item, cod_item: null, status: 'ncm_sem_mapeamento' });
                 continue;
             }
             for (const cod_item of candidatos) {
                 let dataMov = item.dt_doc;
+                // Seguir o físico: se a descarga já consta dos encerrantes num dia próximo, não
+                // duplica — o LMC mantém a entrada física e a injeção só corrige o documento (C100/C170).
+                const diaFisico = await fisicoJaRegistrouEntrada(dbClient, id_arquivo, cod_item, dataMov, item.qcom);
+                if (diaFisico) {
+                    atualizados.push({ ...item, cod_item, dt_doc: diaFisico, status: 'ja_no_fisico' });
+                    continue;
+                }
                 let ok = await atualizarEntradaLmcXml(dbClient, id_arquivo, cod_item, dataMov);
                 // Se a data do XML não existe no LMC (período diferente), tenta o 1º dia do período
                 if (!ok && dataFallback && dataFallback !== dataMov) {
@@ -1616,17 +1672,19 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
     const parser = new xml2js.Parser({ explicitArray: false });
     const parsedNotes = [];
     const erros = [];
+    const xmlsBrutos = []; // guarda o XML cru p/ persistir a NFe completa (viewer "Cálculo do Imposto")
 
     for (const file of req.files) {
         try {
             const xmlData = fs.readFileSync(file.path, 'utf-8');
             const result = await parser.parseStringPromise(xmlData);
             const nfeNode = result.nfeProc ? result.nfeProc.NFe : result.NFe;
-            
+
             const notaData = extractNfeData(nfeNode);
             if (notaData) {
                 notaData.arquivo = file.originalname;
                 parsedNotes.push(notaData);
+                xmlsBrutos.push(xmlData);
             } else {
                 erros.push(`Arquivo ${file.originalname} não é um XML de NF-e válido.`);
             }
@@ -1640,6 +1698,9 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
     if (parsedNotes.length === 0) {
         return res.status(400).json({ message: 'Nenhuma nota válida encontrada nos XMLs.', erros });
     }
+
+    // Persiste o XML/parse completo de cada NFe (best-effort, não bloqueia a injeção)
+    Promise.allSettled(xmlsBrutos.map(x => salvarNfeCompleta(pool, x))).catch(() => {});
 
     try {
         const { transformarNotasEmSped } = require('./services/xmlInjectorService');
@@ -1687,6 +1748,8 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                             mapKeys.set(chave, {
                                 chv_nfe: chave,
                                 num_doc: params[8],
+                                dt_doc: params[10],   // data da NF (DDMMAAAA)
+                                dt_e_s: params[11],   // data de entrada/saída (DDMMAAAA)
                                 vl_doc: params[12]
                             });
                         }
@@ -1701,7 +1764,14 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                         const chaveXML = nota.c100?.chv_nfe;
                         if (chaveXML && mapKeys.has(chaveXML)) {
                             const found = mapKeys.get(chaveXML);
-                            duplicadas.push({ chv_nfe: found.chv_nfe, num_doc: found.num_doc, valor: found.vl_doc });
+                            duplicadas.push({
+                                chv_nfe: found.chv_nfe,
+                                num_doc: found.num_doc,
+                                dt_doc: found.dt_doc,        // data da NF que JÁ está no SPED
+                                dt_e_s: found.dt_e_s,        // data de entrada que JÁ está no SPED
+                                valor: found.vl_doc,         // valor que JÁ está no SPED
+                                valor_novo: nota.c100?.vl_doc // valor do XML (para comparação)
+                            });
                         }
                     }
 
@@ -1776,11 +1846,11 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
                 fs.writeFileSync(fullSpedPath, finalSpedString, { encoding: 'latin1' });
                 const totalLinhas = finalSpedString.split('\n').length;
 
-                // Atualiza entradas de combustível no LMC quando aplicável
-                const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes, spedBaseObj?.periodo_apuracao);
-
-                // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
+                // Sincroniza C100/C170 no banco PRIMEIRO — o LMC abaixo soma a entrada a partir do C170 gravado.
                 await sincronizarNotasInjetadas(pool, idSpedBase, parsedNotes, fullSpedPath);
+
+                // Atualiza entradas de combustível no LMC (lê o C170 já sincronizado)
+                const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, parsedNotes, spedBaseObj?.periodo_apuracao);
 
                 return res.json({
                     message: 'Injeção concluída com sucesso.',
@@ -1872,6 +1942,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         const forcePeriodo = req.body.force_periodo === 'true';
         const { cnpj_empresa, periodo_apuracao } = spedBaseObj;
         const itensValidacao = [];
+        const xmlsBrutosGrupos = []; // XML cru das NFes p/ persistir a NFe completa (viewer)
         const parser2 = new xml2js.Parser({ explicitArray: false });
         for (const f of allTempFiles) {
             try {
@@ -1885,6 +1956,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
                         cnpjDest: nota.destinatario?.cnpj,
                         dtDoc: nota.c100?.dt_doc
                     });
+                    xmlsBrutosGrupos.push(xmlData);
                 }
             } catch (_) {}
         }
@@ -1907,6 +1979,9 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
             });
         }
         // --- FIM VALIDAÇÃO ---
+
+        // Persiste o XML/parse completo de cada NFe (best-effort, não bloqueia a injeção)
+        Promise.allSettled(xmlsBrutosGrupos.map(x => salvarNfeCompleta(pool, x))).catch(() => {});
 
         const resultadosGrupos = [];
         let totalInjetados = 0;
@@ -2013,11 +2088,11 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
         const finalStr = linhasAtuais.join('\r\n') + '\r\n';
         fs.writeFileSync(fullSpedPath, finalStr, { encoding: 'latin1' });
 
-        // Atualiza entradas de combustível no LMC quando aplicável
-        const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas, spedBaseObj.periodo_apuracao);
-
-        // Sincroniza C100/C170 no banco usando dt_doc como data de entrada
+        // Sincroniza C100/C170 no banco PRIMEIRO — o LMC abaixo soma a entrada a partir do C170 gravado.
         await sincronizarNotasInjetadas(pool, idSpedBase, todasNotasInjetadas, fullSpedPath);
+
+        // Atualiza entradas de combustível no LMC (lê o C170 já sincronizado)
+        const lmcAtualizados = await processarAtualizacaoLmcPosInjecao(pool, idSpedBase, fullSpedPath, todasNotasInjetadas, spedBaseObj.periodo_apuracao);
 
         limparTemps();
         return res.json({
@@ -4404,9 +4479,10 @@ app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, 
                 doc.id, 
                 doc.num_doc, 
                 doc.ind_oper, 
-                doc.dt_doc, 
-                doc.dt_e_s, 
+                doc.dt_doc,
+                doc.dt_e_s,
                 doc.vl_doc::float8 AS vl_doc,
+                doc.chv_nfe,
                 part.nome as nome_fornecedor,
                 part.cnpj as cnpj_fornecedor,
                 
@@ -4463,6 +4539,23 @@ app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, 
         res.status(500).json({ message: "Erro ao buscar NFs detalhadas.", error: error.message });
     } finally {
         dbClient.release();
+    }
+});
+
+// --- NFe COMPLETA (todos os campos + Cálculo do Imposto) por chave de acesso ---
+// Fontes (nesta ordem): tabela nfe_completa (persistida na injeção) → pasta speds/ → mde_cache/espiao.
+// Quando não há XML, devolve fonte='sped' e nfe=null (frontend mostra o que há do C100/C170/C190).
+app.get('/api/documentos/nfe-completa/:chave', authMiddleware, async (req, res) => {
+    const chave = String(req.params.chave || '').replace(/\D/g, '');
+    if (chave.length !== 44) {
+        return res.status(400).json({ message: 'Chave de acesso inválida (esperados 44 dígitos).' });
+    }
+    try {
+        const r = await buscarNfeCompleta(pool, chave, { spedsDir: path.join(__dirname, '..', 'speds') });
+        return res.status(200).json({ chave, fonte: r.fonte, nfe: r.nfe, motivo: r.motivo || null });
+    } catch (e) {
+        logger.error('[nfe-completa] erro:', e.message);
+        return res.status(500).json({ message: 'Erro ao montar a NFe completa.', error: e.message });
     }
 });
 
@@ -8475,4 +8568,8 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
 // Inicia o servidor
 app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Servidor AudiSped online em http://0.0.0.0:${PORT} (acessível na rede local)`);
+    // Garante a tabela de cache da NFe completa (viewer "Cálculo do Imposto")
+    ensureNfeCompletaTable(pool)
+        .then(() => logger.info('Tabela nfe_completa pronta.'))
+        .catch(e => logger.warn('Falha ao garantir nfe_completa: ' + e.message));
 });

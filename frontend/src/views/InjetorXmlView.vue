@@ -201,12 +201,17 @@ async function ejetarTodosGrupos() {
 function exibirLogLmc(lmcAtualizados) {
     if (!lmcAtualizados || lmcAtualizados.length === 0) return;
     const atualizados = lmcAtualizados.filter(l => l.status === 'atualizado');
+    const jaFisico   = lmcAtualizados.filter(l => l.status === 'ja_no_fisico');
     const semMapa    = lmcAtualizados.filter(l => l.status === 'ncm_sem_mapeamento');
     const semData    = lmcAtualizados.filter(l => l.status === 'data_nao_encontrada');
     if (atualizados.length > 0) {
         logs.value.push('[LMC] Entradas de combustível atualizadas automaticamente:');
         atualizados.forEach(l => logs.value.push(`  + ${l.descr} | ${l.qcom.toFixed(3)} L | data ${l.dt_doc} | cod ${l.cod_item}`));
         logs.value.push('[LMC] Verifique a necessidade de re-sincronizar o LMC.');
+    }
+    if (jaFisico.length > 0) {
+        logs.value.push('[LMC] Entrada já registrada no físico (encerrantes) — não duplicada:');
+        jaFisico.forEach(l => logs.value.push(`  = ${l.descr} | ${l.qcom.toFixed(3)} L | físico em ${l.dt_doc} | cod ${l.cod_item}`));
     }
     if (semMapa.length > 0) {
         logs.value.push('[LMC] Combustível detectado sem mapeamento NCM no SPED (produto novo?):');
@@ -219,6 +224,8 @@ function exibirLogLmc(lmcAtualizados) {
 // --- Modal de confirmação de período ---
 const modalPeriodo = ref(false);
 const modalPeriodoData = ref({ periodo_sped: '', avisos: [] });
+const modalSubstituir = ref(false);   // confirmação rica de substituição de NF já lançada
+const duplicadasSub = ref([]);
 let _pendingFdNfe = null;
 let _pendingGruposAtivos = null;
 let _pendingEndpointNfe = null; // 'parse' | 'grupos'
@@ -300,7 +307,27 @@ function removeFile(index) {
 
 const triggerFileInput = () => document.getElementById('xml-upload').click();
 
+function confirmarSubstituicao() {
+    modalSubstituir.value = false;
+    parseXmls(true); // re-injeta forçando a substituição
+}
+function cancelarSubstituicao() {
+    modalSubstituir.value = false;
+    logs.value.push('[INFO] Substituição cancelada pelo usuário.');
+}
+function fmtDataSped(d) {
+    const s = String(d || '').replace(/\D/g, '');
+    return s.length === 8 ? `${s.slice(0, 2)}/${s.slice(2, 4)}/${s.slice(4, 8)}` : (d || '-');
+}
+function fmtMoeda(v) {
+    const num = parseFloat(String(v ?? '0').replace(',', '.'));
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(isNaN(num) ? 0 : num);
+}
+
 async function parseXmls(forceReplace = false) {
+    // Blindagem: @click="parseXmls" passaria o MouseEvent como 1º arg (truthy) e
+    // forçaria substituição sem mostrar o modal. Só aceita o boolean explícito (true).
+    forceReplace = forceReplace === true;
     if (xmlFiles.value.length === 0) return alert("Adicione ao menos um XML!");
     
     isLoading.value = true;
@@ -362,12 +389,9 @@ async function parseXmls(forceReplace = false) {
         }
     } catch (e) {
         if (e.response && e.response.status === 409) {
-            const data = e.response.data;
-            const duplicadasStr = data.duplicadas.map(d => `Doc: ${d.num_doc} - Chave: ${d.chv_nfe}`).join('\n');
-            const msg = `${data.message}\n\n${duplicadasStr}\n\nDeseja SUBSTITUIR as notas existentes pelas novas?`;
-
-            if (confirm(msg)) return parseXmls(true);
-            else logs.value.push(`[INFO] Injeção cancelada pelo usuário.`);
+            // Confirmação rica: mostra a NF que JÁ está no SPED (data, nº, valor, data de entrada) antes de sobrescrever.
+            duplicadasSub.value = e.response.data.duplicadas || [];
+            modalSubstituir.value = true;
         } else if (e.response?.data?.tipo === 'cnpj_divergente') {
             const data = e.response.data;
             const listaStr = data.bloqueados.map(b => `${b.arquivo}: CNPJ XML=${b.cnpj_xml}, CNPJ SPED=${b.cnpj_sped}`).join('\n');
@@ -793,8 +817,8 @@ async function prepararPainel() {
                             <span>{{ isLoading ? 'Aguarde...' : 'Gerar Prévia' }}</span>
                         </button>
 
-                        <button 
-                            @click="parseXmls" 
+                        <button
+                            @click="parseXmls()"
                             :disabled="xmlFiles.length === 0 || isLoading || !idSpedBase"
                             class="flex-[2] bg-brand-accent hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
                         >
@@ -1156,6 +1180,46 @@ async function prepararPainel() {
                         <button @click="confirmarForcePeriodo" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition-colors">
                             Confirmar Injeção
                         </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL: Confirmar substituição de NF já lançada no SPED -->
+            <div v-if="modalSubstituir" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+                    <div class="bg-orange-500 px-6 py-4 flex items-center gap-3">
+                        <svg class="w-6 h-6 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                        <h2 class="text-white font-black text-sm uppercase tracking-wide">Confirmar Substituição</h2>
+                    </div>
+                    <div class="px-6 py-4 space-y-3">
+                        <p class="text-sm text-slate-600">A(s) NF(s) abaixo <strong>já estão lançadas neste SPED</strong> e serão <strong>removidas e regravadas</strong> com os dados do XML:</p>
+                        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 font-black">
+                                    <tr>
+                                        <th class="px-3 py-2">Nº NF</th>
+                                        <th class="px-3 py-2">Data da NF</th>
+                                        <th class="px-3 py-2 text-right">Valor (no SPED)</th>
+                                        <th class="px-3 py-2">Data entrada</th>
+                                        <th class="px-3 py-2 text-right bg-orange-50/60">Valor (do XML)</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 text-slate-600">
+                                    <tr v-for="d in duplicadasSub" :key="d.chv_nfe">
+                                        <td class="px-3 py-2 font-mono font-bold text-slate-800">{{ d.num_doc }}</td>
+                                        <td class="px-3 py-2">{{ fmtDataSped(d.dt_doc) }}</td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ fmtMoeda(d.valor) }}</td>
+                                        <td class="px-3 py-2">{{ fmtDataSped(d.dt_e_s) }}</td>
+                                        <td class="px-3 py-2 text-right font-mono font-bold text-orange-600 bg-orange-50/40">{{ fmtMoeda(d.valor_novo) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="text-[11px] text-slate-400">A coluna "Valor (do XML)" é o que será gravado no lugar do valor atual.</p>
+                    </div>
+                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-slate-100">
+                        <button @click="cancelarSubstituicao" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors">Cancelar</button>
+                        <button @click="confirmarSubstituicao" class="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black transition-colors">Substituir</button>
                     </div>
                 </div>
             </div>

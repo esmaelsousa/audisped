@@ -191,6 +191,9 @@ const notasAnaliticas = ref([]);
 const loadingNotas = ref(false);
 const expandedNotas = ref(new Set());
 const buscaNF = ref('');
+// Cache da NFe completa (Cálculo do Imposto + todos os campos) por id da nota
+const nfeCompletaCache = ref({});   // { [notaId]: { loading, fonte, nfe, motivo, erro } }
+const nfeGruposAbertos = ref(new Set()); // grupos recolhíveis abertos: chave `${notaId}::${grupo}`
 
 const filteredNotas = computed(() => {
     if (!buscaNF.value) return notasAnaliticas.value;
@@ -206,8 +209,49 @@ function toggleNota(id) {
         expandedNotas.value.delete(id);
     } else {
         expandedNotas.value.add(id);
+        const nota = notasAnaliticas.value.find(n => n.id === id);
+        if (nota && nota.chv_nfe) carregarNfeCompleta(id, nota.chv_nfe);
     }
 }
+
+// Busca (lazy + cache) a NFe completa pela chave ao expandir a nota
+async function carregarNfeCompleta(notaId, chave) {
+    const cached = nfeCompletaCache.value[notaId];
+    if (cached && !cached.erro) return; // já buscado com sucesso (ou em andamento); erro permite nova tentativa
+    nfeCompletaCache.value = { ...nfeCompletaCache.value, [notaId]: { loading: true } };
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/documentos/nfe-completa/${String(chave).replace(/\D/g, '')}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        nfeCompletaCache.value = { ...nfeCompletaCache.value, [notaId]: { loading: false, fonte: res.data.fonte, nfe: res.data.nfe, motivo: res.data.motivo } };
+    } catch (e) {
+        nfeCompletaCache.value = { ...nfeCompletaCache.value, [notaId]: { loading: false, erro: e.response?.data?.message || e.message } };
+    }
+}
+
+function toggleGrupoNfe(notaId, grupo) {
+    const k = `${notaId}::${grupo}`;
+    const s = new Set(nfeGruposAbertos.value);
+    s.has(k) ? s.delete(k) : s.add(k);
+    nfeGruposAbertos.value = s;
+}
+function grupoNfeAberto(notaId, grupo) {
+    return nfeGruposAbertos.value.has(`${notaId}::${grupo}`);
+}
+// Formata valor numérico da NFe (mantém casas decimais; não mexe em códigos/chaves inteiras)
+function fmtValorNfe(v) {
+    const s = String(v ?? '');
+    const m = s.match(/^-?(\d{1,15})\.(\d{1,6})$/);
+    if (m) {
+        return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: m[2].length, maximumFractionDigits: m[2].length }).format(Number(s));
+    }
+    return s;
+}
+const FONTE_LABEL = {
+    persistido: 'XML (injetado)', arquivo: 'XML (pasta speds)', mde_cache: 'XML (Manifesto/MDe)',
+    espiao_cache: 'XML (Espião NFe)', sped: 'SPED (XML indisponível)'
+};
 
 async function loadNotasAnaliticas() {
     if (!idArquivoSped.value) return;
@@ -1467,7 +1511,7 @@ const statusAnpGeral = computed(() => {
                           
                           <!-- DETALHE C170 -->
                           <tr v-if="expandedNotas.has(nf.id)">
-                              <td colspan="7" class="p-0 bg-slate-100/50 border-b-2 border-slate-200 shadow-inner">
+                              <td colspan="6" class="p-0 bg-slate-100/50 border-b-2 border-slate-200 shadow-inner">
                                   <div class="px-14 py-6 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9IiNjYmQ1ZTEiLz48L3N2Zz4=')]">
                                       <div class="flex items-center gap-3 mb-4">
                                           <span class="text-[10px] uppercase font-black tracking-widest text-slate-500 bg-white px-3 py-1 rounded-md shadow-sm border border-slate-200">Itens da Nota (C170)</span>
@@ -1503,6 +1547,69 @@ const statusAnpGeral = computed(() => {
                                           </table>
                                       </div>
                                       <p v-else class="text-sm text-slate-500 italic">Esta nota não possui detalhes C170 vinculados neste arquivo.</p>
+
+                                      <!-- ===== NFe COMPLETA — Cálculo do Imposto + todos os campos ===== -->
+                                      <div v-if="nf.chv_nfe" class="mt-7">
+                                          <div class="flex items-center flex-wrap gap-3 mb-4">
+                                              <span class="text-[10px] uppercase font-black tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-md shadow-sm border border-emerald-200">NFe Completa — Cálculo do Imposto</span>
+                                              <span v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].fonte" class="text-[9px] font-bold px-2 py-0.5 rounded-full" :class="nfeCompletaCache[nf.id].fonte === 'sped' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">fonte: {{ FONTE_LABEL[nfeCompletaCache[nf.id].fonte] || nfeCompletaCache[nf.id].fonte }}</span>
+                                              <span class="text-[9px] font-mono text-slate-400">{{ nf.chv_nfe }}</span>
+                                          </div>
+
+                                          <div v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].loading" class="text-sm text-slate-500 italic">Carregando NFe completa…</div>
+                                          <div v-else-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].erro" class="text-sm text-rose-600">Erro ao carregar a NFe: {{ nfeCompletaCache[nf.id].erro }}</div>
+
+                                          <!-- sem XML disponível (nota só do SPED) -->
+                                          <div v-else-if="nfeCompletaCache[nf.id] && !nfeCompletaCache[nf.id].nfe" class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 max-w-3xl">
+                                              <b>XML desta NF-e não disponível</b> ({{ nfeCompletaCache[nf.id].motivo || 'nota proveniente apenas do SPED' }}). Campos exclusivos do XML — monofásico (qBCMonoRet/vICMSMonoRet), ICMS desonerado, FCP, DIFAL — não existem no SPED Fiscal. Reinjete o XML desta nota para ver o Cálculo do Imposto completo.
+                                          </div>
+
+                                          <!-- NFe completa carregada -->
+                                          <template v-else-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].nfe">
+                                              <!-- destaques (leitura rápida) -->
+                                              <div v-if="nfeCompletaCache[nf.id].nfe.destaques && nfeCompletaCache[nf.id].nfe.destaques.length" class="mb-4 max-w-4xl space-y-1">
+                                                  <div v-for="(d, di) in nfeCompletaCache[nf.id].nfe.destaques" :key="di" class="text-[11px] text-slate-600 flex gap-2"><span class="text-emerald-500 font-black">▸</span><span>{{ d }}</span></div>
+                                              </div>
+
+                                              <!-- ICMSTot em destaque -->
+                                              <template v-for="g in nfeCompletaCache[nf.id].nfe.grupos" :key="g.grupo">
+                                                  <div v-if="g.grupo.includes('ICMSTot')" class="bg-white border-2 border-emerald-200 rounded-xl shadow-sm p-4 mb-4 max-w-5xl">
+                                                      <h4 class="text-xs font-black uppercase tracking-wider text-emerald-700 mb-3">💰 {{ g.grupo }}</h4>
+                                                      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2">
+                                                          <div v-for="(c, ci) in g.campos" :key="ci" class="flex flex-col border-b border-slate-50 py-1">
+                                                              <span class="text-[9px] uppercase tracking-wide text-slate-400">{{ c.label_pt }} <span class="font-mono normal-case text-slate-300">{{ c.tag }}</span></span>
+                                                              <span class="text-sm font-bold font-mono" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-purple-600' : 'text-slate-700'">{{ fmtValorNfe(c.valor) }}</span>
+                                                              <span v-if="c.obs" class="text-[9px] text-purple-400">{{ c.obs }}</span>
+                                                          </div>
+                                                      </div>
+                                                  </div>
+                                              </template>
+
+                                              <!-- demais grupos (recolhíveis) -->
+                                              <div class="max-w-5xl space-y-2">
+                                                  <template v-for="g in nfeCompletaCache[nf.id].nfe.grupos" :key="'sec-' + g.grupo">
+                                                      <div v-if="!g.grupo.includes('ICMSTot')" class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                                                          <button @click="toggleGrupoNfe(nf.id, g.grupo)" class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors text-left">
+                                                              <span class="text-[11px] font-bold text-slate-700">{{ g.grupo }} <span class="text-slate-400 font-normal">({{ g.campos.length }})</span></span>
+                                                              <span class="text-slate-400 text-xs">{{ grupoNfeAberto(nf.id, g.grupo) ? '▼' : '▶' }}</span>
+                                                          </button>
+                                                          <div v-if="grupoNfeAberto(nf.id, g.grupo)" class="px-4 pb-3 pt-1 border-t border-slate-100">
+                                                              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
+                                                                  <template v-for="(c, ci) in g.campos" :key="ci">
+                                                                      <div v-if="c._header" class="md:col-span-2 lg:col-span-3 mt-2 mb-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-0.5">{{ c.label_pt }}</div>
+                                                                      <div v-else class="flex items-baseline justify-between gap-2 border-b border-slate-50 py-0.5">
+                                                                          <span class="text-[10px] text-slate-500 truncate" :title="c.tag">{{ c.label_pt }}</span>
+                                                                          <span class="text-[11px] font-mono font-semibold text-right whitespace-nowrap" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-purple-600' : 'text-slate-700'">{{ fmtValorNfe(c.valor) }}</span>
+                                                                      </div>
+                                                                  </template>
+                                                              </div>
+                                                          </div>
+                                                      </div>
+                                                  </template>
+                                              </div>
+                                          </template>
+                                      </div>
+                                      <!-- ===== FIM NFe COMPLETA ===== -->
                                   </div>
                               </td>
                           </tr>
