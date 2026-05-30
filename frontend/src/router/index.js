@@ -64,6 +64,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/regras-fiscais',
+      name: 'regras-fiscais',
+      component: () => import('../views/RegrasFiscaisView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/de-para',
       name: 'de-para-xml',
       component: () => import('../views/DeParaXmlView.vue'),

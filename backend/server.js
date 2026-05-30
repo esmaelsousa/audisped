@@ -20,6 +20,7 @@ const mdeService = require('./services/mdeService');
 const espiaoNfeService = require('./services/espiaoNfeService');
 const { runOptimization } = require('./test_optimize');
 const { parseNfeCompleta, ensureNfeCompletaTable, salvarNfeCompleta, buscarNfeCompleta } = require('./nfe-completa');
+const regrasFiscais = require('./services/regrasFiscaisService');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -1231,11 +1232,17 @@ async function sincronizarNotasInjetadas(pool, id_arquivo, parsedNotes, spedFile
                     }
                 }
 
+                // Combustível/lubrificante com ICMS cobrado anteriormente/monofásico (CST 60/61):
+                // PIS/COFINS deve ser CST 04 (monofásica - revenda a alíquota zero), nunca 07 (isenta).
+                const _sitIcms = String(cstIcms).slice(-2);
+                const _ehMono = (_sitIcms === '60' || _sitIcms === '61');
+                const _cstPis    = _ehMono ? '04' : (item.cst_pis    || '07');
+                const _cstCofins = _ehMono ? '04' : (item.cst_cofins || '07');
                 await dbClient.query(
                     `INSERT INTO documentos_itens_c170
                         (id_documento_c100, num_item, cod_item, qtd, unid, vl_item, cst_icms, cfop, cst_pis, cst_cofins)
                      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-                    [c100Id, numItem++, codItemFinal, qtd, unid, vlIt, cstIcms, cfop, '07', '07']
+                    [c100Id, numItem++, codItemFinal, qtd, unid, vlIt, cstIcms, cfop, _cstPis, _cstCofins]
                 );
             }
 
@@ -6604,9 +6611,53 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
 
+        // ── MVP Motor de Regras Fiscais (Fase 1: ENFORCEMENT só no export) ──
+        // Antes deste MVP o loop era passthrough; o "na unha" CST 60/61⇒PIS/COFINS 04 só existia na
+        // injeção/sync. Aqui o export passa a aplicar as Regras Fiscais (cadastro global) na emissão.
+        // ensure+seed na própria rota (idempotente) elimina a corrida com o boot fire-and-forget.
+        const _compRegras = ((periodoApuracao || '').slice(0, 7) || '2000-01') + '-01';
+        let regrasExport = [];
+        try {
+            await regrasFiscais.ensureTabelasRegras(dbClient);
+            await regrasFiscais.seedRegrasFiscais(dbClient);
+            regrasExport = await regrasFiscais.carregarRegras(dbClient, _compRegras, 'export');
+        } catch (e) {
+            logger.warn('[Export] Falha ao carregar regras fiscais (mantendo .txt como veio): ' + e.message);
+        }
+        if (regrasExport.length === 0) {
+            // Sem regras carregadas o enforcement NÃO ocorre — avisa (não silencioso).
+            logger.warn(`[Export] NENHUMA regra fiscal aplicada (competência ${_compRegras}). C170 emitido como veio.`);
+            if (!res.headersSent) res.setHeader('X-Regras-Fiscais', 'nao-aplicadas');
+        }
+        // NOTA: a trilha (antes/depois por item) NÃO é coletada no export — ainda não há
+        // feature de auditoria que a leia/persista (tabela regras_fiscais_aplicacao não recebe
+        // INSERT). Passar ctx.trilha aqui só alocaria 2 snapshots por C170 casado, descartados
+        // no fim do export. Quando a auditoria existir, reabilitar passando { trilha } abaixo.
+
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
-        const pushLine = (l) => outputLines.push(l);
+        // Normaliza linhas na emissão (cobre qualquer origem, inclusive notas injetadas antes dos fixes):
+        //  • 0220: EXATAMENTE 4 campos (REG|UNID_CONV|FAT_CONV|COD_BARRA|) — PVA exige 4.
+        //  • C170: aplica as Regras Fiscais (ex.: CST ICMS 60/61 ⇒ PIS/COFINS 04) via motor global.
+        const normalizarLinha = (l) => {
+            if (typeof l !== 'string') return l;
+            if (l.startsWith('|0220|')) {
+                const f = l.split('|');
+                return `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`;
+            }
+            if (l.startsWith('|C170|') && regrasExport.length) {
+                const f = l.split('|'); // [10]=CST_ICMS, [11]=CFOP, [25]=CST_PIS, [31]=CST_COFINS
+                if (f.length < 32) return l; // C170 truncado/atípico: não fabricar índices
+                const item = { num_item: f[2], cst_icms: f[10], cfop: f[11], cst_pis: f[25], cst_cofins: f[31] };
+                regrasFiscais.aplicarRegrasFiscaisComLista(item, regrasExport, { origem: 'EXPORT' });
+                if (item.cst_icms !== f[10] || item.cfop !== f[11] || item.cst_pis !== f[25] || item.cst_cofins !== f[31]) {
+                    f[10] = item.cst_icms; f[11] = item.cfop; f[25] = item.cst_pis; f[31] = item.cst_cofins;
+                    return f.join('|');
+                }
+            }
+            return l;
+        };
+        const pushLine = (l) => outputLines.push(normalizarLinha(l));
         // Flag para pular registros filhos (0205, 0206) de um 0200 que foi omitido
         let skipNext0206 = false;
 
@@ -7874,6 +7925,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             // E110 não é recalculado aqui — arquivo já correto pós-injeção.
             if (fields.length >= 2 && fields[1] === 'E210') {
                 const f = fields;
+                f[2]  = somaRetST > 0 ? '1' : '0'; // IND_MOV_ST: 1 só se há ST retido em saídas
                 f[8]  = fmtSp(somaRetST); // VL_RETENCAO_ST = soma C190/C590/etc CFOP 5xx/6xx VL_ICMS_ST
                 const vlTotalCredST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
                 f[14] = fmtSp(parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]) + parseSp(f[12]) + parseSp(f[13]));
@@ -8281,6 +8333,26 @@ app.post('/api/lmc/optimize', authMiddleware, async (req, res) => {
 });
 
 // --------------------------------------------------------------------------
+// ENDPOINTS: REGRAS FISCAIS (cadastro global condição→ação — read-only no MVP)
+// --------------------------------------------------------------------------
+app.get('/api/regras-fiscais', authMiddleware, async (req, res) => {
+    try {
+        await regrasFiscais.ensureTabelasRegras(pool);
+        const { ativo, escopo } = req.query;
+        let q = 'SELECT * FROM regras_fiscais WHERE 1=1';
+        const p = [];
+        if (ativo === 'true' || ativo === 'false') { p.push(ativo === 'true'); q += ` AND ativo = $${p.length}`; }
+        if (escopo) { p.push(escopo); q += ` AND escopo_aplicacao = $${p.length}`; }
+        q += ' ORDER BY prioridade ASC, id ASC';
+        const { rows } = await pool.query(q, p);
+        res.status(200).json(rows);
+    } catch (e) {
+        logger.error('[regras-fiscais] erro:', e.message);
+        res.status(500).json({ message: 'Erro ao listar regras fiscais.', error: e.message });
+    }
+});
+
+// --------------------------------------------------------------------------
 // ENDPOINTS: DE-PARA XML
 // --------------------------------------------------------------------------
 
@@ -8572,4 +8644,9 @@ app.listen(PORT, '0.0.0.0', () => {
     ensureNfeCompletaTable(pool)
         .then(() => logger.info('Tabela nfe_completa pronta.'))
         .catch(e => logger.warn('Falha ao garantir nfe_completa: ' + e.message));
+    // Motor de Regras Fiscais: garante tabelas + seed das regras de alta confiança
+    regrasFiscais.ensureTabelasRegras(pool)
+        .then(() => regrasFiscais.seedRegrasFiscais(pool))
+        .then(n => logger.info(`Regras fiscais prontas${n ? ` (seed: ${n} regras)` : ''}.`))
+        .catch(e => logger.warn('Falha ao garantir regras_fiscais: ' + e.message));
 });
