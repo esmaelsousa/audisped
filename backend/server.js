@@ -6648,6 +6648,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (typeof l !== 'string') return l;
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
+                // Preserva o leiaute do PERÍODO: até ~2021 o 0220 NÃO tem COD_BARRA
+                // (|0220|UNID|FAT| = 3 campos); layouts novos têm (|0220|UNID|FAT|COD_BARRA| = 4).
+                // Forçar sempre 4 quebrava o PVA de 2021 ("nº de campos: esperado 3, contém 4").
+                // split de |0220|UN|1| → comprimento 5 (sem COD_BARRA) ⇒ mantém 3 campos.
+                if (f.length <= 5) return `|0220|${f[2] || ''}|${f[3] || ''}|`;
                 return `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`;
             }
             if (l.startsWith('|C170|') && regrasExport.length) {
