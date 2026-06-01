@@ -694,9 +694,88 @@ async function injetarXmlEPersistir(fullSpedPath, dataPayloadFase2, chavesParaSu
     return joinedSped;
 }
 
+/**
+ * Reposiciona registros 0221 (item atômico) para que cada um seja filho DIRETO
+ * do seu 0200 correto — aquele cujo COD_ITEM == COD_ITEM_ATOMICO do 0221.
+ *
+ * Corrige o erro do PVA:
+ *   "O valor deve existir no campo COD_ITEM de um registro pai 0200 com TIPO_ITEM
+ *    '00 - Mercadoria para Revenda' e que possua um único registro filho 0221 com
+ *    o COD_ITEM_ATOMICO igual ao campo COD_ITEM do registro pai."
+ *
+ * Trata DOIS mecanismos que geram esse erro:
+ *  (a) ERP emite o 0221 fora de ordem (após OUTRO 0200) → o PVA o associa ao 0200
+ *      anterior errado. Movemos o 0221 para o fim do grupo de filhos do seu 0200 correto.
+ *  (b) O filtro de 0200 do export remove um item SEM MOVIMENTO, mas o 0221 daquele item
+ *      fica órfão (0200 inexistente). Nesse caso o 0221 é DESCARTADO (inválido p/ o PVA;
+ *      o item já não está no arquivo, então não há dado fiscal a preservar).
+ * Garante "um único" 0221 por 0200 (se o pai já tem um, o realocado é descartado).
+ * Quando não há nada a corrigir, retorna o array original (byte-idêntico). Contagens do
+ * bloco 0 são recalculadas no fim do export (não dependem desta função).
+ */
+function realocar0221(linhas) {
+    // 1) COD_ITEM -> existe 0200?
+    const cods0200 = new Set();
+    for (const l of linhas) {
+        const f = l.split('|');
+        if (f[1] === '0200') cods0200.add(f[2]);
+    }
+    if (cods0200.size === 0) return linhas;
+
+    // 2) Classifica cada 0221: descartar órfão (0200 inexistente), realocar (0200 existe
+    //    mas o 0221 está sob outro pai) ou manter (já sob o pai correto).
+    const childRegs = new Set(['0205', '0206', '0210', '0220', '0221']);
+    const idxRemover = new Set();  // 0221 a remover (órfãos a descartar + os a realocar)
+    const porCodMover = new Map(); // COD_ITEM_ATOMICO -> linha 0221 a reinserir (só os que têm 0200)
+    let paiAtual = null;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        const reg = f[1];
+        if (reg === '0200') { paiAtual = f[2]; continue; }
+        if (reg === '0221') {
+            const codAtomico = f[2];
+            if (!cods0200.has(codAtomico)) {
+                // órfão: o 0200 do item não existe (ex.: item sem movimento foi filtrado
+                // do export) → o 0221 é inválido p/ o PVA; descartar (não reinserir).
+                idxRemover.add(i);
+            } else if (codAtomico !== paiAtual) {
+                // fora de lugar, mas o 0200 correto existe → remover e realocar sob ele.
+                idxRemover.add(i);
+                if (!porCodMover.has(codAtomico)) porCodMover.set(codAtomico, linhas[i]);
+            }
+            // else: já está sob o pai correto → mantém intacto
+        }
+    }
+    if (idxRemover.size === 0) return linhas; // nada a corrigir → byte-idêntico
+
+    // 3) Remove os 0221 marcados e reinsere os realocáveis ao fim do grupo de filhos do seu 0200
+    const semOrfaos = linhas.filter((_, i) => !idxRemover.has(i));
+    const resultado = [];
+    for (let i = 0; i < semOrfaos.length; i++) {
+        resultado.push(semOrfaos[i]);
+        const f = semOrfaos[i].split('|');
+        if (f[1] === '0200') {
+            const cod = f[2];
+            let j = i + 1;
+            let jaTem0221 = false;
+            while (j < semOrfaos.length && childRegs.has(semOrfaos[j].split('|')[1])) {
+                if (semOrfaos[j].split('|')[1] === '0221') jaTem0221 = true;
+                resultado.push(semOrfaos[j]);
+                j++;
+            }
+            // insere o 0221 realocado apenas se este 0200 ainda não tem um (regra "único")
+            if (!jaTem0221 && porCodMover.has(cod)) resultado.push(porCodMover.get(cod));
+            porCodMover.delete(cod);
+            i = j - 1;
+        }
+    }
+    return resultado;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
     costurarEAssinar,
-    costurarEAssinarLinhas
+    costurarEAssinarLinhas,
+    realocar0221
 };

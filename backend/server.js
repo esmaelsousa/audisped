@@ -8039,6 +8039,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
 
+        // ── Normalizar 0221 (item atômico): cada um sob o seu 0200 correto ─────
+        // Alguns ERPs emitem o 0221 fora de ordem (após outro 0200) → o PVA o trata
+        // como órfão e rejeita: "COD_ITEM_ATOMICO ... deve existir no COD_ITEM de um
+        // 0200 pai ... com um único filho 0221". Reposiciona antes do recálculo.
+        {
+            const { realocar0221 } = require('./services/spedCostureiraService');
+            const _ord0221 = realocar0221(outputLines);
+            if (_ord0221 !== outputLines) {
+                outputLines.length = 0;
+                for (const _l of _ord0221) outputLines.push(_l);
+            }
+        }
+
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
         // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
         // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula
