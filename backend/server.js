@@ -8083,6 +8083,15 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
 
+        // ── Coerência 1300/1310: FECH = ESCR - PERDA + GANHO ───────────────────
+        // O motor de 1300 trava o estoque em ~0,001 (anti-negativo) mas pode manter
+        // perda > estoque → FECH incoerente. Recalcula PERDA/GANHO de (ESCR-FECH),
+        // mantendo o FECH (cascata intacta). Só toca registros incoerentes.
+        {
+            const { enforcarCoerencia1300 } = require('./services/spedCostureiraService');
+            enforcarCoerencia1300(outputLines); // muta in-place
+        }
+
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
         // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
         // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula

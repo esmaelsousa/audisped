@@ -839,11 +839,49 @@ function normalizarUsoConsumoCst90(linhas) {
     return out;
 }
 
+/**
+ * Garante a coerência interna dos registros 1300 (produto) e 1310 (tanque):
+ *   FECH_FISICO = ESTQ_ESCR - VAL_PERDA + VAL_GANHO   (regra do PVA).
+ *
+ * O motor de 1300 do export (flush1300Group) trava as saídas para o estoque não
+ * ficar negativo (deixa ~0,001) mas mantém a perda original da LMC; quando a perda
+ * excede o estoque travado, FECH ≠ ESCR-PERDA+GANHO e o PVA acusa
+ * "Estoque de Fechamento deve ser igual ao Estoque Escritural menos Perda mais Ganho".
+ *
+ * Aqui, para cada 1300/1310 INCOERENTE, recalculamos PERDA/GANHO a partir de
+ * (ESCR - FECH) — que é a definição fiscal de perda/ganho — MANTENDO o FECH (a
+ * abertura do dia seguinte = FECH do anterior, então a cascata fica intacta).
+ * Registros já coerentes não são tocados (byte-idêntico).
+ *
+ * Campos: 1300 → ESCR[8] PERDA[9] GANHO[10] FECH[11]; 1310 → ESCR[7] PERDA[8] GANHO[9] FECH[10].
+ */
+function enforcarCoerencia1300(linhas) {
+    const num = (s) => parseFloat(String(s == null ? '0' : s).replace(',', '.')) || 0;
+    const fmt = (v) => v.toFixed(3).replace('.', ',');
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        let iEscr, iPerda, iGanho, iFech;
+        if (f[1] === '1300') { iEscr = 8; iPerda = 9; iGanho = 10; iFech = 11; }
+        else if (f[1] === '1310') { iEscr = 7; iPerda = 8; iGanho = 9; iFech = 10; }
+        else continue;
+        if (f.length <= iFech) continue; // registro atípico/truncado: não mexe
+        const escr = num(f[iEscr]), perda = num(f[iPerda]), ganho = num(f[iGanho]), fech = num(f[iFech]);
+        const alvo = Number((escr - perda + ganho).toFixed(3));
+        if (Math.abs(alvo - fech) <= 0.0005) continue; // já coerente → byte-idêntico
+        const diff = Number((escr - fech).toFixed(3)); // ESCR - FECH = PERDA líquida
+        f[iPerda] = fmt(diff > 0 ? diff : 0);
+        f[iGanho] = fmt(diff < 0 ? -diff : 0);
+        linhas[i] = f.join('|');
+    }
+    return linhas;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,
     realocar0221,
-    normalizarUsoConsumoCst90
+    normalizarUsoConsumoCst90,
+    enforcarCoerencia1300
 };
