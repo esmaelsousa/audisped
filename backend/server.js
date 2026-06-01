@@ -8039,41 +8039,44 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
 
-        // ── Recalcular contadores 9900 / 0990 / 9999 ──────────────────────────
-        // Após filtrar 0200/0206 e outras modificações, as contagens originais do
-        // arquivo ficam incorretas. Aqui corrigimos antes de escrever na resposta.
+        // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
+        // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
+        // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula
+        // 9900 (por registro), os fechamentos de bloco X990 (0990/B990/C990/D990/
+        // E990/G990/H990/K990/1990/9990) e o 9999 a partir das LINHAS FINAIS —
+        // fonte única de verdade. Antes, C990/D990/etc. eram escritos verbatim e
+        // ficavam defasados (ex.: C990 = +1 após a dedup de um C100 → erro PVA
+        // "Quantidade de linhas do bloco C ... não confere").
         const regCountMap = new Map();
-        let block0LineCount = 0;
-        let block1LineCount = 0;
+        const blockLineCount = {}; // 1º caractere do registro → nº de linhas do bloco
         for (const l of outputLines) {
             const parts = l.split('|');
             if (parts.length >= 2 && parts[1]) {
                 const reg = parts[1];
                 regCountMap.set(reg, (regCountMap.get(reg) || 0) + 1);
-                // Block 0: todos os registros 0000..0990 (inclusivo)
-                if (reg.startsWith('0')) block0LineCount++;
-                // Block 1: todos os registros 1001..1990 (inclusivo)
-                if (reg.startsWith('1')) block1LineCount++;
+                const bloco = reg.charAt(0);
+                blockLineCount[bloco] = (blockLineCount[bloco] || 0) + 1;
             }
         }
         const totalLines = outputLines.length;
+        // Registro de fechamento de bloco → caractere do bloco que ele totaliza
+        const fechamentoBloco = {
+            '0990': '0', 'B990': 'B', 'C990': 'C', 'D990': 'D', 'E990': 'E',
+            'G990': 'G', 'H990': 'H', 'K990': 'K', '1990': '1', '9990': '9'
+        };
 
         for (const l of outputLines) {
             const parts = l.split('|');
-            if (parts.length >= 4 && parts[1] === '9900') {
-                // |9900|REGISTRO|QTD| — atualiza QTD com contagem real
-                const regName = parts[2];
-                parts[3] = String(regCountMap.get(regName) || 0);
+            const reg = parts[1];
+            if (parts.length >= 4 && reg === '9900') {
+                // |9900|REGISTRO|QTD| — atualiza QTD com a contagem real do registro
+                parts[3] = String(regCountMap.get(parts[2]) || 0);
                 res.write(parts.join('|') + '\r\n');
-            } else if (parts.length >= 3 && parts[1] === '0990') {
-                // |0990|QTD_LIN_0| — contagem de linhas do bloco 0 (0001..0990)
-                parts[2] = String(block0LineCount);
+            } else if (parts.length >= 3 && fechamentoBloco[reg] !== undefined) {
+                // |X990|QTD_LIN_X| — total de linhas do bloco X (inclui o próprio X990)
+                parts[2] = String(blockLineCount[fechamentoBloco[reg]] || 0);
                 res.write(parts.join('|') + '\r\n');
-            } else if (parts.length >= 3 && parts[1] === '1990') {
-                // |1990|QTD_LIN_1| — contagem de linhas do bloco 1 (1001..1990)
-                parts[2] = String(block1LineCount);
-                res.write(parts.join('|') + '\r\n');
-            } else if (parts.length >= 3 && parts[1] === '9999') {
+            } else if (parts.length >= 3 && reg === '9999') {
                 // |9999|QTD_LIN| — total de linhas do arquivo
                 parts[2] = String(totalLines);
                 res.write(parts.join('|') + '\r\n');
