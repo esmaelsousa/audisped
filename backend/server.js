@@ -6636,6 +6636,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
+        // CFOPs de uso/consumo (entrada): quando o C170 do .txt já está nesses CFOPs, o
+        // "forçar uso/consumo" foi aplicado na injeção e é AUTORITATIVO — o export não pode
+        // deixá-lo ser revertido pelos valores CRUS de documentos_itens_c170 (que guarda
+        // CSOSN do fornecedor Simples como CST e CFOP de saída com o 1º dígito virado → inválido).
+        const CFOP_USO_CONSUMO = new Set(['1407', '1556', '2407', '2556']);
         // Normaliza linhas na emissão (cobre qualquer origem, inclusive notas injetadas antes dos fixes):
         //  • 0220: EXATAMENTE 4 campos (REG|UNID_CONV|FAT_CONV|COD_BARRA|) — PVA exige 4.
         //  • C170: aplica as Regras Fiscais (ex.: CST ICMS 60/61 ⇒ PIS/COFINS 04) via motor global.
@@ -7841,21 +7846,29 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     const row = mapC170.get(key);
                     let mapChanged = false;
 
-                    if (row.cst_icms && fields[10] !== row.cst_icms) {
-                        fields[10] = String(row.cst_icms).padStart(3, '0');
-                        mapChanged = true;
-                    }
-                    if (row.cfop && fields[11] !== row.cfop) {
-                        fields[11] = String(row.cfop).padStart(4, '0');
-                        mapChanged = true;
-                    }
-                    if (row.cst_pis && fields[25] !== row.cst_pis && fields.length > 25) {
-                        fields[25] = String(row.cst_pis).padStart(2, '0');
-                        mapChanged = true;
-                    }
-                    if (row.cst_cofins && fields[31] !== row.cst_cofins && fields.length > 31) {
-                        fields[31] = String(row.cst_cofins).padStart(2, '0');
-                        mapChanged = true;
+                    // GUARD: o C170 do .txt já reflete o de-para / forçar-uso-consumo aplicado na
+                    // injeção. Se o CFOP do .txt é uso/consumo (forçado), esse valor é autoritativo —
+                    // NÃO deixar documentos_itens_c170 (valores crus do XML) reverter para CSOSN/CFOP
+                    // inválido. Sem o forçado, mantém o comportamento anterior (aplica o de-para do banco).
+                    const ehForcadoUsoConsumo = CFOP_USO_CONSUMO.has(fields[11]);
+
+                    if (!ehForcadoUsoConsumo) {
+                        if (row.cst_icms && fields[10] !== row.cst_icms) {
+                            fields[10] = String(row.cst_icms).padStart(3, '0');
+                            mapChanged = true;
+                        }
+                        if (row.cfop && fields[11] !== row.cfop) {
+                            fields[11] = String(row.cfop).padStart(4, '0');
+                            mapChanged = true;
+                        }
+                        if (row.cst_pis && fields[25] !== row.cst_pis && fields.length > 25) {
+                            fields[25] = String(row.cst_pis).padStart(2, '0');
+                            mapChanged = true;
+                        }
+                        if (row.cst_cofins && fields[31] !== row.cst_cofins && fields.length > 31) {
+                            fields[31] = String(row.cst_cofins).padStart(2, '0');
+                            mapChanged = true;
+                        }
                     }
                     if (mapChanged) {
                         changesApplied++;
