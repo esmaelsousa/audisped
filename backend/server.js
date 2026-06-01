@@ -8052,6 +8052,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
 
+        // ── Normalizar uso/consumo → CST x90 (C170 e C190 coerentes) ───────────
+        // Entrada de uso/consumo (CFOP 1407/1556/2407/2556) não gera crédito de ICMS →
+        // CST_ICMS = x90 ("Outras"). Aplica em C170 e C190 (e funde C190 duplicado),
+        // evitando o erro PVA de combinação CST/CFOP/ALIQ. Decisão fiscal do contribuinte.
+        {
+            const { normalizarUsoConsumoCst90 } = require('./services/spedCostureiraService');
+            const _normUso = normalizarUsoConsumoCst90(outputLines);
+            if (_normUso !== outputLines) {
+                outputLines.length = 0;
+                for (const _l of _normUso) outputLines.push(_l);
+            }
+        }
+
         // ── Normalizar 0221 (item atômico): cada um sob o seu 0200 correto ─────
         // Alguns ERPs emitem o 0221 fora de ordem (após outro 0200) → o PVA o trata
         // como órfão e rejeita: "COD_ITEM_ATOMICO ... deve existir no COD_ITEM de um

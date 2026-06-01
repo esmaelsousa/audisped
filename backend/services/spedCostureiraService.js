@@ -772,10 +772,78 @@ function realocar0221(linhas) {
     return resultado;
 }
 
+/**
+ * Normaliza entradas de USO/CONSUMO (CFOP 1407/1556/2407/2556) para CST_ICMS = x90 ("Outras"),
+ * preservando o dígito de origem. Uso/consumo não gera crédito de ICMS (LC 87/96), então 90 é o
+ * CST tecnicamente correto; 040 (isenta) só caberia em operação realmente isenta.
+ *
+ * Aplica em C170 (CST = campo 10) E C190 (CST = campo 2) para os dois baterem, evitando o erro PVA
+ * "combinação CST_ICMS, CFOP, ALIQ_ICMS inválida". Depois, faz MERGE de C190 que passaram a ter a
+ * mesma chave (CST|CFOP|ALIQ) dentro da mesma NF, somando os campos de valor (5..11) — o C190 é,
+ * por definição, um único registro por chave.
+ *
+ * Se nenhum C170/C190 de uso/consumo precisa mudar, retorna o array original (byte-idêntico).
+ * Não altera contagens diretamente — os totalizadores são recalculados no fim do export.
+ */
+function normalizarUsoConsumoCst90(linhas) {
+    const USO = new Set(['1407', '1556', '2407', '2556']);
+    const cst90 = (cst) => { const s = String(cst || '').padStart(3, '0'); return s.slice(0, 1) + '90'; };
+
+    // 1) Relabel CST -> x90 em C170 e C190 de uso/consumo
+    let mudou = false;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] === 'C170' && f.length > 11 && USO.has(f[11])) {
+            const novo = cst90(f[10]);
+            if (f[10] !== novo) { f[10] = novo; linhas[i] = f.join('|'); mudou = true; }
+        } else if (f[1] === 'C190' && f.length > 4 && USO.has(f[3])) {
+            const novo = cst90(f[2]);
+            if (f[2] !== novo) { f[2] = novo; linhas[i] = f.join('|'); mudou = true; }
+        }
+    }
+    if (!mudou) return linhas; // nada de uso/consumo a normalizar → byte-idêntico
+
+    // 2) Merge de C190 com a MESMA chave (CST|CFOP|ALIQ) dentro de cada NF (entre C100s)
+    const out = [];
+    let i = 0;
+    while (i < linhas.length) {
+        if (linhas[i].split('|')[1] !== 'C100') { out.push(linhas[i]); i++; continue; }
+        out.push(linhas[i]); // o próprio C100
+        let j = i + 1;
+        const bloco = [];
+        const idxPorChave = new Map(); // CST|CFOP|ALIQ -> índice em 'bloco'
+        while (j < linhas.length && linhas[j].split('|')[1] !== 'C100') {
+            const g = linhas[j].split('|');
+            if (g[1] === 'C190') {
+                const chave = `${g[2]}|${g[3]}|${g[4]}`;
+                if (idxPorChave.has(chave)) {
+                    const ex = bloco[idxPorChave.get(chave)].split('|');
+                    for (let k = 5; k <= 11; k++) {
+                        const a = parseFloat(String(ex[k] || '0').replace(',', '.')) || 0;
+                        const b = parseFloat(String(g[k] || '0').replace(',', '.')) || 0;
+                        ex[k] = (a + b).toFixed(2).replace('.', ',');
+                    }
+                    bloco[idxPorChave.get(chave)] = ex.join('|'); // funde a duplicata (não a adiciona)
+                } else {
+                    idxPorChave.set(chave, bloco.length);
+                    bloco.push(linhas[j]);
+                }
+            } else {
+                bloco.push(linhas[j]);
+            }
+            j++;
+        }
+        for (const b of bloco) out.push(b);
+        i = j;
+    }
+    return out;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,
-    realocar0221
+    realocar0221,
+    normalizarUsoConsumoCst90
 };
