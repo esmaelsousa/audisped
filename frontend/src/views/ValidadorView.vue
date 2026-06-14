@@ -71,7 +71,16 @@ async function analisarUpload() {
   } finally { loading.value = false; }
 }
 
-function toggle(i) { expandido.value = expandido.value === i ? null : i; }
+function toggle(i) {
+  expandido.value = expandido.value === i ? null : i;
+  const e = errosFiltrados.value[i];
+  if (e && e.corrigivel) {
+    const k = keyErro(e);
+    if (valoresCorrecao.value[k] === undefined) {
+      valoresCorrecao.value = { ...valoresCorrecao.value, [k]: (e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : '' };
+    }
+  }
+}
 
 const classeLabel = (c) => ({
   'estrutural-seguro': 'Estrutural (corrigível automaticamente)',
@@ -79,7 +88,64 @@ const classeLabel = (c) => ({
   'manual': 'Manual / corrigir no ERP',
 }[c] || c);
 
-onMounted(() => { if (idAtivo.value) analisarPorId(); });
+// ===== Correções (Sprint 3c) — só no modo "por id" (arquivo importado) =====
+const correcoes = ref([]);          // correções já aplicadas (do banco)
+const valoresCorrecao = ref({});    // chave do erro -> valor digitado
+const salvando = ref(null);
+const msgCorr = ref('');
+const keyErro = (e) => `${e.regra_id}|${e.chaveNatural}|${e.campoIdx}`;
+
+async function carregarCorrecoes() {
+  if (!idAtivo.value) { correcoes.value = []; return; }
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/validador/correcoes/${idAtivo.value}`, { headers: authHeader() });
+    correcoes.value = res.data.correcoes || [];
+  } catch (_) { correcoes.value = []; }
+}
+
+async function salvarCorrecao(e) {
+  const k = keyErro(e);
+  const valor = (valoresCorrecao.value[k] ?? '').toString().trim();
+  if (valor === '') { msgCorr.value = 'Informe o valor corrigido.'; return; }
+  salvando.value = k; msgCorr.value = '';
+  try {
+    await axios.post(`${API_BASE_URL}/api/validador/corrigir`, {
+      id_sped_arquivo: idAtivo.value, regra_id: e.regra_id, registro: e.registro,
+      chave_natural: e.chaveNatural, campo_idx: e.campoIdx,
+      valor_original: e.valorAtual, valor_corrigido: valor,
+    }, { headers: authHeader() });
+    msgCorr.value = 'Correção salva. Clique em "Re-validar" para conferir o efeito.';
+    await carregarCorrecoes();
+  } catch (err) {
+    msgCorr.value = err.response?.data?.message || ('Erro ao salvar: ' + err.message);
+  } finally { salvando.value = null; }
+}
+
+async function removerCorrecao(c) {
+  try {
+    await axios.delete(`${API_BASE_URL}/api/validador/correcoes/${c.id}`, { headers: authHeader() });
+    await carregarCorrecoes();
+  } catch (err) { msgCorr.value = err.response?.data?.message || ('Erro ao remover: ' + err.message); }
+}
+
+async function revalidar() {
+  if (!idAtivo.value) return;
+  erro.value = ''; loading.value = true; expandido.value = null;
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${idAtivo.value}`, {}, { headers: authHeader() });
+    resultado.value = res.data;
+  } catch (e) {
+    erro.value = e.response?.data?.message || ('Erro ao revalidar: ' + e.message);
+  } finally { loading.value = false; }
+}
+
+function baixarCorrigido() {
+  if (!idAtivo.value) return;
+  const t = localStorage.getItem('token') || '';
+  window.open(`${API_BASE_URL}/api/exportar-sped/${idAtivo.value}?token=${encodeURIComponent(t)}`, '_blank');
+}
+
+onMounted(() => { if (idAtivo.value) { analisarPorId(); carregarCorrecoes(); } });
 </script>
 
 <template>
@@ -166,6 +232,33 @@ onMounted(() => { if (idAtivo.value) analisarPorId(); });
         </div>
       </div>
 
+      <!-- Ações de correção (só p/ arquivo importado) -->
+      <div v-if="idAtivo" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+        <div class="flex items-center gap-3 flex-wrap">
+          <button @click="revalidar" :disabled="loading" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2">
+            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><CheckCircle2 v-else class="w-4 h-4" /> Re-validar (com correções)
+          </button>
+          <button @click="baixarCorrigido" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 flex items-center gap-2">
+            <UploadCloud class="w-4 h-4 rotate-180" /> Baixar SPED corrigido
+          </button>
+          <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
+        </div>
+        <div v-if="correcoes.length" class="border border-slate-100 rounded-xl overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED exportado ({{ correcoes.length }})</div>
+          <table class="w-full text-[11px]">
+            <tbody class="divide-y divide-slate-50">
+              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-slate-50/60">
+                <td class="px-3 py-1.5 font-mono text-slate-500">{{ c.registro }}</td>
+                <td class="px-3 py-1.5 text-slate-500">campo {{ c.campo_idx }}</td>
+                <td class="px-3 py-1.5"><span class="text-slate-400 line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-emerald-700">{{ c.valor_corrigido }}</span></td>
+                <td class="px-3 py-1.5 text-right"><button @click="removerCorrecao(c)" class="text-[10px] text-red-500 hover:text-red-700 font-bold">remover</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-[10px] text-slate-400">Erros marcados "auto no export" (0220, totalizadores, duplicados) são corrigidos automaticamente ao baixar. Para conferência 100% fiel, baixe o SPED corrigido e revalide-o via "Upload .txt avulso".</p>
+      </div>
+
       <!-- Filtros + lista de erros -->
       <div v-if="resultado.erros.length" class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
@@ -205,6 +298,16 @@ onMounted(() => { if (idAtivo.value) analisarPorId(); });
               <div class="bg-white border border-slate-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Como corrigir no ERP</p>
                 <p class="text-slate-600">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
+              </div>
+              <div v-if="e.corrigivel && idAtivo" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+                <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
+                <div class="flex items-center gap-2">
+                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="(e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor'">
+                  <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">
+                    {{ salvando === keyErro(e) ? 'Salvando…' : 'Salvar correção' }}
+                  </button>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
               </div>
               <p class="text-[10px] text-slate-400">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>
             </div>
