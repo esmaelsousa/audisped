@@ -5590,66 +5590,9 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// Upload avulso para validar (sem importar nada no banco). Opcional: body.correcoes (JSON) aplica
-// as correções manuais ANTES de validar — usado na RE-VALIDAÇÃO avulsa (ver o efeito das correções).
-app.post('/api/validador/analisar-upload', authMiddleware, upload.single('sped'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Envie o arquivo .txt do SPED (campo "sped").' });
-    try {
-        const { parseSped } = require('./services/validador/parser');
-        const { validar } = require('./services/validador/engine');
-        const correcoesSvc = require('./services/validador/correcoes');
-        let conteudo = fs.readFileSync(req.file.path, 'latin1');
-        let nAplic = 0;
-        if (req.body && req.body.correcoes) {
-            try {
-                const cor = JSON.parse(req.body.correcoes);
-                if (Array.isArray(cor) && cor.length) {
-                    const linhas = conteudo.split(/\r?\n/).filter(l => l[0] === '|');
-                    nAplic = correcoesSvc.aplicar(linhas, cor);
-                    conteudo = linhas.join('\n');
-                }
-            } catch (_) { /* correções malformadas → valida o original */ }
-        }
-        const model = parseSped(conteudo);
-        if (!model.totalLinhas) return res.status(400).json({ message: 'Arquivo não parece um SPED Fiscal (sem registros).' });
-        const resultado = validar(model);
-        resultado.arquivo = { nome: req.file.originalname, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
-        resultado.correcoesAplicadas = nAplic;
-        res.json(resultado);
-    } catch (e) {
-        logger.error('Erro no validador (upload):', e);
-        res.status(500).json({ message: 'Erro ao validar: ' + e.message });
-    } finally {
-        try { fs.unlinkSync(req.file.path); } catch (_) {}
-    }
-});
-
-// Exporta o SPED AVULSO (upload) já com as correções manuais aplicadas → devolve o .txt corrigido.
-// Transform PURO (overrides de campo via correcoes.aplicar); NÃO usa o banco nem o motor de export
-// por id — por isso NUNCA exporta outra empresa (corrige exatamente o arquivo que foi enviado).
-app.post('/api/validador/exportar-upload', authMiddleware, upload.single('sped'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Envie o arquivo .txt do SPED (campo "sped").' });
-    try {
-        const correcoesSvc = require('./services/validador/correcoes');
-        const linhas = fs.readFileSync(req.file.path, 'latin1').split(/\r?\n/).filter(l => l[0] === '|');
-        if (!linhas.length) return res.status(400).json({ message: 'Arquivo não parece um SPED Fiscal (sem registros).' });
-        let cor = [];
-        if (req.body && req.body.correcoes) { try { cor = JSON.parse(req.body.correcoes) || []; } catch (_) {} }
-        const nAplic = correcoesSvc.aplicar(linhas, cor);
-        logger.info(`[Validador] exportar-upload: ${nAplic} correção(ões) em ${req.file.originalname}`);
-        const nome = (req.file.originalname || 'sped').replace(/\.txt$/i, '') + '_corrigido.txt';
-        const out = linhas.join('\r\n') + '\r\n';
-        res.setHeader('Content-Type', 'text/plain; charset=latin1');
-        res.setHeader('Content-Disposition', `attachment; filename=${nome}`);
-        res.setHeader('X-Correcoes-Aplicadas', String(nAplic));
-        return res.status(200).send(Buffer.from(out, 'latin1'));
-    } catch (e) {
-        logger.error('Erro no validador (exportar-upload):', e);
-        res.status(500).json({ message: 'Erro ao exportar: ' + e.message });
-    } finally {
-        try { fs.unlinkSync(req.file.path); } catch (_) {}
-    }
-});
+// (Validador é DB-only: removidos os endpoints de upload avulso — analisar-upload / exportar-upload.
+//  O usuário valida/corrige/baixa SOMENTE arquivos importados, via /analisar/:id e /exportar-sped/:id.
+//  Isso evita o vazamento de contexto e habilita o histórico de correções por id.)
 
 // Salvar/atualizar uma correção (override de campo) que o export passará a aplicar.
 app.post('/api/validador/corrigir', authMiddleware, async (req, res) => {

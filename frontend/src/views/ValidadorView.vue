@@ -2,21 +2,22 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import { useRoute } from 'vue-router';
-import { empresaSelecionada, arquivoInfo, idArquivoSped } from '../store';
+import { empresaSelecionada, idArquivoSped } from '../store';
 import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-vue-next';
-
-const route = useRoute();
 
 const loading = ref(false);
 const erro = ref('');
 const resultado = ref(null);
-const resultadoId = ref(null);   // id do arquivo a que o resultado ATUAL pertence (null = upload avulso, sem registro no banco)
-const arqFile = ref(null);
-const arqFileName = ref('');
+const resultadoId = ref(null);   // id do arquivo (do banco) a que o resultado ATUAL pertence
 const filtroBloco = ref('');
 const filtroSev = ref('');
 const expandido = ref(null);
+
+// --- Seletor empresa → período (igual ao LMC; só arquivos IMPORTADOS no banco) ---
+const empresas = ref([]);
+const arquivos = ref([]);
+const empresaSel = ref(empresaSelecionada.value?.id || null);
+const arquivoSel = ref(idArquivoSped.value ? Number(idArquivoSped.value) : null);
 
 const NOME_BLOCO = {
   '0': 'Bloco 0 — Cadastros', 'C': 'Bloco C — NF-e/NFC-e', 'D': 'Bloco D — CT-e',
@@ -25,8 +26,19 @@ const NOME_BLOCO = {
   'B': 'Bloco B — ISS', '*': 'Estrutural',
 };
 const nomeBloco = (b) => NOME_BLOCO[b] || ('Bloco ' + b);
+const nomeEmpresa = (e) => e ? (e.razao_social || e.nome_empresa || e.nome || e.cnpj || ('Empresa ' + e.id)) : '';
+const empresaNome = computed(() => nomeEmpresa(empresas.value.find(e => e.id === empresaSel.value)));
+const fmtPeriodo = (p) => {
+  if (!p) return '—';
+  const [a, b] = String(p).split('-');
+  const f = (d) => (d && d.length === 8) ? `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4, 8)}` : d;
+  return b ? `${f(a)} a ${f(b)}` : f(a);
+};
 
-const idAtivo = computed(() => route.params.id || idArquivoSped.value);
+const authHeader = () => {
+  const t = localStorage.getItem('token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
 
 const errosFiltrados = computed(() => {
   if (!resultado.value) return [];
@@ -36,45 +48,30 @@ const errosFiltrados = computed(() => {
   );
 });
 
-const authHeader = () => {
-  const t = localStorage.getItem('token');
-  return t ? { Authorization: `Bearer ${t}` } : {};
-};
-
-async function analisarPorId() {
-  if (!idAtivo.value) { erro.value = 'Nenhum SPED selecionado. Abra um arquivo ou faça upload.'; return; }
-  erro.value = ''; loading.value = true; resultado.value = null; expandido.value = null;
+async function carregarEmpresas() {
   try {
-    const res = await axios.post(`${API_BASE_URL}/api/validador/analisar/${idAtivo.value}`, {}, { headers: authHeader() });
-    resultado.value = res.data;
-    resultadoId.value = idAtivo.value;   // este resultado pertence ao arquivo importado (id real)
-  } catch (e) {
-    erro.value = e.response?.data?.message || ('Erro ao validar: ' + e.message);
-  } finally { loading.value = false; }
+    const res = await axios.get(`${API_BASE_URL}/api/empresas`, { headers: authHeader() });
+    empresas.value = res.data || [];
+  } catch (_) { empresas.value = []; }
 }
 
-function onFileSelected(e) {
-  const f = e.target.files && e.target.files[0];
-  arqFile.value = f || null;
-  arqFileName.value = f ? f.name : '';
-  erro.value = '';
+async function carregarArquivos() {
+  arquivos.value = []; arquivoSel.value = null; resultado.value = null;
+  if (!empresaSel.value) return;
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/arquivos/${empresaSel.value}`, { headers: authHeader() });
+    arquivos.value = (res.data || []).sort((a, b) => String(a.periodo_apuracao || '').localeCompare(String(b.periodo_apuracao || '')));
+  } catch (_) { arquivos.value = []; }
 }
 
-async function analisarUpload() {
-  if (!arqFile.value) { erro.value = 'Selecione um arquivo .txt do SPED.'; return; }
-  erro.value = ''; loading.value = true; resultado.value = null; expandido.value = null;
+async function analisar() {
+  if (!arquivoSel.value) { erro.value = 'Selecione a empresa e o período.'; return; }
+  erro.value = ''; loading.value = true; resultado.value = null; expandido.value = null; msgCorr.value = '';
   try {
-    const fd = new FormData();
-    fd.append('sped', arqFile.value);
-    const res = await axios.post(`${API_BASE_URL}/api/validador/analisar-upload`, fd, { headers: authHeader() });
+    const res = await axios.post(`${API_BASE_URL}/api/validador/analisar/${arquivoSel.value}`, {}, { headers: authHeader() });
     resultado.value = res.data;
-    // Upload avulso NÃO tem id no banco → desliga correção/export por id (senão vazaria o id global
-    // do último arquivo aberto no Analisador e exportaria a empresa errada).
-    resultadoId.value = null;
-    correcoes.value = [];
-    correcoesAvulsas.value = [];
-    valoresCorrecao.value = {};
-    msgCorr.value = '';
+    resultadoId.value = arquivoSel.value;
+    await carregarCorrecoes();
   } catch (e) {
     erro.value = e.response?.data?.message || ('Erro ao validar: ' + e.message);
   } finally { loading.value = false; }
@@ -97,18 +94,12 @@ const classeLabel = (c) => ({
   'manual': 'Manual / corrigir no ERP',
 }[c] || c);
 
-// ===== Correções (Sprint 3c) — só no modo "por id" (arquivo importado) =====
-const correcoes = ref([]);          // correções já aplicadas (do banco)
+// ===== Correções (overrides que o export aplica; tudo por id do banco) =====
+const correcoes = ref([]);          // correções salvas (do banco)
 const valoresCorrecao = ref({});    // chave do erro -> valor digitado
 const salvando = ref(null);
 const msgCorr = ref('');
 const keyErro = (e) => `${e.regra_id}|${e.chaveNatural}|${e.campoIdx}`;
-
-// Correções no modo UPLOAD avulso: ficam LOCAIS (sem id no banco) e são aplicadas no PRÓPRIO
-// arquivo enviado (re-validar / baixar). Nunca usam idArquivoSped → nunca exportam outra empresa.
-const correcoesAvulsas = ref([]);
-const podeCorrigir = computed(() => !!resultado.value && (!!resultadoId.value || !!arqFile.value)); // por id OU avulso
-const correcoesView = computed(() => resultadoId.value ? correcoes.value : correcoesAvulsas.value);
 
 async function carregarCorrecoes() {
   if (!resultadoId.value) { correcoes.value = []; return; }
@@ -119,19 +110,11 @@ async function carregarCorrecoes() {
 }
 
 async function salvarCorrecao(e) {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um SPED do banco primeiro.'; return; }
   const k = keyErro(e);
   const valor = (valoresCorrecao.value[k] ?? '').toString().trim();
   if (valor === '') { msgCorr.value = 'Informe o valor corrigido.'; return; }
   if (e.chaveNatural == null || e.campoIdx == null) { msgCorr.value = 'Este erro não é corrigível por campo.'; return; }
-  if (!resultadoId.value) {
-    // AVULSO: guarda local; aplicado no PRÓPRIO arquivo enviado ao re-validar / baixar.
-    const nova = { id: k, regra_id: e.regra_id, registro: e.registro, chave_natural: e.chaveNatural, campo_idx: e.campoIdx, valor_original: e.valorAtual, valor_corrigido: valor };
-    const i = correcoesAvulsas.value.findIndex(c => c.id === k);
-    if (i >= 0) correcoesAvulsas.value.splice(i, 1, nova); else correcoesAvulsas.value.push(nova);
-    correcoesAvulsas.value = [...correcoesAvulsas.value];
-    msgCorr.value = 'Correção registrada. Use "Re-validar" para conferir ou "Baixar SPED corrigido".';
-    return;
-  }
   salvando.value = k; msgCorr.value = '';
   try {
     await axios.post(`${API_BASE_URL}/api/validador/corrigir`, {
@@ -147,10 +130,6 @@ async function salvarCorrecao(e) {
 }
 
 async function removerCorrecao(c) {
-  if (!resultadoId.value) { // avulso: remove da lista local
-    correcoesAvulsas.value = correcoesAvulsas.value.filter(x => x.id !== c.id);
-    return;
-  }
   try {
     await axios.delete(`${API_BASE_URL}/api/validador/correcoes/${c.id}`, { headers: authHeader() });
     await carregarCorrecoes();
@@ -158,81 +137,69 @@ async function removerCorrecao(c) {
 }
 
 async function revalidar() {
-  if (!resultado.value) return;
+  if (!resultadoId.value) return;
   erro.value = ''; loading.value = true; expandido.value = null;
   try {
-    let res;
-    if (resultadoId.value) {
-      res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
-    } else if (arqFile.value) { // avulso: re-envia o arquivo + correções locais
-      const fd = new FormData();
-      fd.append('sped', arqFile.value);
-      fd.append('correcoes', JSON.stringify(correcoesAvulsas.value));
-      res = await axios.post(`${API_BASE_URL}/api/validador/analisar-upload`, fd, { headers: authHeader() });
-    } else { loading.value = false; return; }
-    resultado.value = res.data;
+    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+    resultado.value = res.data; // valida o SPED EXPORTADO (auto-ajustes + correções) → erros resolvidos aparecem
   } catch (e) {
     erro.value = e.response?.data?.message || ('Erro ao revalidar: ' + e.message);
   } finally { loading.value = false; }
 }
 
-async function baixarCorrigido() {
-  if (resultadoId.value) { // arquivo importado: export oficial por id
-    const t = localStorage.getItem('token') || '';
-    window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
-    return;
-  }
-  if (!arqFile.value) { msgCorr.value = 'Nenhum arquivo enviado para exportar.'; return; }
-  try { // AVULSO: aplica as correções locais NO PRÓPRIO arquivo enviado e baixa
-    msgCorr.value = 'Gerando SPED corrigido…';
-    const fd = new FormData();
-    fd.append('sped', arqFile.value);
-    fd.append('correcoes', JSON.stringify(correcoesAvulsas.value));
-    const res = await axios.post(`${API_BASE_URL}/api/validador/exportar-upload`, fd, { headers: authHeader(), responseType: 'blob' });
-    const url = URL.createObjectURL(res.data);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (arqFileName.value || 'sped').replace(/\.txt$/i, '') + '_corrigido.txt';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    msgCorr.value = `SPED corrigido baixado (${correcoesAvulsas.value.length} correção(ões) aplicada(s)).`;
-  } catch (e) {
-    msgCorr.value = 'Erro ao exportar: ' + (e.response?.data?.message || e.message);
-  }
+function baixarCorrigido() {
+  if (!resultadoId.value) return;
+  const t = localStorage.getItem('token') || '';
+  window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
 }
 
-onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analisarPorId(); carregarCorrecoes(); } });
+onMounted(async () => {
+  await carregarEmpresas();
+  const storeArq = idArquivoSped.value ? Number(idArquivoSped.value) : null;
+  if (empresaSel.value) {
+    await carregarArquivos();
+    if (storeArq && arquivos.value.some(a => a.id === storeArq)) { arquivoSel.value = storeArq; await analisar(); }
+  }
+});
 </script>
 
 <template>
   <div class="p-6 max-w-6xl mx-auto space-y-6">
     <!-- Cabeçalho -->
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-          <ShieldCheck class="w-6 h-6" />
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+        <ShieldCheck class="w-6 h-6" />
+      </div>
+      <div>
+        <h1 class="text-xl font-bold text-slate-800">Validador de SPED Fiscal</h1>
+        <p class="text-xs text-slate-500">Selecione um SPED importado, valide todos os blocos, corrija e baixe o arquivo corrigido.</p>
+      </div>
+    </div>
+
+    <!-- Seletor empresa → período (só arquivos do banco) -->
+    <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+      <div class="grid sm:grid-cols-[2fr_1.5fr_auto] gap-3 items-end">
+        <div>
+          <label class="text-[11px] font-bold text-slate-500 uppercase">Empresa</label>
+          <select v-model="empresaSel" @change="carregarArquivos" class="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2">
+            <option :value="null">— selecione —</option>
+            <option v-for="e in empresas" :key="e.id" :value="e.id">{{ nomeEmpresa(e) }}</option>
+          </select>
         </div>
         <div>
-          <h1 class="text-xl font-bold text-slate-800">Validador de SPED Fiscal</h1>
-          <p class="text-xs text-slate-500">Lê o arquivo, varre todos os blocos e lista os erros com instrução de correção.</p>
+          <label class="text-[11px] font-bold text-slate-500 uppercase">Período (SPED)</label>
+          <select v-model="arquivoSel" :disabled="!arquivos.length" class="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2 disabled:bg-slate-50">
+            <option :value="null">— selecione —</option>
+            <option v-for="a in arquivos" :key="a.id" :value="a.id">{{ a.periodo_apuracao }}</option>
+          </select>
         </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <button v-if="idAtivo" @click="analisarPorId" :disabled="loading"
-          class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2">
+        <button @click="analisar" :disabled="loading || !arquivoSel"
+          class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2 justify-center">
           <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><ShieldCheck v-else class="w-4 h-4" />
           {{ loading ? 'Validando…' : 'Validar este SPED' }}
         </button>
-        <label class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer flex items-center gap-2">
-          <UploadCloud class="w-4 h-4" />
-          {{ arqFileName || 'Upload .txt avulso' }}
-          <input type="file" accept=".txt,.TXT" class="hidden" @change="onFileSelected">
-        </label>
-        <button v-if="arqFile" @click="analisarUpload" :disabled="loading"
-          class="px-3 py-2 rounded-xl text-xs font-bold text-white bg-slate-700 hover:bg-slate-800 disabled:bg-slate-300">
-          Validar upload
-        </button>
       </div>
+      <p class="text-[11px] text-slate-400 mt-2">Apenas SPEDs já importados aparecem aqui. Para incluir um arquivo novo, importe-o no Analisador.</p>
     </div>
 
     <div v-if="erro" class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-2xl p-4">{{ erro }}</div>
@@ -241,21 +208,17 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
     <template v-if="resultado && !loading">
       <!-- Identificação -->
       <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
+          <h2 class="text-base font-bold text-slate-800">{{ empresaNome || resultado.arquivo?.cnpj || 'Empresa' }}</h2>
+          <span v-if="resultado.validadoSobre === 'exportado'" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">✓ validado sobre o SPED corrigido</span>
+        </div>
         <div class="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-          <span class="text-slate-500">Arquivo: <b class="text-slate-700">{{ resultado.arquivo?.nome || '—' }}</b></span>
           <span class="text-slate-500">CNPJ: <b class="text-slate-700">{{ resultado.arquivo?.cnpj || '—' }}</b></span>
-          <span class="text-slate-500">Período: <b class="text-slate-700">{{ resultado.arquivo?.periodo || '—' }}</b></span>
+          <span class="text-slate-500">Período: <b class="text-slate-700">{{ fmtPeriodo(resultado.arquivo?.periodo) }}</b></span>
           <span class="text-slate-500">Leiaute: <b class="text-slate-700">{{ resultado.arquivo?.versao || '—' }}</b></span>
           <span class="text-slate-500">Linhas: <b class="text-slate-700">{{ resultado.arquivo?.totalLinhas?.toLocaleString('pt-BR') }}</b></span>
+          <span class="text-slate-400 text-xs">Arquivo: {{ resultado.arquivo?.nome || '—' }}</span>
         </div>
-      </div>
-
-      <!-- Aviso: upload avulso — validação/correção/download operam SOBRE O ARQUIVO ENVIADO -->
-      <div v-if="!resultadoId && resultado" class="bg-sky-50 border border-sky-200 text-sky-800 text-xs rounded-2xl p-4 leading-relaxed">
-        <b>Modo upload avulso.</b> Validação, correção e download operam <b>exatamente neste arquivo enviado</b>
-        (<b>{{ resultado.arquivo?.nome }}</b>) — não usa nenhum arquivo importado no banco, então <b>nunca exporta outra empresa</b>.
-        As correções aqui são os <b>ajustes de campo</b> que você fizer (não inclui os auto-ajustes do export por id, ex.: recálculo
-        de totalizadores). Para o export completo, importe a empresa no Analisador.
       </div>
 
       <!-- Métricas -->
@@ -296,22 +259,22 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
         </div>
       </div>
 
-      <!-- Ações de correção: arquivo importado (id real) OU upload avulso (sobre o arquivo enviado) -->
-      <div v-if="podeCorrigir" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+      <!-- Ações de correção -->
+      <div v-if="resultadoId" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
         <div class="flex items-center gap-3 flex-wrap">
           <button @click="revalidar" :disabled="loading" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2">
-            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><CheckCircle2 v-else class="w-4 h-4" /> Re-validar (com correções)
+            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><CheckCircle2 v-else class="w-4 h-4" /> Re-validar (sobre o SPED corrigido)
           </button>
           <button @click="baixarCorrigido" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 flex items-center gap-2">
             <UploadCloud class="w-4 h-4 rotate-180" /> Baixar SPED corrigido
           </button>
-          <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
+          <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
         </div>
-        <div v-if="correcoesView.length" class="border border-slate-100 rounded-xl overflow-hidden">
-          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED corrigido ({{ correcoesView.length }})</div>
+        <div v-if="correcoes.length" class="border border-slate-100 rounded-xl overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED corrigido ({{ correcoes.length }})</div>
           <table class="w-full text-[11px]">
             <tbody class="divide-y divide-slate-50">
-              <tr v-for="c in correcoesView" :key="c.id" class="hover:bg-slate-50/60">
+              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-slate-50/60">
                 <td class="px-3 py-1.5 font-mono text-slate-500">{{ c.registro }}</td>
                 <td class="px-3 py-1.5 text-slate-500">campo {{ c.campo_idx }}</td>
                 <td class="px-3 py-1.5"><span class="text-slate-400 line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-emerald-700">{{ c.valor_corrigido }}</span></td>
@@ -320,8 +283,7 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
             </tbody>
           </table>
         </div>
-        <p v-if="resultadoId" class="text-[10px] text-slate-400">Erros marcados "auto no export" (0220, totalizadores, duplicados) são corrigidos automaticamente ao baixar. Para conferência 100% fiel, baixe o SPED corrigido e revalide-o via "Upload .txt avulso".</p>
-        <p v-else class="text-[10px] text-slate-400">As correções acima são aplicadas neste arquivo enviado ao clicar em "Baixar SPED corrigido". "Re-validar" reanalisa o arquivo já com elas.</p>
+        <p class="text-[10px] text-slate-400">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
       </div>
 
       <!-- Filtros + lista de erros -->
@@ -351,7 +313,7 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
                 <p class="text-sm font-semibold text-slate-800 truncate">{{ e.titulo }}</p>
                 <p class="text-[11px] text-slate-500">{{ e.regra_id }} · {{ e.registro }} · linha {{ e.linha ?? '-' }}</p>
               </div>
-              <span v-if="e.jaCorrigidoNoExport" class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">auto no export</span>
+              <span v-if="e.jaCorrigidoNoExport" class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">auto no download</span>
               <component :is="expandido === i ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
             </button>
             <div v-if="expandido === i" class="px-5 pb-4 pt-1 bg-slate-50/50 text-xs space-y-2">
@@ -364,7 +326,7 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
                 <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Como corrigir no ERP</p>
                 <p class="text-slate-600">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
               </div>
-              <div v-if="e.corrigivel && podeCorrigir" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+              <div v-if="e.corrigivel && resultadoId" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
                 <div class="flex items-center gap-2">
                   <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="(e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor'">
