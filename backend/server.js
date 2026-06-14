@@ -5719,29 +5719,29 @@ app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, async (req, r
     }
 });
 
-// Re-validação: valida o arquivo com as correções manuais aplicadas (prévia do efeito delas).
-// Os erros marcados "jaCorrigidoNoExport" são resolvidos automaticamente ao exportar.
+// Re-validação FIEL: valida o SPED EXPORTADO (mesmo motor do "Baixar SPED corrigido", com os
+// auto-ajustes + as correções de val_correcoes já aplicados). Assim os erros "auto no export"
+// (ex.: 0220) e o efeito das correções aparecem REALMENTE resolvidos — não no arquivo original.
 app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
-        const r = await dbClient.query('SELECT caminho_arquivo, nome_arquivo FROM sped_arquivos WHERE id=$1', [idArq]);
+        const r = await dbClient.query('SELECT nome_arquivo FROM sped_arquivos WHERE id=$1', [idArq]);
         if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
-        let cam = r.rows[0].caminho_arquivo;
-        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
-        if (!cam || !fs.existsSync(cam)) return res.status(400).json({ message: 'Arquivo físico não localizado.' });
+        // Exporta internamente e valida o RESULTADO (bytes que iriam ao download).
+        const PORT_ = process.env.PORT || 15435;
+        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-revalidar', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
+        const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}` } });
+        if (!exp.ok) return res.status(502).json({ message: `Falha ao gerar o SPED corrigido para re-validar (HTTP ${exp.status}).` });
+        const txt = Buffer.from(await exp.arrayBuffer()).toString('latin1');
         const { parseSped } = require('./services/validador/parser');
         const { validar } = require('./services/validador/engine');
-        const correcoesSvc = require('./services/validador/correcoes');
-        const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/).filter(l => l[0] === '|');
-        const correcoes = await correcoesSvc.buscarCorrecoes(dbClient, idArq);
-        const nAplic = correcoesSvc.aplicar(linhas, correcoes);
-        const model = parseSped(linhas.join('\n'));
+        const model = parseSped(txt);
         const resultado = validar(model);
         resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
-        resultado.correcoesAplicadas = nAplic;
+        resultado.validadoSobre = 'exportado'; // o front mostra "validado sobre o SPED corrigido"
         res.json(resultado);
     } catch (e) {
         logger.error('Erro na revalidação:', e);
