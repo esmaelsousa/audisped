@@ -72,6 +72,7 @@ async function analisarUpload() {
     // do último arquivo aberto no Analisador e exportaria a empresa errada).
     resultadoId.value = null;
     correcoes.value = [];
+    correcoesAvulsas.value = [];
     valoresCorrecao.value = {};
     msgCorr.value = '';
   } catch (e) {
@@ -103,6 +104,12 @@ const salvando = ref(null);
 const msgCorr = ref('');
 const keyErro = (e) => `${e.regra_id}|${e.chaveNatural}|${e.campoIdx}`;
 
+// Correções no modo UPLOAD avulso: ficam LOCAIS (sem id no banco) e são aplicadas no PRÓPRIO
+// arquivo enviado (re-validar / baixar). Nunca usam idArquivoSped → nunca exportam outra empresa.
+const correcoesAvulsas = ref([]);
+const podeCorrigir = computed(() => !!resultado.value && (!!resultadoId.value || !!arqFile.value)); // por id OU avulso
+const correcoesView = computed(() => resultadoId.value ? correcoes.value : correcoesAvulsas.value);
+
 async function carregarCorrecoes() {
   if (!resultadoId.value) { correcoes.value = []; return; }
   try {
@@ -112,10 +119,19 @@ async function carregarCorrecoes() {
 }
 
 async function salvarCorrecao(e) {
-  if (!resultadoId.value) { msgCorr.value = 'Correção disponível só para arquivo importado. Abra a empresa no Analisador e valide por id.'; return; }
   const k = keyErro(e);
   const valor = (valoresCorrecao.value[k] ?? '').toString().trim();
   if (valor === '') { msgCorr.value = 'Informe o valor corrigido.'; return; }
+  if (e.chaveNatural == null || e.campoIdx == null) { msgCorr.value = 'Este erro não é corrigível por campo.'; return; }
+  if (!resultadoId.value) {
+    // AVULSO: guarda local; aplicado no PRÓPRIO arquivo enviado ao re-validar / baixar.
+    const nova = { id: k, regra_id: e.regra_id, registro: e.registro, chave_natural: e.chaveNatural, campo_idx: e.campoIdx, valor_original: e.valorAtual, valor_corrigido: valor };
+    const i = correcoesAvulsas.value.findIndex(c => c.id === k);
+    if (i >= 0) correcoesAvulsas.value.splice(i, 1, nova); else correcoesAvulsas.value.push(nova);
+    correcoesAvulsas.value = [...correcoesAvulsas.value];
+    msgCorr.value = 'Correção registrada. Use "Re-validar" para conferir ou "Baixar SPED corrigido".';
+    return;
+  }
   salvando.value = k; msgCorr.value = '';
   try {
     await axios.post(`${API_BASE_URL}/api/validador/corrigir`, {
@@ -131,6 +147,10 @@ async function salvarCorrecao(e) {
 }
 
 async function removerCorrecao(c) {
+  if (!resultadoId.value) { // avulso: remove da lista local
+    correcoesAvulsas.value = correcoesAvulsas.value.filter(x => x.id !== c.id);
+    return;
+  }
   try {
     await axios.delete(`${API_BASE_URL}/api/validador/correcoes/${c.id}`, { headers: authHeader() });
     await carregarCorrecoes();
@@ -138,23 +158,47 @@ async function removerCorrecao(c) {
 }
 
 async function revalidar() {
-  if (!resultadoId.value) return;
+  if (!resultado.value) return;
   erro.value = ''; loading.value = true; expandido.value = null;
   try {
-    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+    let res;
+    if (resultadoId.value) {
+      res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+    } else if (arqFile.value) { // avulso: re-envia o arquivo + correções locais
+      const fd = new FormData();
+      fd.append('sped', arqFile.value);
+      fd.append('correcoes', JSON.stringify(correcoesAvulsas.value));
+      res = await axios.post(`${API_BASE_URL}/api/validador/analisar-upload`, fd, { headers: authHeader() });
+    } else { loading.value = false; return; }
     resultado.value = res.data;
   } catch (e) {
     erro.value = e.response?.data?.message || ('Erro ao revalidar: ' + e.message);
   } finally { loading.value = false; }
 }
 
-function baixarCorrigido() {
-  if (!resultadoId.value) {
-    msgCorr.value = 'Download disponível só para arquivo importado. Para o upload avulso, abra a empresa no Analisador e valide por id.';
+async function baixarCorrigido() {
+  if (resultadoId.value) { // arquivo importado: export oficial por id
+    const t = localStorage.getItem('token') || '';
+    window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
     return;
   }
-  const t = localStorage.getItem('token') || '';
-  window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
+  if (!arqFile.value) { msgCorr.value = 'Nenhum arquivo enviado para exportar.'; return; }
+  try { // AVULSO: aplica as correções locais NO PRÓPRIO arquivo enviado e baixa
+    msgCorr.value = 'Gerando SPED corrigido…';
+    const fd = new FormData();
+    fd.append('sped', arqFile.value);
+    fd.append('correcoes', JSON.stringify(correcoesAvulsas.value));
+    const res = await axios.post(`${API_BASE_URL}/api/validador/exportar-upload`, fd, { headers: authHeader(), responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (arqFileName.value || 'sped').replace(/\.txt$/i, '') + '_corrigido.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    msgCorr.value = `SPED corrigido baixado (${correcoesAvulsas.value.length} correção(ões) aplicada(s)).`;
+  } catch (e) {
+    msgCorr.value = 'Erro ao exportar: ' + (e.response?.data?.message || e.message);
+  }
 }
 
 onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analisarPorId(); carregarCorrecoes(); } });
@@ -206,12 +250,12 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
         </div>
       </div>
 
-      <!-- Aviso: upload avulso (sem id no banco) → análise apenas -->
-      <div v-if="!resultadoId" class="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-2xl p-4 leading-relaxed">
-        <b>Modo análise avulsa.</b> Este arquivo foi enviado por <b>upload</b> e não está importado no banco — por isso
-        a correção no sistema e o download do SPED corrigido ficam <b>desativados</b> (evita corrigir/exportar outra
-        empresa por engano). Para corrigir e baixar, abra a empresa no <b>Analisador</b> (que importa o arquivo) e use
-        o botão <b>"Validar este SPED"</b> aqui.
+      <!-- Aviso: upload avulso — validação/correção/download operam SOBRE O ARQUIVO ENVIADO -->
+      <div v-if="!resultadoId && resultado" class="bg-sky-50 border border-sky-200 text-sky-800 text-xs rounded-2xl p-4 leading-relaxed">
+        <b>Modo upload avulso.</b> Validação, correção e download operam <b>exatamente neste arquivo enviado</b>
+        (<b>{{ resultado.arquivo?.nome }}</b>) — não usa nenhum arquivo importado no banco, então <b>nunca exporta outra empresa</b>.
+        As correções aqui são os <b>ajustes de campo</b> que você fizer (não inclui os auto-ajustes do export por id, ex.: recálculo
+        de totalizadores). Para o export completo, importe a empresa no Analisador.
       </div>
 
       <!-- Métricas -->
@@ -252,8 +296,8 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
         </div>
       </div>
 
-      <!-- Ações de correção (só p/ arquivo importado, com id real) -->
-      <div v-if="resultadoId" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+      <!-- Ações de correção: arquivo importado (id real) OU upload avulso (sobre o arquivo enviado) -->
+      <div v-if="podeCorrigir" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
         <div class="flex items-center gap-3 flex-wrap">
           <button @click="revalidar" :disabled="loading" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2">
             <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><CheckCircle2 v-else class="w-4 h-4" /> Re-validar (com correções)
@@ -263,11 +307,11 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
           </button>
           <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
         </div>
-        <div v-if="correcoes.length" class="border border-slate-100 rounded-xl overflow-hidden">
-          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED exportado ({{ correcoes.length }})</div>
+        <div v-if="correcoesView.length" class="border border-slate-100 rounded-xl overflow-hidden">
+          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED corrigido ({{ correcoesView.length }})</div>
           <table class="w-full text-[11px]">
             <tbody class="divide-y divide-slate-50">
-              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-slate-50/60">
+              <tr v-for="c in correcoesView" :key="c.id" class="hover:bg-slate-50/60">
                 <td class="px-3 py-1.5 font-mono text-slate-500">{{ c.registro }}</td>
                 <td class="px-3 py-1.5 text-slate-500">campo {{ c.campo_idx }}</td>
                 <td class="px-3 py-1.5"><span class="text-slate-400 line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-emerald-700">{{ c.valor_corrigido }}</span></td>
@@ -276,7 +320,8 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
             </tbody>
           </table>
         </div>
-        <p class="text-[10px] text-slate-400">Erros marcados "auto no export" (0220, totalizadores, duplicados) são corrigidos automaticamente ao baixar. Para conferência 100% fiel, baixe o SPED corrigido e revalide-o via "Upload .txt avulso".</p>
+        <p v-if="resultadoId" class="text-[10px] text-slate-400">Erros marcados "auto no export" (0220, totalizadores, duplicados) são corrigidos automaticamente ao baixar. Para conferência 100% fiel, baixe o SPED corrigido e revalide-o via "Upload .txt avulso".</p>
+        <p v-else class="text-[10px] text-slate-400">As correções acima são aplicadas neste arquivo enviado ao clicar em "Baixar SPED corrigido". "Re-validar" reanalisa o arquivo já com elas.</p>
       </div>
 
       <!-- Filtros + lista de erros -->
@@ -319,7 +364,7 @@ onMounted(() => { if (idAtivo.value) { resultadoId.value = idAtivo.value; analis
                 <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Como corrigir no ERP</p>
                 <p class="text-slate-600">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
               </div>
-              <div v-if="e.corrigivel && resultadoId" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+              <div v-if="e.corrigivel && podeCorrigir" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
                 <div class="flex items-center gap-2">
                   <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="(e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor'">
