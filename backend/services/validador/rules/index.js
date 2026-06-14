@@ -18,4 +18,5 @@ module.exports = [
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques
+    require('./r_h005_data'),          // INV-H005-01: DT_INV do inventário > data final do período
 ];

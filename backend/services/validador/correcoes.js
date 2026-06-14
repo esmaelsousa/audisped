@@ -42,6 +42,7 @@ function chaveNatural(reg, f, curChaveC100) {
         case 'C100': return String(f[9] || '').replace(/\D/g, '');
         case 'D100': return String(f[10] || '').replace(/\D/g, '');
         case 'C170': return curChaveC100 + '#' + String(f[2] || '').trim(); // chave da NF + NUM_ITEM
+        case 'H005': return String(f[4] || '').trim() || 'unico'; // MOT_INV (estável; corrige DT_INV)
         default: return null; // registro ainda não suportado p/ correção por chave
     }
 }

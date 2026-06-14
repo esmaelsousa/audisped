@@ -119,6 +119,12 @@ t('continuidade - (livro): abertura == ESCR anterior não dispara', () => assert
 t('soma +: 1300 != Σ1310 dispara', () => assert.ok(fires(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '60,000', '0,000', '60,000', '5,000', '55,000', '0,000', '0,000', '55,000'), r1310('2', '30,000', '0,000', '30,000', '5,000', '25,000', '0,000', '0,000', '25,000')]), 'COMB-1300-SUM')));
 t('soma -: 1300 == Σ1310 não dispara', () => assert.ok(!fires(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '70,000', '0,000', '70,000', '7,000', '63,000', '0,000', '0,000', '63,000'), r1310('2', '30,000', '0,000', '30,000', '3,000', '27,000', '0,000', '0,000', '27,000')]), 'COMB-1300-SUM')));
 
+// INV-H005-01 (data do inventário > data final do período)
+t('h005 +: DT_INV posterior ao DT_FIN dispara', () => assert.ok(fires(H(['|H005|15022022|100,00|01|']), 'INV-H005-01')));
+t('h005 +: DT_INV vazia dispara', () => assert.ok(fires(H(['|H005||100,00|01|']), 'INV-H005-01')));
+t('h005 -: DT_INV = DT_FIN não dispara', () => assert.ok(!fires(H(['|H005|31012022|100,00|01|']), 'INV-H005-01')));
+t('h005 - (extemporâneo): DT_INV de período anterior não dispara', () => assert.ok(!fires(H(['|H005|31122021|100,00|01|']), 'INV-H005-01')));
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }
