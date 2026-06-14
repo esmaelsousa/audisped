@@ -3,6 +3,8 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
@@ -34,8 +36,18 @@ const uploadXml = multer({ dest: xmlUploadDir });
 const app = express();
 const PORT = process.env.PORT || 15435;
 
+app.use(helmet({ contentSecurityPolicy: false, referrerPolicy: { policy: 'no-referrer' } })); // V12: headers de segurança (CSP off — API não serve HTML)
 app.use(cors());
 app.use(express.json());
+
+// Rate-limit de autenticação (V9): freia brute-force/credential-stuffing e DoS de CPU no bcrypt (pure-JS, single-thread).
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' },
+});
 
 // --- ENDPOINT DE STREAMING DE LOGS (SSE) ---
 app.get('/api/logs/stream', (req, res) => {
@@ -126,7 +138,11 @@ function releaseHeavySlot() {
     }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) { // V3: sem fallback; aborta se ausente/fraco
+    logger.error('[FATAL] JWT_SECRET ausente ou fraco (< 32 caracteres). Defina um valor aleatório forte no .env (ex.: openssl rand -hex 48). Encerrando.');
+    process.exit(1);
+}
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
 const authMiddleware = (req, res, next) => {
@@ -139,7 +155,7 @@ const authMiddleware = (req, res, next) => {
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }); // V3: pinar algoritmo
         req.user = decoded;
         logger.debug(`[AUTH] Token válido para usuário ${decoded.id || decoded.email}`);
         next();
@@ -149,8 +165,19 @@ const authMiddleware = (req, res, next) => {
     }
 };
 
+// --- GUARD GLOBAL DE AUTENTICAÇÃO (V2) ---
+// Exige token válido em TODA rota /api, exceto as públicas explícitas. Defesa em profundidade:
+// rotas com authMiddleware inline seguem funcionando (verificação idempotente). /api/logs/stream
+// (SSE) é registrada ANTES deste guard e não passa por ele — endurecer depois (V8).
+const ROTAS_PUBLICAS = new Set(['/api/auth/login', '/api/auth/register', '/api/logs/stream']);
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next();
+    if (ROTAS_PUBLICAS.has(req.path)) return next();
+    return authMiddleware(req, res, next);
+});
+
 // --- ROTAS DE AUTENTICAÇÃO ---
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
     const { nome, email, senha } = req.body;
     if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha todos os campos.' });
 
@@ -209,7 +236,7 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, senha } = req.body;
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -9278,6 +9305,20 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
         logger.error('Erro em /api/cte-injector/inject:', err);
         return res.status(500).json({ message: 'Erro ao injetar CT-e no SPED.', error: err.message });
     }
+});
+
+// --- ERROR-HANDLER GLOBAL (V13) ---
+// Captura erros fora de try/catch (ex.: MulterError disparado antes do handler) e normaliza a
+// resposta, evitando vazar stack trace/caminhos. Detalhe só fora de produção.
+app.use((err, req, res, next) => {
+    logger.error(`[UNHANDLED ${req.method} ${req.path}] ${err.message}`, { stack: err.stack });
+    if (res.headersSent) return next(err);
+    if (err instanceof multer.MulterError) {
+        return res.status(413).json({ message: 'Upload inválido ou excede o limite permitido.' });
+    }
+    const corpo = { message: 'Erro interno. Contate o suporte.' };
+    if (process.env.NODE_ENV !== 'production') corpo.error = err.message;
+    res.status(err.status || 500).json(corpo);
 });
 
 // Inicia o servidor

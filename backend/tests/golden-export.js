@@ -30,7 +30,8 @@ const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 15435;
 const HOST = process.env.GOLDEN_HOST || `http://localhost:${PORT}`;
-const SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
+const SECRET = process.env.JWT_SECRET; // V3: sem literal; lê do .env (sobrevive à rotação do segredo)
+if (!SECRET) { console.error('[golden] defina JWT_SECRET no .env'); process.exit(1); }
 const DIR = path.join(__dirname, 'golden');
 const MANIFEST = path.join(DIR, 'manifest.json');
 
