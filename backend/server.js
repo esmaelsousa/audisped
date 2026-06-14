@@ -5609,6 +5609,106 @@ app.post('/api/validador/analisar-upload', authMiddleware, upload.single('sped')
     }
 });
 
+// Salvar/atualizar uma correção (override de campo) que o export passará a aplicar.
+app.post('/api/validador/corrigir', authMiddleware, async (req, res) => {
+    const b = req.body || {};
+    const idArq = parseInt(b.id_sped_arquivo);
+    const registro = String(b.registro || '').trim();
+    const chave = String(b.chave_natural || '').trim();
+    const campoIdx = parseInt(b.campo_idx);
+    const valorCorrigido = b.valor_corrigido;
+    if (!Number.isInteger(idArq) || !registro || !chave || !Number.isInteger(campoIdx) || campoIdx <= 0 || valorCorrigido == null) {
+        return res.status(400).json({ message: 'Dados insuficientes (id_sped_arquivo, registro, chave_natural, campo_idx, valor_corrigido).' });
+    }
+    const correcoesSvc = require('./services/validador/correcoes');
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await correcoesSvc.ensureTabela(dbClient);
+        await dbClient.query('BEGIN');
+        // unicidade lógica: (arquivo, registro, chave, campo) → desativa a anterior e grava a nova
+        await dbClient.query(`UPDATE val_correcoes SET ativo = FALSE WHERE id_sped_arquivo=$1 AND registro=$2 AND chave_natural=$3 AND campo_idx=$4 AND ativo=TRUE`, [idArq, registro, chave, campoIdx]);
+        const ins = await dbClient.query(
+            `INSERT INTO val_correcoes (id_sped_arquivo, regra_id, registro, chave_natural, campo_idx, valor_original, valor_corrigido, origem, usuario_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+            [idArq, b.regra_id || null, registro, chave, campoIdx, b.valor_original != null ? String(b.valor_original) : null, String(valorCorrigido), (b.origem || 'MANUAL'), req.user?.id || null]
+        );
+        await dbClient.query('COMMIT');
+        res.json({ ok: true, id: ins.rows[0].id });
+    } catch (e) {
+        await safeRollback(dbClient);
+        logger.error('Erro ao salvar correção:', e);
+        res.status(500).json({ message: 'Erro ao salvar correção: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Lista as correções ativas de um arquivo.
+app.get('/api/validador/correcoes/:id', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.params.id);
+    if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await require('./services/validador/correcoes').ensureTabela(dbClient);
+        const r = await dbClient.query('SELECT id, regra_id, registro, chave_natural, campo_idx, valor_original, valor_corrigido, origem, criado_em FROM val_correcoes WHERE id_sped_arquivo=$1 AND ativo=TRUE ORDER BY criado_em', [idArq]);
+        res.json({ correcoes: r.rows });
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao listar correções: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Remove (desativa) uma correção.
+app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, async (req, res) => {
+    const id = parseInt(req.params.idCorrecao);
+    if (isNaN(id)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query('UPDATE val_correcoes SET ativo = FALSE WHERE id=$1', [id]);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao remover correção: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Re-validação: valida o arquivo com as correções manuais aplicadas (prévia do efeito delas).
+// Os erros marcados "jaCorrigidoNoExport" são resolvidos automaticamente ao exportar.
+app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.params.id);
+    if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT caminho_arquivo, nome_arquivo FROM sped_arquivos WHERE id=$1', [idArq]);
+        if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = r.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        if (!cam || !fs.existsSync(cam)) return res.status(400).json({ message: 'Arquivo físico não localizado.' });
+        const { parseSped } = require('./services/validador/parser');
+        const { validar } = require('./services/validador/engine');
+        const correcoesSvc = require('./services/validador/correcoes');
+        const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/).filter(l => l[0] === '|');
+        const correcoes = await correcoesSvc.buscarCorrecoes(dbClient, idArq);
+        const nAplic = correcoesSvc.aplicar(linhas, correcoes);
+        const model = parseSped(linhas.join('\n'));
+        const resultado = validar(model);
+        resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
+        resultado.correcoesAplicadas = nAplic;
+        res.json(resultado);
+    } catch (e) {
+        logger.error('Erro na revalidação:', e);
+        res.status(500).json({ message: 'Erro ao revalidar: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
 app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {

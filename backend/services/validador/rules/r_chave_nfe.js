@@ -34,12 +34,12 @@ module.exports = {
                 if (!['00', '06', '07', '08'].includes(sit)) continue; // pula cancelado/denegado
                 const ch = (l.f[d.ic] || '').replace(/\D/g, '');
                 if (ch.length !== 44) {
-                    erros.push({ bloco: d.reg[0], registro: d.reg, linha: l.n, campo: 'CHV', valorAtual: l.f[d.ic] || '(vazio)', detalhe: `A chave deve ter 44 dígitos (tem ${ch.length}).` });
+                    erros.push({ bloco: d.reg[0], registro: d.reg, linha: l.n, campo: 'CHV', campoIdx: d.ic, valorAtual: l.f[d.ic] || '(vazio)', detalhe: `A chave deve ter 44 dígitos (tem ${ch.length}).` });
                     continue;
                 }
                 const calc = dvChave(ch.slice(0, 43));
                 if (calc !== parseInt(ch[43])) {
-                    erros.push({ bloco: d.reg[0], registro: d.reg, linha: l.n, campo: 'CHV', valorAtual: ch, valorSugerido: ch.slice(0, 43) + calc, detalhe: `Dígito verificador inválido (informado ${ch[43]}, correto ${calc}).` });
+                    erros.push({ bloco: d.reg[0], registro: d.reg, linha: l.n, campo: 'CHV', campoIdx: d.ic, valorAtual: ch, valorSugerido: ch.slice(0, 43) + calc, detalhe: `Dígito verificador inválido (informado ${ch[43]}, correto ${calc}).` });
                 }
             }
         }

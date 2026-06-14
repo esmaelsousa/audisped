@@ -19,7 +19,7 @@ module.exports = {
             if (!TIPOS_EXIGEM_NCM.has(tipo)) continue;
             const ncm = String(l.f[8] || '').replace(/\D/g, '');
             if (ncm.length !== 8) {
-                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'COD_NCM', valorAtual: l.f[8] || '(vazio)', detalhe: `Item "${String(l.f[2] || '').trim()}" (TIPO_ITEM ${tipo}) com NCM inválido — esperado 8 dígitos.` });
+                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'COD_NCM', campoIdx: 8, valorAtual: l.f[8] || '(vazio)', detalhe: `Item "${String(l.f[2] || '').trim()}" (TIPO_ITEM ${tipo}) com NCM inválido — esperado 8 dígitos.` });
             }
         }
         return erros;

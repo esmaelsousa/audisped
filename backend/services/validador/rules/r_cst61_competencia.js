@@ -18,10 +18,10 @@ module.exports = {
         const ym = model.periodoYM;
         if (!ym || ym >= '202305') return erros; // só competências < 2023-05 (61 não existia)
         for (const l of (model.porReg.get('C170') || [])) {
-            if (ehCst61(l.f[10])) erros.push({ bloco: 'C', registro: 'C170', linha: l.n, campo: 'CST_ICMS', valorAtual: l.f[10], valorSugerido: l.f[10].slice(0, -2) + '60', detalhe: `CST ${l.f[10]} (monofásico) não existia na competência ${ym.slice(4)}/${ym.slice(0, 4)}.` });
+            if (ehCst61(l.f[10])) erros.push({ bloco: 'C', registro: 'C170', linha: l.n, campo: 'CST_ICMS', campoIdx: 10, valorAtual: l.f[10], valorSugerido: l.f[10].slice(0, -2) + '60', detalhe: `CST ${l.f[10]} (monofásico) não existia na competência ${ym.slice(4)}/${ym.slice(0, 4)}.` });
         }
         for (const l of (model.porReg.get('C190') || [])) {
-            if (ehCst61(l.f[2])) erros.push({ bloco: 'C', registro: 'C190', linha: l.n, campo: 'CST_ICMS', valorAtual: l.f[2], valorSugerido: l.f[2].slice(0, -2) + '60', detalhe: `CST ${l.f[2]} (monofásico) não existia na competência ${ym.slice(4)}/${ym.slice(0, 4)}.` });
+            if (ehCst61(l.f[2])) erros.push({ bloco: 'C', registro: 'C190', linha: l.n, campo: 'CST_ICMS', campoIdx: 2, valorAtual: l.f[2], valorSugerido: l.f[2].slice(0, -2) + '60', detalhe: `CST ${l.f[2]} (monofásico) não existia na competência ${ym.slice(4)}/${ym.slice(0, 4)}.` });
         }
         return erros;
     },

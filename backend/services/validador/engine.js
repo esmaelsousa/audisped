@@ -1,6 +1,7 @@
 // Validador SPED — engine PURO. Roda todas as regras do registry sobre o modelo e
 // agrega erros + cobertura por bloco. Sem IO. Determinístico e auditável.
 const regras = require('./rules');
+const { chaveNatural } = require('./correcoes');
 
 function validar(model) {
     const erros = [];
@@ -24,6 +25,7 @@ function validar(model) {
                 titulo: regra.titulo,
                 linha: (a.linha ?? null),
                 campo: a.campo || '',
+                campoIdx: (a.campoIdx ?? null),   // índice do campo no pipe (p/ correção)
                 valorAtual: (a.valorAtual ?? ''),
                 valorSugerido: a.valorSugerido,
                 detalhe: a.detalhe || '',
@@ -40,6 +42,21 @@ function validar(model) {
         if (e.severidade === 'BLOQ') porBloco[e.bloco].bloqueantes++;
     }
     const bloqueantes = erros.filter(e => e.severidade === 'BLOQ').length;
+
+    // Pós-processo: chave natural por linha (p/ casar a correção no export, robusto a nº de linha).
+    // 1 passada sobre o modelo, rastreando a chave do C100 corrente (p/ filhos C170).
+    const chavePorLinha = new Map();
+    let curC100 = '';
+    for (const l of model.linhas) {
+        if (l.reg === 'C100') curC100 = String(l.f[9] || '').replace(/\D/g, '');
+        chavePorLinha.set(l.n, chaveNatural(l.reg, l.f, curC100));
+    }
+    for (const e of erros) {
+        e.chaveNatural = (e.linha != null) ? (chavePorLinha.get(e.linha) ?? null) : null;
+        // Corrigível no sistema = sabemos onde (chaveNatural) e qual campo (campoIdx).
+        e.corrigivel = !!(e.chaveNatural != null && e.campoIdx != null);
+    }
+
     return {
         resumo: {
             total: erros.length, bloqueantes, advertencias: erros.length - bloqueantes,
