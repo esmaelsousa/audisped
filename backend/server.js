@@ -5561,6 +5561,55 @@ app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => 
 });
 
 
+// === MÓDULO VALIDADOR DE SPED (read-only) ============================================
+// Lê o .txt (de um arquivo importado ou upload avulso), roda o motor de regras isolado
+// (backend/services/validador) e devolve o relatório por bloco. NÃO grava nada; não toca
+// no fluxo de export/injeção/LMC. Correção (val_correcoes) virá em sprint posterior.
+app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT caminho_arquivo, nome_arquivo FROM sped_arquivos WHERE id = $1', [arquivoId]);
+        if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = r.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        if (!cam || !fs.existsSync(cam)) return res.status(400).json({ message: 'Arquivo físico não localizado no servidor.' });
+        const { parseSped } = require('./services/validador/parser');
+        const { validar } = require('./services/validador/engine');
+        const model = parseSped(fs.readFileSync(cam, 'latin1'));
+        const resultado = validar(model);
+        resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
+        res.json(resultado);
+    } catch (e) {
+        logger.error('Erro no validador (id):', e);
+        res.status(500).json({ message: 'Erro ao validar: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Upload avulso só para validar (sem importar nada no banco).
+app.post('/api/validador/analisar-upload', authMiddleware, upload.single('sped'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Envie o arquivo .txt do SPED (campo "sped").' });
+    try {
+        const { parseSped } = require('./services/validador/parser');
+        const { validar } = require('./services/validador/engine');
+        const model = parseSped(fs.readFileSync(req.file.path, 'latin1'));
+        if (!model.totalLinhas) return res.status(400).json({ message: 'Arquivo não parece um SPED Fiscal (sem registros).' });
+        const resultado = validar(model);
+        resultado.arquivo = { nome: req.file.originalname, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
+        res.json(resultado);
+    } catch (e) {
+        logger.error('Erro no validador (upload):', e);
+        res.status(500).json({ message: 'Erro ao validar: ' + e.message });
+    } finally {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+    }
+});
+
+
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
 app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
