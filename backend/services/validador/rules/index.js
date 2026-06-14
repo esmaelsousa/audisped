@@ -16,4 +16,5 @@ module.exports = [
     require('./r_ncm_0200'),           // CAD-0200-03: mercadoria sem NCM válido
     require('./r_c190_x_c170'),        // DOC-C190-01: combinação CST/CFOP/ALIQ do C190 sem C170
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
+    require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
 ];
