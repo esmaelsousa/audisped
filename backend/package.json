@@ -4,7 +4,10 @@
   "description": "Servidor para processamento e análise de arquivos SPED Fiscal.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:validador": "node tests/validador-suite.js",
+    "test:validador:fleet": "node tests/validador-fleet.js",
+    "test:validador:all": "node tests/validador-suite.js && node tests/validador-fleet.js"
   },
   "author": "DUVIDAS SPED FISCAL",
   "license": "ISC",

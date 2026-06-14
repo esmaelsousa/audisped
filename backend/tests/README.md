@@ -1,4 +1,28 @@
-# Testes — Arnês Golden-File do Export (Sprint 0 do Módulo Validador)
+# Testes do Validador + Arnês Golden-File do Export
+
+## Suíte do Validador (sistemática)
+Dois níveis, sem framework externo (scripts `node` standalone, exit code para CI):
+
+```bash
+npm run test:validador        # unitária PURA (sem banco, sem HTTP) — parser + engine + cada regra (pos/neg)
+npm run test:validador:fleet  # integração em FROTA (lê o banco) — gate de regressão / canário de falso-positivo
+npm run test:validador:all    # as duas em sequência
+FLEET_N=50 npm run test:validador:fleet   # amostra maior
+```
+
+- **`validador-suite.js`** — afirma robustez do parser (vazio/null/malformado), o contrato do engine
+  (regrasExecutadas, ids únicos, isolamento de regra que lança) e **positivo + negativo de cada regra**.
+  Roda em qualquer lugar; é o gate rápido a rodar a cada mudança em `services/validador/`.
+- **`validador-fleet.js`** — roda parser+engine numa amostra diversa de EMPRESAS/PERÍODOS reais e
+  **falha (exit 1)** se houver erro de parse, falha interna de regra, ou se uma regra **canário**
+  disparar (toda regra fora de `PODE_DISPARAR` = `CAD-0220-01, DOC-DUP, COMB-LMC, COMB-LMC-CONT`).
+  Canário disparando = investigar (falso-positivo OU achado novo real).
+
+> Ao adicionar/alterar uma regra: inclua o par positivo+negativo em `validador-suite.js` e rode `test:validador:all`.
+
+---
+
+# Arnês Golden-File do Export (Sprint 0 do Módulo Validador)
 
 Garante que **mudanças de código não alteram o `.txt` exportado** — a prova de não-impacto
 exigida antes de mexer no fluxo (ex.: quando o export passar a ler `val_correcoes`).

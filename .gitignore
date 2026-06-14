@@ -33,6 +33,7 @@ __pycache__/
 backend/uploads/
 speds/
 backend/tests/golden/
+SEGURANCA_AUDITORIA_VALIDADA.md
 *.txt
 *.pdf
 !package.json
