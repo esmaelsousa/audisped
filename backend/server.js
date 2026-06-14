@@ -6642,8 +6642,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         }
         // Aviso de lacuna no 1300 é emitido mais abaixo, após `periodoApuracao` ser definido.
 
-        // === REGRA 2026: CAP_TANQUE obrigatório no registro 1310 (leiaute 020) ===
-        // A partir de jan/2026 o PVA exige a Capacidade do Tanque em cada 1310. Muitos ERPs ainda
+        // === REGRA 020 (2025+): CAP_TANQUE obrigatório no registro 1310 (leiaute 020) ===
+        // O PVA em vigor (2026) exige a Capacidade do Tanque em cada 1310 do leiaute 020 — e como
+        // transmutamos os arquivos de 2025+ p/ 020 (acima), a exigência alcança 2025. Muitos ERPs ainda
         // emitem o arquivo no leiaute 019 (sem o campo) ou com o CAP vazio. O export já transmuta o
         // leiaute p/ 020 e cria o campo, mas precisa de um VALOR. Se o original não traz a capacidade
         // e ela não está cadastrada (lmc_tanques_config), buscamos em QUALQUER arquivo anterior do
@@ -6651,7 +6652,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Se não houver em lugar nenhum, ABORTAMOS com mensagem clara — exportar sem CAP_TANQUE seria
         // rejeitado pelo PVA.
         const _anoArq = (prescanDtIni && prescanDtIni.length === 8) ? parseInt(prescanDtIni.substring(4, 8), 10) : null;
-        if (_anoArq && _anoArq >= 2026 && itensComTanque.size > 0) {
+        if (_anoArq && _anoArq >= 2025 && itensComTanque.size > 0) {
             const _cnpjArq = arqInfo.rows[0].cnpj_empresa;
             // Lê um SPED e devolve { cod_item: capacidadeTotal } a partir dos 1310 (campo CAP_TANQUE),
             // somando os tanques de cada produto (mesma lógica de /api/lmc/tanques-sugeridos).
@@ -6740,7 +6741,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (aindaFaltam.length > 0) {
                     logger.error(`[CAP2026] Export abortado: sem CAP_TANQUE p/ CNPJ ${_cnpjArq}, itens [${aindaFaltam.join(', ')}]`);
                     return res.status(422).send(
-                        `Exportação bloqueada: a partir de janeiro/2026 o registro 1310 exige a CAPACIDADE DO TANQUE (CAP_TANQUE), ` +
+                        `Exportação bloqueada: o leiaute 020 (PVA 2026, aplicado também à retificação de 2025) exige a CAPACIDADE DO TANQUE (CAP_TANQUE) no registro 1310, ` +
                         `e esse dado não consta no arquivo original (leiaute ${prescanVer}) nem em nenhum arquivo anterior deste CNPJ. ` +
                         `Informe a capacidade dos tanques dos produtos [${aindaFaltam.join(', ')}] em "Configuração de Tanques" e exporte novamente. ` +
                         `Se exportar sem a capacidade, o PVA rejeitará o arquivo.`
@@ -7944,7 +7945,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                 if (date_start && date_start.length === 8) {
                     let year = parseInt(date_start.substring(4, 8), 10);
-                    if (year >= 2026 && current_version === '019') {
+                    // O PVA em vigor a partir de 2026 exige leiaute 020 também para a RETIFICAÇÃO de
+                    // períodos de 2025 (muitos ERPs ainda rotulam COD_VER 019 mas já emitem conteúdo
+                    // 020 — ex.: 0220 com 4 campos). Transmutamos 019→020 p/ DT_INI a partir de 2025.
+                    // (≤2024 permanece 019: byte-inalterado, sem exigir CAP_TANQUE retroativo.)
+                    if (year >= 2025 && current_version === '019') {
                         fields[2] = '020'; // Transmuta silenciosamente para salvar a importação no PVA
                         changesApplied++;
                     }
