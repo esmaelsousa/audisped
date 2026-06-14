@@ -16,7 +16,8 @@ import {
   Tag,
   Truck,
   Printer,
-  Scale
+  Scale,
+  ShieldCheck
 } from 'lucide-vue-next'
 
 const router = useRouter();
@@ -141,6 +142,14 @@ const handleLogout = () => {
         >
           <Settings2 class="w-3.5 h-3.5 shrink-0" />
           Auditoria (Motor)
+        </RouterLink>
+
+        <RouterLink to="/validador"
+          class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs font-medium transition-all text-slate-400 hover:bg-white/5 hover:text-white"
+          active-class="bg-brand-accent/10 text-brand-accent"
+        >
+          <ShieldCheck class="w-3.5 h-3.5 shrink-0" />
+          Validador SPED
         </RouterLink>
 
         <RouterLink v-if="arquivoInfo" :to="`/lmc/${arquivoInfo.id}`"

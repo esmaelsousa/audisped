@@ -46,6 +46,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/validador/:id?',
+      name: 'validador',
+      component: () => import('../views/ValidadorView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/empresa/:id',
       name: 'historico-empresa',
       component: ExploradorView, // Gestão de SPEDs Arquivos
