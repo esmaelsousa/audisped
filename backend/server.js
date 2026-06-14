@@ -21,6 +21,7 @@ const espiaoNfeService = require('./services/espiaoNfeService');
 const { runOptimization } = require('./test_optimize');
 const { parseNfeCompleta, ensureNfeCompletaTable, salvarNfeCompleta, buscarNfeCompleta } = require('./nfe-completa');
 const regrasFiscais = require('./services/regrasFiscaisService');
+const conciliacaoService = require('./services/conciliacaoService');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -941,7 +942,13 @@ function validarXmls(itens, cnpjSped, periodoSped, forcePeriodo) {
         const cnpjXml = limparCnpjStr(item.cnpjDest);
         const cnpjBase = limparCnpjStr(cnpjSped);
         if (cnpjXml && cnpjBase && cnpjXml !== cnpjBase) {
-            bloqueados.push({ arquivo: item.arquivo, cnpj_xml: cnpjXml, cnpj_sped: cnpjBase });
+            bloqueados.push({
+                arquivo: item.arquivo,
+                cnpj_xml: cnpjXml,
+                cnpj_sped: cnpjBase,
+                nome_xml: item.destNome || null,   // de quem é o XML (destinatário declarado no próprio XML)
+                emit_nome: item.emitNome || null   // quem emitiu o documento
+            });
         } else if (!forcePeriodo && dataForaPeriodo(item.dtDoc, periodo)) {
             avisos.push({ arquivo: item.arquivo, data_xml: item.dtDoc, periodo_sped: periodoSped });
         }
@@ -1810,6 +1817,8 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
             const itensVal = parsedNotes.map(nota => ({
                 arquivo: nota.arquivo,
                 cnpjDest: nota.destinatario?.cnpj,
+                destNome: nota.destinatario?.nome,
+                emitNome: nota.emitente?.nome,
                 dtDoc: nota.c100?.dt_doc
             }));
             const { bloqueados, avisos: avisosP } = validarXmls(itensVal, spedBaseObj.cnpj_empresa, spedBaseObj.periodo_apuracao, forcePeriodo);
@@ -1961,6 +1970,8 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
                     itensValidacao.push({
                         arquivo: f.originalname,
                         cnpjDest: nota.destinatario?.cnpj,
+                        destNome: nota.destinatario?.nome,
+                        emitNome: nota.emitente?.nome,
                         dtDoc: nota.c100?.dt_doc
                     });
                     xmlsBrutosGrupos.push(xmlData);
@@ -5416,6 +5427,140 @@ app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
 });
 
 
+// --- CONCILIAÇÃO SEFAZ (CSV) × ESCRITURAÇÃO DE ENTRADAS (Fase 1) ---
+// Recebe o CSV da "Relação de NF-e" da SEFAZ + o CNPJ da empresa, e cruza contra as
+// notas de entrada (documentos_c100, mod 55) já no banco — sem re-upload do SPED.
+// Período é auto-detectado pelas datas de emissão do CSV.
+app.post('/api/conciliacao/sefaz-csv', authMiddleware, upload.single('csv'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Envie o arquivo CSV da SEFAZ (campo "csv").' });
+    const cnpjEmpresa = String(req.body.cnpj || '').replace(/\D/g, '');
+    if (cnpjEmpresa.length < 11) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        return res.status(400).json({ message: 'Informe o CNPJ da empresa (campo "cnpj").' });
+    }
+    const dbClient = await safeConnect(res);
+    if (!dbClient) { try { fs.unlinkSync(req.file.path); } catch (_) {} return; }
+    try {
+        // 1. Ler e parsear o CSV (latin1 — padrão SEFAZ/BA)
+        const conteudo = fs.readFileSync(req.file.path, 'latin1');
+        let csv;
+        try { csv = conciliacaoService.parseSefazCsv(conteudo); }
+        catch (e) { return res.status(400).json({ message: 'CSV inválido: ' + e.message }); }
+        if (!csv.invoices.length) return res.status(400).json({ message: 'Nenhuma nota encontrada no CSV (verifique o arquivo).' });
+
+        // 2. Escrituração: TODAS as entradas mod 55 da empresa (qualquer competência),
+        //    para que nota lançada em mês diferente vire divergência e não "faltante".
+        const escr = await dbClient.query(`
+            SELECT c.chv_nfe, c.num_doc, c.vl_doc, c.dt_doc, c.dt_e_s, c.cod_sit,
+                   a.periodo_apuracao,
+                   p.nome AS fornecedor, p.cnpj AS cnpj_fornecedor
+            FROM documentos_c100 c
+            JOIN sped_arquivos a ON a.id = c.id_sped_arquivo
+            LEFT JOIN sped_participantes p
+                   ON p.id_sped_arquivo = c.id_sped_arquivo AND p.cod_part = c.cod_part
+            WHERE regexp_replace(a.cnpj_empresa, '\\D', '', 'g') = $1
+              AND c.ind_oper = '0' AND c.cod_mod = '55'
+        `, [cnpjEmpresa]);
+
+        // 2b. Competências (YYYYMM) que têm SPED importado para a empresa — usado para alertar
+        //     quando o CSV cobre um mês sem SPED (senão tudo apareceria como "faltante").
+        const periodos = await dbClient.query(
+            `SELECT DISTINCT periodo_apuracao FROM sped_arquivos WHERE regexp_replace(cnpj_empresa, '\\D', '', 'g') = $1`,
+            [cnpjEmpresa]
+        );
+        const mesesComSped = new Set();
+        periodos.rows.forEach(r => {
+            const p = r.periodo_apuracao || '';
+            let m = p.match(/(\d{4})-(\d{2})-\d{2}/);
+            if (m) { mesesComSped.add(m[1] + m[2]); return; }
+            m = p.match(/(\d{2})(\d{2})(\d{4})/); // DDMMAAAA
+            if (m) mesesComSped.add(m[3] + m[2]);
+        });
+
+        // 2c. Escopo: se um arquivo SPED está aberto, conciliar SÓ o período (competência) dele.
+        //     Permite subir um CSV semestral e conferir apenas o mês do SPED em foco.
+        let escopoYM = null;
+        const idArquivo = parseInt(req.body.id_arquivo);
+        if (Number.isInteger(idArquivo) && idArquivo > 0) {
+            const arq = await dbClient.query('SELECT periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
+            if (arq.rows.length) {
+                const p = arq.rows[0].periodo_apuracao || '';
+                let m = p.match(/(\d{4})-(\d{2})-\d{2}/);
+                if (m) escopoYM = m[1] + m[2];
+                else { m = p.match(/(\d{2})(\d{2})(\d{4})/); if (m) escopoYM = m[3] + m[2]; }
+            }
+        }
+
+        // Flag: incluir canceladas na conciliação (padrão = desconsiderar/false).
+        const incluirCanceladas = String(req.body.incluir_canceladas || '').toLowerCase() === 'true';
+
+        // 3. Cruzar
+        const resultado = conciliacaoService.conciliar({
+            csv, escrituradas: escr.rows, cnpjEmpresa, mesesComSped, escopoYM, incluirCanceladas
+        });
+        resultado.cnpj_empresa = cnpjEmpresa;
+        resultado.sem_escrituracao = (escr.rows.length === 0);
+        res.json(resultado);
+    } catch (err) {
+        logger.error('Erro na conciliação SEFAZ CSV:', err);
+        res.status(500).json({ message: 'Erro ao conciliar: ' + err.message });
+    } finally {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+        dbClient.release();
+    }
+});
+
+
+// --- ITENS (C170) de uma NF por chave — usado no expandir "+" da conciliação ---
+app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => {
+    const chave = String(req.params.chave || '').replace(/\D/g, '');
+    const cnpj = String(req.query.cnpj || '').replace(/\D/g, '');
+    if (chave.length < 44) return res.status(400).json({ message: 'Chave inválida.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const temCnpj = cnpj.length >= 11;
+        // Pega 1 documento C100 com essa chave (na empresa, se informada) e seus itens + descrição do 0200.
+        const q = await dbClient.query(`
+            WITH doc AS (
+                SELECT c.id, c.id_sped_arquivo
+                FROM documentos_c100 c
+                JOIN sped_arquivos a ON a.id = c.id_sped_arquivo
+                WHERE regexp_replace(c.chv_nfe, '\\D', '', 'g') = $1
+                  ${temCnpj ? "AND regexp_replace(a.cnpj_empresa, '\\D', '', 'g') = $2" : ''}
+                ORDER BY c.id LIMIT 1
+            )
+            SELECT i.num_item, i.cod_item, i.qtd, i.unid, i.vl_item, i.cfop, i.cst_icms,
+                   pr.descr_item, pr.ncm
+            FROM doc
+            JOIN documentos_itens_c170 i ON i.id_documento_c100 = doc.id
+            LEFT JOIN sped_produtos pr
+                   ON pr.id_sped_arquivo = doc.id_sped_arquivo AND TRIM(pr.cod_item) = TRIM(i.cod_item)
+            ORDER BY i.num_item
+        `, temCnpj ? [chave, cnpj] : [chave]);
+        const itens = q.rows.map(r => {
+            const qtd = parseFloat(r.qtd) || 0;
+            const vlTotal = parseFloat(r.vl_item) || 0;
+            return {
+                cod_item: r.cod_item,
+                produto: r.descr_item || r.cod_item || '—',
+                ncm: r.ncm || '',
+                qtd, unid: r.unid || '',
+                vl_unit: qtd > 0 ? vlTotal / qtd : vlTotal,
+                vl_total: vlTotal,
+                cfop: r.cfop || '', cst: r.cst_icms || ''
+            };
+        });
+        res.json({ chave, itens });
+    } catch (err) {
+        logger.error('Erro ao buscar itens da NF:', err);
+        res.status(500).json({ message: 'Erro ao buscar itens: ' + err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
 app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
@@ -6308,18 +6453,28 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Detecta presença de 0000 e dias com 1300 no arquivo de origem.
         let temReg0000 = false;
         const dias1300NoArquivo = new Set();
+        // Leiaute/período do arquivo e mapeamento de tanques p/ a regra CAP_TANQUE 2026 (ver abaixo).
+        let prescanVer = '019';
+        let prescanDtIni = null;            // DDMMYYYY do 0000 (DT_INI)
+        const itensComTanque = new Set();   // COD_ITEMs (raw, como no 1300) que possuem registro 1310
+        const itensTanqueComCap = new Set();// subconjunto cujo 1310 já traz CAP_TANQUE > 0 no original
         {
             // Pré-scan via readFileSync: evita problema de file descriptor em FUSE/Google Drive
             // onde dois createReadStream consecutivos ao mesmo arquivo fazem o segundo começar
             // do meio, perdendo o bloco 0 (0000, 0001, 0200, etc.) do SPED exportado.
             const prescanContent = fs.readFileSync(pathOrig, 'latin1');
             const prescanLines = prescanContent.split(/\r?\n/);
+            let prescanCurItem = null;      // COD_ITEM do 1300 corrente (p/ vincular o 1310 filho)
             for (const pl of prescanLines) {
                 if (pl.trim() === '') continue;
                 const pf = pl.split('|');
                 if (pf.length < 3) continue;
                 const reg = pf[1];
-                if (reg === '0000') temReg0000 = true;
+                if (reg === '0000') {
+                    temReg0000 = true;
+                    prescanVer = pf[2] || '019';
+                    prescanDtIni = pf[4] || null;
+                }
                 // TRIM defensivo: SPEDs CHAR-fixo gravam cod_item com padding. Sem TRIM o set
                 // fica com versão padded e o filtro 0200 abaixo não reconhece o item, omitindo
                 // todos os 0200/0206 no arquivo exportado (rejeitado pelo PVA).
@@ -6329,9 +6484,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     const k = String(pf[2]).trim();
                     h010CountByCod.set(k, (h010CountByCod.get(k) || 0) + 1);
                 }
-                if (reg === '1300' && pf[3] && pf[3].length === 8) {
-                    const dt = pf[3];
-                    dias1300NoArquivo.add(`${dt.substring(4,8)}-${dt.substring(2,4)}-${dt.substring(0,2)}`);
+                if (reg === '1300') {
+                    prescanCurItem = pf[2] || null; // raw (igual ao usado na busca de capacidade no export)
+                    if (pf[3] && pf[3].length === 8) {
+                        const dt = pf[3];
+                        dias1300NoArquivo.add(`${dt.substring(4,8)}-${dt.substring(2,4)}-${dt.substring(0,2)}`);
+                    }
+                }
+                if (reg === '1310' && prescanCurItem) {
+                    itensComTanque.add(prescanCurItem);
+                    // CAP_TANQUE só existe no leiaute 020 (campo pf[11]).
+                    const cap = prescanVer >= '020' ? (parseFloat((pf[11] || '0').replace(',', '.')) || 0) : 0;
+                    if (cap > 0) itensTanqueComCap.add(prescanCurItem);
                 }
             }
         }
@@ -6343,6 +6507,113 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             return res.status(422).send('Arquivo SPED de origem inválido: registro 0000 ausente. Reimporte o arquivo correto antes de exportar.');
         }
         // Aviso de lacuna no 1300 é emitido mais abaixo, após `periodoApuracao` ser definido.
+
+        // === REGRA 2026: CAP_TANQUE obrigatório no registro 1310 (leiaute 020) ===
+        // A partir de jan/2026 o PVA exige a Capacidade do Tanque em cada 1310. Muitos ERPs ainda
+        // emitem o arquivo no leiaute 019 (sem o campo) ou com o CAP vazio. O export já transmuta o
+        // leiaute p/ 020 e cria o campo, mas precisa de um VALOR. Se o original não traz a capacidade
+        // e ela não está cadastrada (lmc_tanques_config), buscamos em QUALQUER arquivo anterior do
+        // mesmo CNPJ que a tenha (leiaute 020 com CAP_TANQUE), gravamos no cadastro e usamos aqui.
+        // Se não houver em lugar nenhum, ABORTAMOS com mensagem clara — exportar sem CAP_TANQUE seria
+        // rejeitado pelo PVA.
+        const _anoArq = (prescanDtIni && prescanDtIni.length === 8) ? parseInt(prescanDtIni.substring(4, 8), 10) : null;
+        if (_anoArq && _anoArq >= 2026 && itensComTanque.size > 0) {
+            const _cnpjArq = arqInfo.rows[0].cnpj_empresa;
+            // Lê um SPED e devolve { cod_item: capacidadeTotal } a partir dos 1310 (campo CAP_TANQUE),
+            // somando os tanques de cada produto (mesma lógica de /api/lmc/tanques-sugeridos).
+            const _harvestCaps = (fp) => {
+                let content;
+                try { content = fs.readFileSync(fp, 'latin1'); } catch (_) { return {}; }
+                let ver = '019', cur = null;
+                const porTanque = {}; // cod_item -> { num_tanque: maxCap }
+                for (const ln of content.split(/\r?\n/)) {
+                    if (!ln.startsWith('|')) continue;
+                    const f = ln.split('|');
+                    if (f[1] === '0000') ver = f[2] || '019';
+                    else if (f[1] === '1300') cur = f[2] || null;
+                    else if (f[1] === '1310' && cur && ver >= '020') {
+                        const cap = parseFloat((f[11] || '0').replace(',', '.')) || 0;
+                        if (cap > 0) {
+                            if (!porTanque[cur]) porTanque[cur] = {};
+                            porTanque[cur][f[2]] = Math.max(porTanque[cur][f[2]] || 0, cap);
+                        }
+                    }
+                }
+                const out = {};
+                for (const [ci, tks] of Object.entries(porTanque)) out[ci] = Object.values(tks).reduce((s, c) => s + c, 0);
+                return out;
+            };
+            // cod_items de tanque sem capacidade conhecida (nem no cadastro, nem no próprio arquivo)
+            const faltantes = [...itensComTanque].filter(ci =>
+                !((mapCapacidadesPorItem.get(ci) || 0) > 0) && !itensTanqueComCap.has(ci)
+            );
+            if (faltantes.length > 0) {
+                // chave de período (YYYYMM) p/ priorizar o arquivo anterior mais próximo
+                const _pkey = (p) => {
+                    const s = String(p || '');
+                    let m = s.match(/(\d{4})-(\d{2})-\d{2}/); if (m) return parseInt(m[1] + m[2]);
+                    m = s.match(/^(\d{2})(\d{2})(\d{4})/);     if (m) return parseInt(m[3] + m[2]);
+                    return 0;
+                };
+                const _keyAtual = _pkey(arqInfo.rows[0].periodo_apuracao);
+                const prevs = await dbClient.query(
+                    'SELECT id, caminho_arquivo, periodo_apuracao FROM sped_arquivos WHERE cnpj_empresa = $1 AND id <> $2',
+                    [_cnpjArq, arquivoId]
+                );
+                // Ordena: arquivos ANTERIORES ao período atual primeiro (mais recente → mais antigo),
+                // depois os demais (capacidade é estável, mas preferimos o histórico já transmitido).
+                const cand = prevs.rows
+                    .map(r => ({ ...r, k: _pkey(r.periodo_apuracao) }))
+                    .sort((a, b) => {
+                        const aPrev = (a.k && _keyAtual && a.k < _keyAtual) ? 1 : 0;
+                        const bPrev = (b.k && _keyAtual && b.k < _keyAtual) ? 1 : 0;
+                        if (aPrev !== bPrev) return bPrev - aPrev;
+                        return b.k - a.k;
+                    });
+                const achados = new Map(); // cod_item (raw do arquivo atual) -> capacidade
+                for (const pr of cand) {
+                    if (faltantes.every(ci => achados.has(ci))) break;
+                    let pf = pr.caminho_arquivo;
+                    try { const j = JSON.parse(pf); if (j && typeof j === 'object') pf = Object.values(j)[0]; } catch (_) {}
+                    if (!pf || !fs.existsSync(pf)) continue;
+                    const caps = _harvestCaps(pf);
+                    // índice por cod_item normalizado (TRIM) p/ casar com padding diferente entre ERPs
+                    const capsTrim = {};
+                    for (const [ci, v] of Object.entries(caps)) capsTrim[String(ci).trim()] = v;
+                    for (const ci of faltantes) {
+                        if (achados.has(ci)) continue;
+                        const v = caps[ci] || capsTrim[String(ci).trim()] || 0;
+                        if (v > 0) achados.set(ci, v);
+                    }
+                }
+                // Grava no cadastro + injeta no mapa em memória (vale p/ este export e os próximos).
+                for (const [ci, cap] of achados) {
+                    try {
+                        await dbClient.query(
+                            `INSERT INTO lmc_tanques_config (cnpj, cod_item, capacidade) VALUES ($1, $2, $3)
+                             ON CONFLICT (cnpj, cod_item) DO UPDATE SET capacidade = EXCLUDED.capacidade`,
+                            [_cnpjArq, ci, cap]
+                        );
+                    } catch (e) { logger.warn('[CAP2026] Falha ao gravar capacidade no cadastro: ' + e.message); }
+                    mapCapacidadesPorItem.set(ci, cap);
+                }
+                if (achados.size > 0) {
+                    logger.info(`[CAP2026] Capacidades recuperadas de arquivo anterior p/ CNPJ ${_cnpjArq}: ` +
+                        [...achados.entries()].map(([k, v]) => `item ${k}=${v}`).join(', '));
+                }
+                // Ainda sem capacidade? ABORTA com mensagem clara (PVA rejeitaria sem CAP_TANQUE).
+                const aindaFaltam = faltantes.filter(ci => !((mapCapacidadesPorItem.get(ci) || 0) > 0));
+                if (aindaFaltam.length > 0) {
+                    logger.error(`[CAP2026] Export abortado: sem CAP_TANQUE p/ CNPJ ${_cnpjArq}, itens [${aindaFaltam.join(', ')}]`);
+                    return res.status(422).send(
+                        `Exportação bloqueada: a partir de janeiro/2026 o registro 1310 exige a CAPACIDADE DO TANQUE (CAP_TANQUE), ` +
+                        `e esse dado não consta no arquivo original (leiaute ${prescanVer}) nem em nenhum arquivo anterior deste CNPJ. ` +
+                        `Informe a capacidade dos tanques dos produtos [${aindaFaltam.join(', ')}] em "Configuração de Tanques" e exporte novamente. ` +
+                        `Se exportar sem a capacidade, o PVA rejeitará o arquivo.`
+                    );
+                }
+            }
+        }
 
         // Mapa de fech_fisico final do LMC por cod_item (último dia do período).
         // Usado para reescrever QTD/VL_ITEM do H010 e fechar a "Posição do Estoque"
@@ -6641,19 +6912,66 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // deixá-lo ser revertido pelos valores CRUS de documentos_itens_c170 (que guarda
         // CSOSN do fornecedor Simples como CST e CFOP de saída com o 1º dígito virado → inválido).
         const CFOP_USO_CONSUMO = new Set(['1407', '1556', '2407', '2556']);
+        // CST 61 (combustível MONOFÁSICO, Conv. ICMS 199/2022) só passou a existir a partir de
+        // 2023-05 (diesel/biodiesel/GLP) / 2023-06 (gasolina/etanol). Em competências ANTERIORES o
+        // CST 61 é INVÁLIDO no PVA ("CST_ICMS inválido. Tabela da Situação Tributária do ICMS") —
+        // o correto p/ combustível com ICMS retido por ST nessa época é o CST 60. O de-para por
+        // fornecedor (de_para_xml.novo_cst='061') grava 61 de forma CEGA à competência; ao injetar
+        // uma compra de combustível num SPED antigo (ex.: 2021) o 061 vaza p/ C170 e C190. Aqui, no
+        // gate final do export (cobre de-para, nota injetada e origem), rebaixamos 61→60 quando a
+        // competência é pré-monofásica. Mantém o dígito de origem (ex.: 061→060, 161→160).
+        const _preMonofasico = _compRegras < '2023-05-01';
+        const _cst61to60 = (cst) => {
+            const s = String(cst || '').trim();
+            if (s.length >= 2 && s.slice(-2) === '61') {
+                const origem = s.length > 2 ? s.slice(0, s.length - 2) : '0';
+                return origem + '60';
+            }
+            return cst;
+        };
+        // CFOPs de ENTRADA inexistentes geradas pela injeção ao "virar" o 1º dígito da CFOP de SAÍDA
+        // do fornecedor (5xxx→1xxx / 6xxx→2xxx) sem mapear para a CFOP de entrada correta —
+        // ex.: 5655→1655 (inexistente), 5405→1405 (inexistente, ver item 18). O .txt fica com o
+        // C170 na CFOP inválida e o C190 na CFOP correta → PVA: "CFOP inválido" + "informar a
+        // combinação CST/CFOP/ALIQ no registro de itens" (a combinação do C190 não existe nos C170).
+        // Mapa p/ a CFOP de ENTRADA válida equivalente (combustível: 1651/1652/1653 e 2651/2652/2653;
+        // mercadoria c/ ICMS-ST: 1403/2403). Alinha o C170 ao C190 e zera os dois erros.
+        const CFOP_ENTRADA_CORRIGIR = {
+            '1654': '1651', '1655': '1652', '1656': '1653',
+            '2654': '2651', '2655': '2652', '2656': '2653',
+            '1405': '1403', '2405': '2403',
+        };
         // Normaliza linhas na emissão (cobre qualquer origem, inclusive notas injetadas antes dos fixes):
-        //  • 0220: EXATAMENTE 4 campos (REG|UNID_CONV|FAT_CONV|COD_BARRA|) — PVA exige 4.
+        //  • 0220: EXATAMENTE 3 campos (REG|UNID_CONV|FAT_CONV) — em TODAS as versões do leiaute.
+        //  • CST 61→60 em C170/C190 quando a competência é anterior ao regime monofásico (Conv. 199/2022).
         //  • C170: aplica as Regras Fiscais (ex.: CST ICMS 60/61 ⇒ PIS/COFINS 04) via motor global.
         const normalizarLinha = (l) => {
             if (typeof l !== 'string') return l;
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
-                // Preserva o leiaute do PERÍODO: até ~2021 o 0220 NÃO tem COD_BARRA
-                // (|0220|UNID|FAT| = 3 campos); layouts novos têm (|0220|UNID|FAT|COD_BARRA| = 4).
-                // Forçar sempre 4 quebrava o PVA de 2021 ("nº de campos: esperado 3, contém 4").
-                // split de |0220|UN|1| → comprimento 5 (sem COD_BARRA) ⇒ mantém 3 campos.
-                if (f.length <= 5) return `|0220|${f[2] || ''}|${f[3] || ''}|`;
-                return `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`;
+                // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES) tem EXATAMENTE 3 campos em
+                // TODAS as versões do leiaute EFD ICMS/IPI: REG | UNID_CONV | FAT_CONV.
+                // NÃO existe COD_BARRA no 0220 (COD_BARRA é campo do 0200, não deste registro).
+                // Qualquer campo a mais — ex.: ERP que emite "|0220|LT|1,0000||" com pipe sobrando,
+                // cujo split tem comprimento 6 — é rejeitado pelo PVA: "nº de campos: esperado 3, contém 4".
+                // Por isso normalizamos SEMPRE para 3 campos, descartando o que vier após FAT_CONV.
+                return `|0220|${f[2] || ''}|${f[3] || ''}|`;
+            }
+            // C190: rebaixa CST 61→60 (pré-monofásico, campo 2) e corrige CFOP de entrada inválida (campo 3).
+            if (l.startsWith('|C190|')) {
+                const f = l.split('|');
+                let mudou = false;
+                if (_preMonofasico && f.length > 2) { const n = _cst61to60(f[2]); if (n !== f[2]) { f[2] = n; mudou = true; } }
+                if (f.length > 3 && CFOP_ENTRADA_CORRIGIR[f[3]]) { f[3] = CFOP_ENTRADA_CORRIGIR[f[3]]; mudou = true; }
+                return mudou ? f.join('|') : l;
+            }
+            // C170: rebaixa CST 61→60 (pré-monofásico, campo 10) e corrige CFOP de entrada inválida
+            // (campo 11) ANTES do motor de regras, mantendo o item coerente com o C190.
+            if (l.startsWith('|C170|')) {
+                const f = l.split('|');
+                if (_preMonofasico && f.length > 10) { const n = _cst61to60(f[10]); if (n !== f[10]) f[10] = n; }
+                if (f.length > 11 && CFOP_ENTRADA_CORRIGIR[f[11]]) f[11] = CFOP_ENTRADA_CORRIGIR[f[11]];
+                l = f.join('|'); // segue p/ o motor de regras (byte-idêntico se nada mudou)
             }
             if (l.startsWith('|C170|') && regrasExport.length) {
                 const f = l.split('|'); // [10]=CST_ICMS, [11]=CFOP, [25]=CST_PIS, [31]=CST_COFINS
@@ -8747,6 +9065,8 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
         const itensCteVal = parsedCtes.filter(c => c.ok).map(c => ({
             arquivo: c._arquivo,
             cnpjDest: c.cnpj_dest,
+            destNome: c.nome_dest,
+            emitNome: c.nome_emit,
             dtDoc: c.dt_doc
         }));
         const { bloqueados: bloqCte, avisos: avisosCte } = validarXmls(itensCteVal, cnpj_empresa, periodo_apuracao, forcePeriodoCte);

@@ -100,6 +100,16 @@ function copyToClipboard(text) {
 function formatCurrency(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 }
+
+function fmtQtd(value) {
+  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 }).format(Number(value) || 0);
+}
+
+// Toggle por nota para exibir as linhas SPED geradas (fica oculto por padrão; itens em destaque).
+const linhasVisiveis = ref({});
+function toggleLinhas(chave) {
+  linhasVisiveis.value = { ...linhasVisiveis.value, [chave]: !linhasVisiveis.value[chave] };
+}
 </script>
 
 <template>
@@ -195,6 +205,9 @@ function formatCurrency(value) {
                     </div>
                   </div>
                   <div class="flex items-center gap-6">
+                    <span v-if="(nota.itens || []).length" class="hidden sm:inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                      <Package class="w-3 h-3" /> {{ (nota.itens || []).length }} {{ (nota.itens || []).length === 1 ? 'item' : 'itens' }}
+                    </span>
                     <div class="flex flex-col items-end leading-tight">
                       <span class="text-[9px] uppercase tracking-wide text-slate-400">Data NF</span>
                       <span class="text-xs font-bold text-slate-600">{{ fmtData(nota.data) }}</span>
@@ -204,9 +217,51 @@ function formatCurrency(value) {
                   </div>
                 </div>
 
-                <div v-if="expandedNota === nota.chave" class="bg-slate-50/50 border-t border-slate-100 p-4">
-                  <div class="bg-slate-900 rounded-lg p-3 font-mono text-[11px] text-slate-300 max-h-40 overflow-y-auto custom-scrollbar-term">
-                    <div v-for="(linha, l) in nota.linhas_geradas" :key="l">{{ linha }}</div>
+                <div v-if="expandedNota === nota.chave" class="bg-slate-50/50 border-t border-slate-100 p-4 space-y-3">
+                  <!-- Itens DESTA nota (separados por XML) -->
+                  <div class="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+                    <table class="w-full text-[11px]">
+                      <thead class="bg-slate-50 text-slate-500 uppercase text-[9px] font-bold border-b border-slate-100">
+                        <tr>
+                          <th class="px-2 py-2 text-left">Cód.</th>
+                          <th class="px-2 py-2 text-left">Produto</th>
+                          <th class="px-2 py-2 text-left">NCM</th>
+                          <th class="px-2 py-2 text-right">Qtd</th>
+                          <th class="px-2 py-2 text-left">Un</th>
+                          <th class="px-2 py-2 text-right">Vl. Unit.</th>
+                          <th class="px-2 py-2 text-right">Vl. Total</th>
+                          <th class="px-2 py-2 text-center">CFOP</th>
+                          <th class="px-2 py-2 text-center">CST</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-100">
+                        <tr v-for="(it, idx) in (nota.itens || [])" :key="idx" class="hover:bg-slate-50/60">
+                          <td class="px-2 py-1.5 font-mono text-slate-500">{{ it.cod_produto }}</td>
+                          <td class="px-2 py-1.5 font-medium text-slate-700">{{ it.descricao }}</td>
+                          <td class="px-2 py-1.5 font-mono text-slate-400">{{ it.ncm }}</td>
+                          <td class="px-2 py-1.5 text-right tabular-nums">{{ fmtQtd(it.qtd) }}</td>
+                          <td class="px-2 py-1.5 text-slate-500">{{ it.unid }}</td>
+                          <td class="px-2 py-1.5 text-right tabular-nums">{{ formatCurrency(it.valor_unitario) }}</td>
+                          <td class="px-2 py-1.5 text-right font-bold text-slate-700 tabular-nums">{{ formatCurrency(it.valor_total) }}</td>
+                          <td class="px-2 py-1.5 text-center font-mono">{{ it.cfop }}</td>
+                          <td class="px-2 py-1.5 text-center font-mono">{{ it.cst }}</td>
+                        </tr>
+                        <tr v-if="!(nota.itens || []).length">
+                          <td colspan="9" class="px-2 py-3 text-center text-slate-400 italic">Sem itens nesta nota.</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Linhas SPED geradas (oculto por padrão) -->
+                  <div v-if="nota.linhas_geradas && nota.linhas_geradas.length">
+                    <button @click="toggleLinhas(nota.chave)" class="text-[10px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                      <component :is="linhasVisiveis[nota.chave] ? ChevronUp : ChevronDown" class="w-3 h-3" />
+                      {{ linhasVisiveis[nota.chave] ? 'Ocultar' : 'Ver' }} linhas SPED geradas ({{ nota.linhas_geradas.length }})
+                    </button>
+                    <div v-if="linhasVisiveis[nota.chave]" class="mt-2 bg-slate-900 rounded-lg p-3 font-mono text-[11px] text-slate-300 max-h-40 overflow-y-auto custom-scrollbar-term">
+                      <div v-for="(linha, l) in nota.linhas_geradas" :key="l">{{ linha }}</div>
+                    </div>
                   </div>
                 </div>
               </div>

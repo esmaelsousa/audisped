@@ -594,14 +594,28 @@ async function transformarNotasEmSped(dbClient, parsedNotes, options = {}) {
 
         const cnpjFornecedor = (nota.emitente.cnpj || '').replace(/\D/g, '');
         
-        // Dados para o resumo por nota no frontend
+        // Dados para o resumo por nota no frontend (inclui os ITENS desta nota específica,
+        // para o "Detalhamento por Nota Fiscal" mostrar os produtos separados por XML).
         notasProcessadasResult.push({
             chave: nota.c100.chv_nfe,
             numero: nota.c100.num_doc,
             emitente: nota.emitente.nome || 'FORNECEDOR',
+            cnpj_emitente: cnpjFornecedor,
+            arquivo: nota.arquivo || '',
             valor_total: parseValor(nota.c100.vl_doc),
             data: nota.c100.dt_doc,
-            linhas_geradas: nota.generatedLinesPreview
+            linhas_geradas: nota.generatedLinesPreview,
+            itens: (nota.itens || []).map(it => ({
+                cod_produto: it.cod_item,
+                descricao: it.descr_item,
+                ncm: it.ncm || '',
+                qtd: parseValor(it.qcom),
+                unid: it.ucom || '',
+                valor_unitario: parseValor(it.vuncom),
+                valor_total: parseValor(it.vprod),
+                cfop: it.cfop || it.cfop_original || '',
+                cst: it.cst_icms || it.cst_icms_original || ''
+            }))
         });
 
         for (const item of nota.itens) {

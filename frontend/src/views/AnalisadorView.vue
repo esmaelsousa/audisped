@@ -6,6 +6,7 @@ import VueApexCharts from "vue3-apexcharts";
 import { useRoute, useRouter } from 'vue-router'
 import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, setIdArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped, token } from '../store'
 import { Loader2 } from 'lucide-vue-next'
+import NfItens from '../components/NfItens.vue'
 
 const route = useRoute();
 const router = useRouter();
@@ -382,6 +383,83 @@ async function loadLmcDetailed() {
     } finally {
         loadingLmc.value = false;
     }
+}
+
+// ===== Conciliação SEFAZ (CSV) × escrituração (Fase 1) =====
+const concilCsvFile = ref(null);
+const concilCsvName = ref('');
+const concilLoading = ref(false);
+const concilError = ref('');
+const concilResult = ref(null);
+const concilDesconsiderarCanceladas = ref(true); // padrão: ignorar canceladas
+const concilVerCanceladas = ref(false);          // mostrar/ocultar a lista de canceladas
+const fmtBRL = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Re-concilia ao trocar o flag de canceladas (se já houver CSV carregado).
+function onToggleCanceladas() {
+    if (concilCsvFile.value && concilResult.value) conciliarSefaz();
+}
+
+// Expandir "+" para ver os itens (C170) de uma NF escriturada.
+const concilNfAberta = ref({});
+const concilCnpjAtivo = () => String(empresaSelecionada?.value?.cnpj || arquivoInfo?.value?.cnpj || (concilResult.value && concilResult.value.cnpj_empresa) || '').replace(/\D/g, '');
+const limpaChave = (c) => String(c || '').replace(/\D/g, '');
+const nfAberta = (chave) => !!concilNfAberta.value[limpaChave(chave)];
+function toggleNf(chave) {
+    const c = limpaChave(chave);
+    if (c.length < 20) return;
+    concilNfAberta.value = { ...concilNfAberta.value, [c]: !concilNfAberta.value[c] };
+}
+
+function onConcilCsvSelected(e) {
+    const f = e.target.files && e.target.files[0];
+    concilCsvFile.value = f || null;
+    concilCsvName.value = f ? f.name : '';
+    concilError.value = '';
+    concilResult.value = null;
+}
+
+async function conciliarSefaz() {
+    concilError.value = '';
+    const cnpj = String(empresaSelecionada?.value?.cnpj || arquivoInfo?.value?.cnpj || '').replace(/\D/g, '');
+    if (!concilCsvFile.value) { concilError.value = 'Selecione o arquivo CSV da SEFAZ.'; return; }
+    if (cnpj.length < 11) { concilError.value = 'Empresa não identificada (CNPJ ausente). Abra um arquivo desta empresa.'; return; }
+    concilLoading.value = true;
+    concilResult.value = null;
+    try {
+        const token = localStorage.getItem('token');
+        const fd = new FormData();
+        fd.append('csv', concilCsvFile.value);
+        fd.append('cnpj', cnpj);
+        // Escopo: período do SPED aberto — concilia só esse mês (útil p/ CSV semestral).
+        if (idArquivoSped.value) fd.append('id_arquivo', idArquivoSped.value);
+        fd.append('incluir_canceladas', concilDesconsiderarCanceladas.value ? 'false' : 'true');
+        const res = await axios.post(`${API_BASE_URL}/api/conciliacao/sefaz-csv`, fd, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        concilResult.value = res.data;
+    } catch (e) {
+        concilError.value = e.response?.data?.message || ('Erro ao conciliar: ' + e.message);
+    } finally {
+        concilLoading.value = false;
+    }
+}
+
+function exportConcilCsv() {
+    const r = concilResult.value; if (!r) return;
+    const rows = [['Categoria', 'Numero NF', 'Chave', 'Competencia', 'Emissao', 'Valor / Detalhe', 'Fornecedor']];
+    r.faltantes.forEach(f => rows.push([f.uso_consumo ? 'FALTANTE_USO_CONSUMO' : 'FALTANTE', f.numero, f.chave, f.comp, f.data, f.valor, f.fornecedor]));
+    r.divergencia_valor.forEach(d => rows.push(['DIVERG_VALOR', d.numero, d.chave, '', '', `SEFAZ ${d.valorSefaz} x SPED ${d.valorSped} (dif ${d.dif})`, d.fornecedor]));
+    r.divergencia_competencia.forEach(d => rows.push(['LANCADA_OUTRO_MES', d.numero, d.chave, `Emit ${d.data} -> Lancada ${d.dataSped || d.compSped}`, d.data, d.valor, d.fornecedor]));
+    r.extras.forEach(x => rows.push(['EXTRA_SPED', x.numero, x.chave, x.comp, x.data, x.valor, x.fornecedor]));
+    (r.sem_sped || []).forEach(s => rows.push(['SEM_SPED_NO_PERIODO', s.numero, s.chave, s.comp, s.data, s.valor, s.fornecedor]));
+    (r.canceladas || []).forEach(c => rows.push(['CANCELADA', c.numero, c.chave, c.comp, c.data, c.valor, c.fornecedor]));
+    const csv = '\uFEFF' + rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'conciliacao_sefaz.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 const COMBUSTIVEIS_LMC = ['GASOLINA', 'ETANOL', 'ÁLCOOL', 'ALCOOL', 'DIESEL', 'GNV', 'GLP', 'QUEROSENE', 'BIODIESEL'];
@@ -1262,6 +1340,15 @@ const statusAnpGeral = computed(() => {
         Saídas NF
       </button>
       <button
+        @click="activeTab = 'conciliacao'"
+        :class="activeTab === 'conciliacao' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'"
+        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        Conciliação SEFAZ
+        <span v-if="concilResult && concilResult.totais.faltantes" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
+          {{ concilResult.totais.faltantes }}
+        </span>
+      </button>
+      <button
         @click="activeTab = 'lmc'"
         :class="activeTab === 'lmc' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
         class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
@@ -1291,6 +1378,194 @@ const statusAnpGeral = computed(() => {
         class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
         Upload
       </button>
+    </div>
+
+    <!-- Conteúdo: Conciliação SEFAZ (CSV) -->
+    <div v-if="activeTab === 'conciliacao'" class="space-y-6">
+      <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+        <h3 class="text-base font-bold text-slate-700">Conciliação SEFAZ × Escrituração</h3>
+        <p class="text-xs text-slate-500 mt-1 max-w-2xl">Suba a "Relação de NF-e" (CSV) da SEFAZ. O sistema cruza com as notas de <b>entrada</b> já no banco desta empresa (CNPJ {{ empresaSelecionada?.cnpj || arquivoInfo?.cnpj || '—' }}) e aponta o que está na SEFAZ e falta na sua escrituração. O período é detectado automaticamente pelas datas do CSV.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <label class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600 cursor-pointer transition-all">
+            <input type="file" accept=".csv,.CSV" class="hidden" @change="onConcilCsvSelected">
+            {{ concilCsvName || 'Selecionar CSV da SEFAZ' }}
+          </label>
+          <button @click="conciliarSefaz" :disabled="concilLoading || !concilCsvFile"
+            class="px-5 py-2 rounded-xl text-xs font-bold text-white transition-all"
+            :class="(concilLoading || !concilCsvFile) ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'">
+            {{ concilLoading ? 'Conciliando…' : 'Conciliar' }}
+          </button>
+          <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+            <input type="checkbox" v-model="concilDesconsiderarCanceladas" @change="onToggleCanceladas" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+            Desconsiderar canceladas
+          </label>
+          <span v-if="concilError" class="text-xs font-semibold text-red-600">{{ concilError }}</span>
+        </div>
+      </div>
+
+      <div v-if="concilResult" class="space-y-5">
+        <!-- Aviso: período do CSV sem SPED importado -->
+        <div v-if="concilResult.meses_sem_sped && concilResult.meses_sem_sped.length"
+             class="rounded-3xl border p-4 flex items-start gap-3"
+             :class="concilResult.sem_sped_total ? 'bg-amber-100 border-amber-300' : 'bg-amber-50 border-amber-200'">
+          <span class="text-xl leading-none">⚠️</span>
+          <div class="text-sm">
+            <p class="font-bold text-amber-800">
+              {{ concilResult.sem_sped_total ? 'Não há SPED importado para o período deste CSV.' : 'Alguns meses do CSV não têm SPED importado.' }}
+            </p>
+            <p class="text-amber-700 mt-0.5">
+              Sem SPED para: <b>{{ concilResult.meses_sem_sped.join(', ') }}</b>.
+              {{ concilResult.totais.sem_sped }} nota(s) desse(s) mês(es) <b>não foram conferidas</b> e não entram em "faltantes".
+              Importe o SPED do período e concilie novamente.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
+            <p class="text-[10px] uppercase font-bold text-slate-400">Período (CSV)</p>
+            <p class="text-sm font-bold text-slate-700">{{ concilResult.periodo || '—' }}</p>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
+            <p class="text-[10px] uppercase font-bold text-slate-400">Notas SEFAZ</p>
+            <p class="text-lg font-bold text-slate-700">{{ concilResult.totais.sefaz_valido }}</p>
+          </div>
+          <div class="p-4 rounded-2xl border shadow-sm text-center" :class="concilResult.totais.faltantes ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-white'">
+            <p class="text-[10px] uppercase font-bold text-slate-400">Faltantes</p>
+            <p class="text-lg font-bold" :class="concilResult.totais.faltantes ? 'text-red-600' : 'text-slate-700'">{{ concilResult.totais.faltantes }}</p>
+          </div>
+          <div class="p-4 rounded-2xl border shadow-sm text-center" :class="(concilResult.totais.divergencia_valor || concilResult.totais.divergencia_competencia) ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-white'">
+            <p class="text-[10px] uppercase font-bold text-slate-400">Divergências</p>
+            <p class="text-lg font-bold text-amber-600">{{ concilResult.totais.divergencia_valor + concilResult.totais.divergencia_competencia }}</p>
+          </div>
+          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
+            <p class="text-[10px] uppercase font-bold text-slate-400">Extras no SPED</p>
+            <p class="text-lg font-bold text-slate-700">{{ concilResult.totais.extras }}</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 flex-wrap text-[11px] text-slate-500">
+          <span v-if="concilResult.periodo_escopo" class="text-sky-700 font-semibold">📅 Conferindo só o período do SPED aberto: {{ concilResult.periodo_escopo }}<template v-if="concilResult.totais.fora_escopo"> · {{ concilResult.totais.fora_escopo }} nota(s) de outros meses do CSV ignorada(s)</template></span>
+          <button v-if="concilResult.totais.canceladas" @click="concilVerCanceladas = !concilVerCanceladas"
+            class="underline decoration-dotted hover:text-slate-700">
+            ⚪ {{ concilResult.totais.canceladas }} cancelada(s) {{ concilResult.incluiu_canceladas ? 'incluída(s)' : 'desconsiderada(s)' }} ({{ concilVerCanceladas ? 'ocultar' : 'ver' }})
+          </button>
+          <span v-if="concilResult.totais.uso_consumo" class="text-indigo-600 font-semibold">🔁 {{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
+          <span v-if="concilResult.sem_escrituracao" class="text-amber-600 font-semibold">⚠️ Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
+          <button @click="exportConcilCsv" class="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold">📥 Exportar resultado (CSV)</button>
+        </div>
+
+        <!-- Faltantes -->
+        <div v-if="concilResult.faltantes.length" class="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-red-50 border-b border-red-100 font-bold text-red-700 text-sm">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+              <tbody>
+                <tr v-for="(f,i) in concilResult.faltantes" :key="'f'+i" class="border-t border-slate-50 hover:bg-slate-50">
+                  <td class="p-2">{{ f.numero }}</td><td class="p-2 font-mono text-[10px]">{{ f.chave }}</td><td class="p-2">{{ f.comp }}</td><td class="p-2 text-right">{{ fmtBRL(f.valor) }}</td><td class="p-2 whitespace-nowrap">{{ f.data }}</td>
+                  <td class="p-2">{{ f.fornecedor }}<span v-if="f.uso_consumo" class="ml-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[9px] font-bold whitespace-nowrap">uso/consumo</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Divergência de valor -->
+        <div v-if="concilResult.divergencia_valor.length" class="bg-white rounded-3xl border border-amber-100 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 font-bold text-amber-700 text-sm">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th></tr></thead>
+              <tbody>
+                <template v-for="(d,i) in concilResult.divergencia_valor" :key="'dv'+i">
+                  <tr class="border-t border-slate-50 hover:bg-slate-50">
+                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2">{{ d.numero }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right">{{ fmtBRL(d.valorSefaz) }}</td><td class="p-2 text-right">{{ fmtBRL(d.valorSped) }}</td><td class="p-2 text-right font-bold" :class="d.dif >= 0 ? 'text-red-600' : 'text-emerald-600'">{{ fmtBRL(d.dif) }}</td>
+                  </tr>
+                  <tr v-if="nfAberta(d.chave)"><td colspan="6" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Lançada em outro mês (sem omissão) -->
+        <div v-if="concilResult.divergencia_competencia.length" class="bg-white rounded-3xl border border-sky-100 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-sky-50 border-b border-sky-100 text-sky-700 text-sm">
+            <span class="font-bold">📅 Lançadas em outro mês — sem omissão ({{ concilResult.divergencia_competencia.length }})</span>
+            <span class="block text-[11px] text-sky-600 font-normal mt-0.5">A NF está na SEFAZ no mês emitido, mas foi escriturada em outra competência do seu SPED. <b>Não é omissão</b> — apenas lançamento em data diferente (atenção a crédito extemporâneo).</span>
+          </div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão (SEFAZ)</th><th class="text-left p-2">Lançada no SPED</th></tr></thead>
+              <tbody>
+                <template v-for="(d,i) in concilResult.divergencia_competencia" :key="'dc'+i">
+                  <tr class="border-t border-slate-50 hover:bg-slate-50">
+                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2">{{ d.numero }}</td><td class="p-2 font-mono text-[10px]">{{ d.chave }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right">{{ fmtBRL(d.valor) }}</td><td class="p-2 whitespace-nowrap">{{ d.data }}</td><td class="p-2 whitespace-nowrap font-semibold text-sky-700">{{ d.dataSped || d.compSped }}</td>
+                  </tr>
+                  <tr v-if="nfAberta(d.chave)"><td colspan="7" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Extras -->
+        <div v-if="concilResult.extras.length" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-slate-50 border-b border-slate-200 font-bold text-slate-600 text-sm">🟡 No SPED, sem correspondência na SEFAZ ({{ concilResult.extras.length }})</div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+              <tbody>
+                <template v-for="(x,i) in concilResult.extras" :key="'x'+i">
+                  <tr class="border-t border-slate-50 hover:bg-slate-50">
+                    <td class="p-2 text-center"><button @click="toggleNf(x.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(x.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2">{{ x.numero }}</td><td class="p-2 font-mono text-[10px]">{{ x.chave }}</td><td class="p-2">{{ x.comp }}</td><td class="p-2 text-right">{{ fmtBRL(x.valor) }}</td><td class="p-2 whitespace-nowrap">{{ x.data }}</td><td class="p-2">{{ x.fornecedor }}</td>
+                  </tr>
+                  <tr v-if="nfAberta(x.chave)"><td colspan="7" class="p-0"><NfItens :chave="x.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Notas em meses sem SPED importado (não conferidas) -->
+        <div v-if="concilResult.sem_sped && concilResult.sem_sped.length" class="bg-white rounded-3xl border border-amber-100 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 font-bold text-amber-700 text-sm">⚠️ Notas em meses sem SPED importado — não conferidas ({{ concilResult.sem_sped.length }})</div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+              <tbody>
+                <tr v-for="(s,i) in concilResult.sem_sped" :key="'s'+i" class="border-t border-slate-50 hover:bg-slate-50">
+                  <td class="p-2">{{ s.numero }}</td><td class="p-2 font-mono text-[10px]">{{ s.chave }}</td><td class="p-2">{{ s.comp }}</td><td class="p-2 text-right">{{ fmtBRL(s.valor) }}</td><td class="p-2 whitespace-nowrap">{{ s.data }}</td><td class="p-2">{{ s.fornecedor }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Canceladas (visível via o link "ver") -->
+        <div v-if="concilVerCanceladas && concilResult.canceladas && concilResult.canceladas.length" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="px-5 py-3 bg-slate-100 border-b border-slate-200 font-bold text-slate-600 text-sm">⚪ Notas canceladas/denegadas no CSV ({{ concilResult.canceladas.length }}) — {{ concilResult.incluiu_canceladas ? 'incluídas na conciliação' : 'desconsideradas' }}</div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+              <tbody>
+                <tr v-for="(c,i) in concilResult.canceladas" :key="'c'+i" class="border-t border-slate-50 hover:bg-slate-50 text-slate-400 line-through decoration-slate-300">
+                  <td class="p-2">{{ c.numero }}</td><td class="p-2 font-mono text-[10px]">{{ c.chave }}</td><td class="p-2">{{ c.comp }}</td><td class="p-2 text-right">{{ fmtBRL(c.valor) }}</td><td class="p-2 whitespace-nowrap">{{ c.data }}</td><td class="p-2 no-underline">{{ c.fornecedor }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-if="!concilResult.sem_sped_total && !concilResult.faltantes.length && !concilResult.divergencia_valor.length && !concilResult.divergencia_competencia.length && !concilResult.extras.length"
+             class="bg-emerald-50 border border-emerald-100 rounded-3xl p-6 text-center text-emerald-700 font-bold">
+          ✅ Tudo conciliado — nenhuma divergência no período.
+        </div>
+      </div>
     </div>
 
     <!-- Conteúdo: Auditoria Sintática (Malha Fina) -->

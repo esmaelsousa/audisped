@@ -168,7 +168,7 @@ async function ejetarTodosGrupos() {
 
         if (data?.tipo === 'cnpj_invalido') {
             logs.value.push(`[BLOQUEADO] ${data.message}`);
-            data.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → CNPJ XML: ${b.cnpj_xml} | CNPJ SPED: ${b.cnpj_sped}`));
+            data.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → XML é de ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml}) | SPED selecionado: CNPJ ${b.cnpj_sped}`));
             gruposAtivos.forEach(g => { g.status = 'erro'; });
         } else if (data?.tipo === 'periodo_divergente') {
             _pendingFdNfe = fd;
@@ -394,10 +394,10 @@ async function parseXmls(forceReplace = false) {
             modalSubstituir.value = true;
         } else if (e.response?.data?.tipo === 'cnpj_divergente') {
             const data = e.response.data;
-            const listaStr = data.bloqueados.map(b => `${b.arquivo}: CNPJ XML=${b.cnpj_xml}, CNPJ SPED=${b.cnpj_sped}`).join('\n');
+            const listaStr = data.bloqueados.map(b => `${b.arquivo}:\n   • Este XML é de: ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml})\n   • SPED selecionado: CNPJ ${b.cnpj_sped}`).join('\n\n');
             logs.value.push(`[ERROR] ${data.message}`);
-            data.bloqueados.forEach(b => logs.value.push(`  → ${b.arquivo}: CNPJ do XML (${b.cnpj_xml}) ≠ CNPJ do SPED (${b.cnpj_sped})`));
-            alert(`BLOQUEADO: ${data.message}\n\n${listaStr}\n\nVerifique se selecionou a empresa correta.`);
+            data.bloqueados.forEach(b => logs.value.push(`  → ${b.arquivo}: XML pertence a ${b.nome_xml || '(nome indisponível)'} — CNPJ ${b.cnpj_xml} ≠ CNPJ do SPED ${b.cnpj_sped}`));
+            alert(`BLOQUEADO: ${data.message}\n\n${listaStr}\n\nVocê está injetando um XML de OUTRA empresa. Verifique se selecionou o SPED correto.`);
         } else if (e.response?.data?.tipo === 'periodo_divergente') {
             const data = e.response.data;
             _pendingFdNfe = formData;
