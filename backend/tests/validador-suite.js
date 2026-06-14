@@ -7,6 +7,7 @@ const assert = require('assert');
 const { parseSped } = require('../services/validador/parser');
 const { validar } = require('../services/validador/engine');
 const regras = require('../services/validador/rules');
+const { aplicar } = require('../services/validador/correcoes');
 
 let pass = 0, fail = 0; const fails = [];
 function t(nome, fn) { try { fn(); pass++; } catch (e) { fail++; fails.push(`${nome} → ${e.message}`); } }
@@ -127,6 +128,40 @@ t('h005 +: DT_INV posterior ao DT_FIN dispara', () => assert.ok(fires(H(['|H005|
 t('h005 +: DT_INV vazia dispara', () => assert.ok(fires(H(['|H005||100,00|01|']), 'INV-H005-01')));
 t('h005 -: DT_INV = DT_FIN não dispara', () => assert.ok(!fires(H(['|H005|31012022|100,00|01|']), 'INV-H005-01')));
 t('h005 - (extemporâneo): DT_INV de período anterior não dispara', () => assert.ok(!fires(H(['|H005|31122021|100,00|01|']), 'INV-H005-01')));
+
+// INV-H010-01 (VL_INV do H005 = Σ VL_ITEM dos H010). DT_INV=31012022 (=DT_FIN) p/ não acionar INV-H005-01.
+const H010 = (cod, vlItem) => `|H010|${cod}|UN|1,000|${vlItem}|${vlItem}|0|||1||`;
+t('h010 +: VL_INV ≠ Σ VL_ITEM dispara', () => assert.ok(fires(H(['|H005|31012022|100,00|01|', H010('A', '10,00'), H010('B', '20,00')]), 'INV-H010-01')));
+t('h010 -: VL_INV = Σ VL_ITEM não dispara', () => assert.ok(!fires(H(['|H005|31012022|30,00|01|', H010('A', '10,00'), H010('B', '20,00')]), 'INV-H010-01')));
+t('h010 -: H005 sem H010 (fora de escopo) não dispara', () => assert.ok(!fires(H(['|H005|31012022|100,00|01|']), 'INV-H010-01')));
+t('h010 +: soma com centavos (arredondamento) confere', () => assert.ok(fires(H(['|H005|31012022|0,30|01|', H010('A', '0,10'), H010('B', '0,15')]), 'INV-H010-01')));
+t('h010 -: split por IND_PROP soma todos os H010 do produto', () => assert.ok(!fires(H(['|H005|31012022|50,00|01|', '|H010|A|UN|1,000|30,00|30,00|0|||1||', '|H010|A|UN|1,000|20,00|20,00|2|||1||']), 'INV-H010-01')));
+t('h010 sugerido = Σ VL_ITEM', () => assert.ok(firesDet(H(['|H005|31012022|100,00|01|', H010('A', '10,00'), H010('B', '20,00')]), 'INV-H010-01', '30,00')));
+
+// Colisão de chaveNatural do H005 (MOT_INV repetido) — desambiguação por ocorrência.
+t('h005 chaveNatural: 2 H005 mesmo MOT_INV → chaves distintas (01, 01#2)', () => {
+    const r = run(H(['|H005|31012022|10,00|01|', H010('A', '30,00'), '|H005|31012022|20,00|01|', H010('B', '40,00')]));
+    const ch = r.erros.filter(e => e.regra_id === 'INV-H010-01').map(e => e.chaveNatural).sort();
+    assert.deepEqual(ch, ['01', '01#2']);
+});
+t('aplicar: H005 mesmo MOT_INV — correção 01 só na 1ª ocorrência (não vaza)', () => {
+    const l = ['|H005|31012022|10,00|01|', '|H005|31012022|20,00|01|'];
+    aplicar(l, [{ registro: 'H005', chave_natural: '01', campo_idx: 2, valor_corrigido: 'AAA' }]);
+    assert.equal(l[0].split('|')[2], 'AAA');
+    assert.equal(l[1].split('|')[2], '31012022');
+});
+t('aplicar: H005 mesmo MOT_INV — correção 01#2 só na 2ª ocorrência', () => {
+    const l = ['|H005|31012022|10,00|01|', '|H005|31012022|20,00|01|'];
+    aplicar(l, [{ registro: 'H005', chave_natural: '01#2', campo_idx: 2, valor_corrigido: 'BBB' }]);
+    assert.equal(l[0].split('|')[2], '31012022');
+    assert.equal(l[1].split('|')[2], 'BBB');
+});
+t('aplicar: H005 único keyed 01 (compat. com correções já gravadas) ainda aplica', () => {
+    const l = ['|H005|31012022|10,00|01|'];
+    const n = aplicar(l, [{ registro: 'H005', chave_natural: '01', campo_idx: 2, valor_corrigido: 'ZZZ' }]);
+    assert.equal(n, 1);
+    assert.equal(l[0].split('|')[2], 'ZZZ');
+});
 
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);

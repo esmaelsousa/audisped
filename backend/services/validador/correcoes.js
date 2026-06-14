@@ -47,6 +47,17 @@ function chaveNatural(reg, f, curChaveC100) {
     }
 }
 
+// H005 não tem chave única no SPED (MOT_INV pode repetir entre inventários do mesmo arquivo).
+// Para uma correção manual de um inventário NÃO vazar para outro H005 de mesmo MOT_INV,
+// desambiguamos por ORDEM de ocorrência: a 1ª ocorrência mantém a chave (MOT_INV) — compatível
+// com correções já gravadas — e a 2ª+ recebe sufixo "#N". O contador é mantido pelo chamador,
+// que varre o arquivo na mesma ordem (engine ao gerar a chave do erro, aplicar ao casar).
+function ordinalH005(kn, contador) {
+    const c = (contador.get(kn) || 0) + 1;
+    contador.set(kn, c);
+    return c > 1 ? kn + '#' + c : kn;
+}
+
 // Aplica as correções in-place em outputLines (array de linhas pipe). Retorna nº de campos alterados.
 function aplicar(outputLines, correcoes) {
     if (!Array.isArray(outputLines) || !correcoes || !correcoes.length) return 0;
@@ -58,11 +69,13 @@ function aplicar(outputLines, correcoes) {
     }
     let aplicadas = 0;
     let curChaveC100 = '';
+    const h005Cont = new Map();
     for (let i = 0; i < outputLines.length; i++) {
         const f = outputLines[i].split('|');
         const reg = f[1];
         if (reg === 'C100') curChaveC100 = String(f[9] || '').replace(/\D/g, '');
-        const kn = chaveNatural(reg, f, curChaveC100);
+        let kn = chaveNatural(reg, f, curChaveC100);
+        if (reg === 'H005' && kn != null) kn = ordinalH005(kn, h005Cont);
         if (kn == null) continue;
         const cs = idx.get(reg + '::' + kn);
         if (!cs) continue;
@@ -76,4 +89,4 @@ function aplicar(outputLines, correcoes) {
     return aplicadas;
 }
 
-module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, aplicar };
+module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, ordinalH005, aplicar };

@@ -8566,6 +8566,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             logger.warn('[Validador] correções não aplicadas (não bloqueia o export): ' + eCorr.message);
         }
 
+        // ── Coerência Bloco H: VL_INV(H005) = Σ VL_ITEM(H010) ──────────────────
+        // O export reescreve QTD/VL_ITEM dos H010 de combustível p/ o estoque físico
+        // ajustado do LMC (acima ~7978); sem isto o total VL_INV do H005 fica defasado
+        // → PVA: "VL_INV do H005 deve ser = soma dos VL_ITEM dos H010". VL_INV é derivado.
+        // Roda DEPOIS das correções manuais (reflete H010 corrigido) e ANTES do recálculo
+        // dos totalizadores (não muda nº de linhas). No-op se não há Bloco H ou já bate.
+        {
+            const { recalcularVlInvH005 } = require('./services/spedCostureiraService');
+            recalcularVlInvH005(outputLines); // muta in-place
+        }
+
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
         // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
         // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula

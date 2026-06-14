@@ -876,6 +876,38 @@ function enforcarCoerencia1300(linhas) {
     return linhas;
 }
 
+// ── Coerência Bloco H (inventário): VL_INV do H005 = Σ VL_ITEM dos H010 filhos ──────
+// O export reescreve QTD/VL_ITEM de H010 de combustível para o estoque FÍSICO ajustado
+// do LMC (server.js ~7978), mudando a soma dos itens — mas o total do H005 (VL_INV) não
+// era recalculado, ficando defasado. PVA: "O valor total do estoque (VL_INV do H005) deve
+// ser igual à soma dos valores dos itens (VL_ITEM) dos H010". VL_INV é um total DERIVADO →
+// recalcula = Σ VL_ITEM dos H010 entre este H005 e o próximo H005 (H020 NÃO soma; H010 de
+// split por IND_PROP somam todos). Só mexe quando o H005 tem ≥1 H010 (não zera total de
+// inventário sem itens — completude é outro check). No-op byte-idêntico quando não há Bloco
+// H ou o total já bate. Layout: H005 |H005|DT_INV|VL_INV|MOT_INV| (f[3]); H010 ...VL_ITEM=f[6].
+function recalcularVlInvH005(linhas) {
+    const num = (s) => parseFloat(String(s == null ? '0' : s).replace(',', '.')) || 0;
+    let h005Idx = -1, somaCents = 0, nItens = 0;
+    const fechar = () => {
+        if (h005Idx < 0 || nItens === 0) return;
+        const f = linhas[h005Idx].split('|');
+        if (f.length > 3 && Math.round(num(f[3]) * 100) !== somaCents) {
+            f[3] = (somaCents / 100).toFixed(2).replace('.', ',');
+            linhas[h005Idx] = f.join('|');
+        }
+    };
+    for (let i = 0; i < linhas.length; i++) {
+        const reg = linhas[i].split('|')[1];
+        if (reg === 'H005') { fechar(); h005Idx = i; somaCents = 0; nItens = 0; }
+        else if (reg === 'H010' && h005Idx >= 0) {
+            somaCents += Math.round(num(linhas[i].split('|')[6]) * 100);
+            nItens++;
+        }
+    }
+    fechar();
+    return linhas;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -883,5 +915,6 @@ module.exports = {
     costurarEAssinarLinhas,
     realocar0221,
     normalizarUsoConsumoCst90,
-    enforcarCoerencia1300
+    enforcarCoerencia1300,
+    recalcularVlInvH005
 };
