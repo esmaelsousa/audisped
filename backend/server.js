@@ -5677,7 +5677,15 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         const PORT_ = process.env.PORT || 15435;
         const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-revalidar', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
         const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}` } });
-        if (!exp.ok) return res.status(502).json({ message: `Falha ao gerar o SPED corrigido para re-validar (HTTP ${exp.status}).` });
+        if (!exp.ok) {
+            // O export pode ABORTAR com motivo claro (ex.: 422 = falta CAP_TANQUE no leiaute 020).
+            // Propaga ESSE motivo p/ o usuário, em vez de um "HTTP 422" genérico.
+            const motivo = (await exp.text().catch(() => '')).trim();
+            return res.status(exp.status === 422 ? 422 : 502).json({
+                bloqueio: exp.status === 422,
+                message: motivo || `Falha ao gerar o SPED corrigido para re-validar (HTTP ${exp.status}).`,
+            });
+        }
         const txt = Buffer.from(await exp.arrayBuffer()).toString('latin1');
         const { parseSped } = require('./services/validador/parser');
         const { validar } = require('./services/validador/engine');
