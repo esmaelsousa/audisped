@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import { empresaSelecionada, idArquivoSped } from '../store';
+import { empresaSelecionada, idArquivoSped, setArquivoInfo, setEmpresaSelecionada } from '../store';
 import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-vue-next';
 
 const loading = ref(false);
@@ -18,6 +18,10 @@ const empresas = ref([]);
 const arquivos = ref([]);
 const empresaSel = ref(empresaSelecionada.value?.id || null);
 const arquivoSel = ref(idArquivoSped.value ? Number(idArquivoSped.value) : null);
+const buscaEmpresa = ref('');
+const uploadRef = ref(null);
+const uploading = ref(false);
+const uploadMsg = ref('');
 
 const NOME_BLOCO = {
   '0': 'Bloco 0 — Cadastros', 'C': 'Bloco C — NF-e/NFC-e', 'D': 'Bloco D — CT-e',
@@ -28,6 +32,22 @@ const NOME_BLOCO = {
 const nomeBloco = (b) => NOME_BLOCO[b] || ('Bloco ' + b);
 const nomeEmpresa = (e) => e ? (e.razao_social || e.nome_empresa || e.nome || e.cnpj || ('Empresa ' + e.id)) : '';
 const empresaNome = computed(() => nomeEmpresa(empresas.value.find(e => e.id === empresaSel.value)));
+
+// Busca inteligente: por tokens (sem acento/caixa) em razão social + fantasia, e por dígitos no CNPJ.
+const normTxt = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const empresasFiltradas = computed(() => {
+  const raw = buscaEmpresa.value.trim();
+  if (!raw) return empresas.value;
+  const tokens = normTxt(raw).split(/\s+/).filter(Boolean);
+  const dig = raw.replace(/\D/g, '');
+  return empresas.value.filter(e => {
+    const hay = normTxt(`${e.nome_empresa || ''} ${e.nome_fantasia || ''} ${e.razao_social || ''}`);
+    const cnpj = String(e.cnpj || '').replace(/\D/g, '');
+    const txtOk = tokens.length > 0 && tokens.every(t => hay.includes(t) || cnpj.includes(t));
+    const cnpjOk = dig.length >= 2 && cnpj.includes(dig);
+    return txtOk || cnpjOk;
+  });
+});
 const fmtPeriodo = (p) => {
   if (!p) return '—';
   const [a, b] = String(p).split('-');
@@ -75,6 +95,34 @@ async function analisar() {
   } catch (e) {
     erro.value = e.response?.data?.message || ('Erro ao validar: ' + e.message);
   } finally { loading.value = false; }
+}
+
+// Importa um SPED novo no banco (REUSA /api/upload, igual ao Analisador) e valida por id.
+async function importarSped(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = ''; // permite re-selecionar o mesmo arquivo depois
+  if (!file) return;
+  if (!confirm(`Importar "${file.name}"?\n\nSe este período já existir no banco, os dados anteriores (inclusive ajustes de LMC) serão substituídos.`)) return;
+  uploading.value = true; uploadMsg.value = `Importando ${file.name}…`; erro.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('spedfile', file); // campo EXATO esperado pelo backend
+    const res = await axios.post(`${API_BASE_URL}/api/upload`, fd, { headers: authHeader() });
+    const { id_sped_arquivo, fileInfo } = res.data;
+    // store (ponte p/ outras telas) + seleção da empresa (pode ser NOVA, criada agora)
+    setArquivoInfo({ id: id_sped_arquivo, nome: file.name, cnpj: fileInfo?.cnpj_empresa, periodo: fileInfo?.periodo_apuracao });
+    setEmpresaSelecionada({ id: fileInfo?.id_empresa, nome_empresa: fileInfo?.nome_empresa, nome_fantasia: fileInfo?.nome_fantasia, cnpj: fileInfo?.cnpj_empresa, uf: fileInfo?.uf });
+    await carregarEmpresas();             // recarrega (empresa pode ter sido criada agora)
+    buscaEmpresa.value = '';
+    empresaSel.value = fileInfo?.id_empresa || null;
+    await carregarArquivos();             // zera arquivoSel → por isso o set vem DEPOIS
+    arquivoSel.value = id_sped_arquivo;
+    uploadMsg.value = '';
+    await analisar();
+  } catch (e) {
+    erro.value = e.response?.data?.message || e.response?.data?.error || ('Erro ao importar: ' + e.message);
+    uploadMsg.value = '';
+  } finally { uploading.value = false; }
 }
 
 function toggle(i) {
@@ -178,12 +226,22 @@ onMounted(async () => {
 
     <!-- Seletor empresa → período (só arquivos do banco) -->
     <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+      <div class="mb-3">
+        <label class="text-[11px] font-bold text-slate-500 uppercase">Buscar empresa</label>
+        <div class="relative mt-1">
+          <input v-model="buscaEmpresa" type="text" placeholder="CNPJ, razão social ou nome fantasia…"
+            class="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 pr-8" />
+          <button v-if="buscaEmpresa" @click="buscaEmpresa = ''" type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <p v-if="buscaEmpresa" class="text-[10px] text-slate-400 mt-1">{{ empresasFiltradas.length }} de {{ empresas.length }} empresa(s)</p>
+      </div>
       <div class="grid sm:grid-cols-[2fr_1.5fr_auto] gap-3 items-end">
         <div>
           <label class="text-[11px] font-bold text-slate-500 uppercase">Empresa</label>
           <select v-model="empresaSel" @change="carregarArquivos" class="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2">
             <option :value="null">— selecione —</option>
-            <option v-for="e in empresas" :key="e.id" :value="e.id">{{ nomeEmpresa(e) }}</option>
+            <option v-for="e in empresasFiltradas" :key="e.id" :value="e.id">{{ nomeEmpresa(e) }} · {{ e.cnpj }}</option>
           </select>
         </div>
         <div>
@@ -199,7 +257,16 @@ onMounted(async () => {
           {{ loading ? 'Validando…' : 'Validar este SPED' }}
         </button>
       </div>
-      <p class="text-[11px] text-slate-400 mt-2">Apenas SPEDs já importados aparecem aqui. Para incluir um arquivo novo, importe-o no Analisador.</p>
+      <div class="flex items-center gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
+        <input ref="uploadRef" type="file" accept=".txt,.TXT" class="hidden" @change="importarSped" />
+        <button @click="uploadRef && uploadRef.click()" :disabled="uploading"
+          class="px-4 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 flex items-center gap-2">
+          <Loader2 v-if="uploading" class="w-4 h-4 animate-spin" /><UploadCloud v-else class="w-4 h-4" />
+          {{ uploading ? 'Importando…' : 'Importar SPED (.txt)' }}
+        </button>
+        <span v-if="uploadMsg" class="text-xs text-indigo-600 font-semibold">{{ uploadMsg }}</span>
+        <span v-else class="text-[11px] text-slate-400">Importa um SPED novo no banco (como o Analisador) e já valida. Ou selecione um já importado acima.</span>
+      </div>
     </div>
 
     <div v-if="erro" class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-2xl p-4">{{ erro }}</div>
