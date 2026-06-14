@@ -8459,6 +8459,22 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             enforcarCoerencia1300(outputLines); // muta in-place
         }
 
+        // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
+        // Aplica overrides de campo que o cliente confirmou no Validador, ANTES do
+        // recálculo de totalizadores (assim contagens permanecem corretas). Com a
+        // tabela vazia → no-op → export byte-idêntico (garantido pelo arnês golden).
+        try {
+            const correcoesSvc = require('./services/validador/correcoes');
+            const correcoes = await correcoesSvc.buscarCorrecoes(dbClient, arquivoId);
+            if (correcoes.length) {
+                const n = correcoesSvc.aplicar(outputLines, correcoes);
+                logger.info(`[Validador] ${n} correção(ões) de campo aplicada(s) no export do arquivo ${arquivoId}.`);
+                changesApplied += n;
+            }
+        } catch (eCorr) {
+            logger.warn('[Validador] correções não aplicadas (não bloqueia o export): ' + eCorr.message);
+        }
+
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
         // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
         // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula
@@ -9176,4 +9192,8 @@ app.listen(PORT, '0.0.0.0', () => {
         .then(() => regrasFiscais.seedRegrasFiscais(pool))
         .then(n => logger.info(`Regras fiscais prontas${n ? ` (seed: ${n} regras)` : ''}.`))
         .catch(e => logger.warn('Falha ao garantir regras_fiscais: ' + e.message));
+    // Validador: tabela de correções (val_correcoes) consumida pelo export (opt-in)
+    require('./services/validador/correcoes').ensureTabela(pool)
+        .then(() => logger.info('Tabela val_correcoes pronta.'))
+        .catch(e => logger.warn('Falha ao garantir val_correcoes: ' + e.message));
 });
