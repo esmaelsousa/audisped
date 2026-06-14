@@ -12,7 +12,8 @@ module.exports = [
     // Fiscais/cadastrais (Sprint 4)
     require('./r_cst61_competencia'),  // COMB-CST-01: CST 61 antes da vigência monofásica
     require('./r_item_0200'),          // DOC-C170-01: COD_ITEM sem 0200
-    require('./r_participante_0150'),  // CAD-0150-07: COD_PART sem 0150
+    require('./r_participante_0150'),  // CAD-0150-07: COD_PART (C100/D100) sem 0150
+    require('./r_participante_0150_1601'), // CAD-0150-08: COD_PART do 1601 sem 0150
     require('./r_ncm_0200'),           // CAD-0200-03: mercadoria sem NCM válido
     require('./r_c190_x_c170'),        // DOC-C190-01: combinação CST/CFOP/ALIQ do C190 sem C170
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP

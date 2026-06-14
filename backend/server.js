@@ -6650,9 +6650,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         }
         // Aviso de lacuna no 1300 é emitido mais abaixo, após `periodoApuracao` ser definido.
 
-        // === REGRA 020 (2025+): CAP_TANQUE obrigatório no registro 1310 (leiaute 020) ===
-        // O PVA em vigor (2026) exige a Capacidade do Tanque em cada 1310 do leiaute 020 — e como
-        // transmutamos os arquivos de 2025+ p/ 020 (acima), a exigência alcança 2025. Muitos ERPs ainda
+        // === REGRA 2026: CAP_TANQUE obrigatório no registro 1310 (leiaute 020) ===
+        // A partir de jan/2026 (PERÍODOS de 2026+, leiaute 020) o PVA exige a Capacidade do Tanque
+        // em cada 1310. Períodos de 2025 e anteriores são leiaute 019: 1310 SEM CAP (10 campos) — NÃO
+        // entram nesta regra. Muitos ERPs ainda
         // emitem o arquivo no leiaute 019 (sem o campo) ou com o CAP vazio. O export já transmuta o
         // leiaute p/ 020 e cria o campo, mas precisa de um VALOR. Se o original não traz a capacidade
         // e ela não está cadastrada (lmc_tanques_config), buscamos em QUALQUER arquivo anterior do
@@ -6660,7 +6661,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Se não houver em lugar nenhum, ABORTAMOS com mensagem clara — exportar sem CAP_TANQUE seria
         // rejeitado pelo PVA.
         const _anoArq = (prescanDtIni && prescanDtIni.length === 8) ? parseInt(prescanDtIni.substring(4, 8), 10) : null;
-        if (_anoArq && _anoArq >= 2025 && itensComTanque.size > 0) {
+        if (_anoArq && _anoArq >= 2026 && itensComTanque.size > 0) {
             const _cnpjArq = arqInfo.rows[0].cnpj_empresa;
             // Lê um SPED e devolve { cod_item: capacidadeTotal } a partir dos 1310 (campo CAP_TANQUE),
             // somando os tanques de cada produto (mesma lógica de /api/lmc/tanques-sugeridos).
@@ -6749,7 +6750,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (aindaFaltam.length > 0) {
                     logger.error(`[CAP2026] Export abortado: sem CAP_TANQUE p/ CNPJ ${_cnpjArq}, itens [${aindaFaltam.join(', ')}]`);
                     return res.status(422).send(
-                        `Exportação bloqueada: o leiaute 020 (PVA 2026, aplicado também à retificação de 2025) exige a CAPACIDADE DO TANQUE (CAP_TANQUE) no registro 1310, ` +
+                        `Exportação bloqueada: a partir de janeiro/2026 (leiaute 020) o registro 1310 exige a CAPACIDADE DO TANQUE (CAP_TANQUE), ` +
                         `e esse dado não consta no arquivo original (leiaute ${prescanVer}) nem em nenhum arquivo anterior deste CNPJ. ` +
                         `Informe a capacidade dos tanques dos produtos [${aindaFaltam.join(', ')}] em "Configuração de Tanques" e exporte novamente. ` +
                         `Se exportar sem a capacidade, o PVA rejeitará o arquivo.`
@@ -7092,17 +7093,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (typeof l !== 'string') return l;
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
-                // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute:
-                //  • ≤ 019: 3 campos — REG | UNID_CONV | FAT_CONV.
-                //  • ≥ 020 (2026+): 4 campos — REG | UNID_CONV | FAT_CONV | <campo novo do leiaute 020>
-                //    (em geral vazio na prática: "|0220|L|1||").
-                // O PVA conta os campos conforme o COD_VER do 0000: forçar 3 num arquivo 020 dá
-                // "nº de campos: esperado 4, contém 3"; deixar 4 num ≤019 dá "esperado 3, contém 4".
-                // `layoutVersion` aqui já é o COD_VER de SAÍDA — inclui a transmutação 019→020 de 2026
-                // (o 0000 é processado, e layoutVersion atualizado, antes de qualquer 0220 do arquivo).
-                // Por segurança extra, também tratamos como 020 quando a competência é ≥ 2026-01.
-                const _l020 = (layoutVersion >= '020') || (_compRegras >= '2026-01-01');
-                return _l020
+                // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute
+                // (comprovado em arquivos+PVA reais): COD_VER ≤ 018 → 3 campos (REG|UNID_CONV|FAT_CONV);
+                // COD_VER ≥ 019 → 4 campos (REG|UNID_CONV|FAT_CONV|<campo novo>, em geral vazio: "|0220|L|1||").
+                // Evidências: 2021 leiaute 015 → PVA "esperado 3, contém 4"; RAQUEL 2025 leiaute 019 e
+                // S CRUZ 2026 leiaute 020 → PVA "esperado 4, contém 3" quando emitido com 3.
+                // `layoutVersion` aqui já é o COD_VER de SAÍDA (inclui a transmutação 019→020 de 2026).
+                const _4campos = layoutVersion >= '019';
+                return _4campos
                     ? `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`
                     : `|0220|${f[2] || ''}|${f[3] || ''}|`;
             }
@@ -7953,11 +7951,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
                 if (date_start && date_start.length === 8) {
                     let year = parseInt(date_start.substring(4, 8), 10);
-                    // O PVA em vigor a partir de 2026 exige leiaute 020 também para a RETIFICAÇÃO de
-                    // períodos de 2025 (muitos ERPs ainda rotulam COD_VER 019 mas já emitem conteúdo
-                    // 020 — ex.: 0220 com 4 campos). Transmutamos 019→020 p/ DT_INI a partir de 2025.
-                    // (≤2024 permanece 019: byte-inalterado, sem exigir CAP_TANQUE retroativo.)
-                    if (year >= 2025 && current_version === '019') {
+                    // Leiaute 020 vale para PERÍODOS a partir de jan/2026. Períodos de 2025 e
+                    // anteriores permanecem no leiaute declarado (ex.: 019): o PVA valida o 0220
+                    // com 4 campos e o 1310 SEM CAP_TANQUE (10 campos) já em 019. NÃO transmutar
+                    // 2025 p/ 020 — isso exigiria CAP_TANQUE indevido e quebra o 1310 ("esperado 10").
+                    if (year >= 2026 && current_version === '019') {
                         fields[2] = '020'; // Transmuta silenciosamente para salvar a importação no PVA
                         changesApplied++;
                     }
@@ -7974,10 +7972,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 continue;
             }
 
-            // --- BLOCO 0150 (Fix C: registrar CNPJs presentes) ---
+            // --- BLOCO 0150 (Fix C: registrar participantes presentes) ---
+            // Rastreia COD_PART (f[2]), CNPJ (f[5]) e CPF (f[6]) p/ casar contra o
+            // COD_PART do 1601 (que costuma ser o próprio CNPJ/CPF da credenciadora).
             if (fields.length >= 2 && fields[1] === '0150') {
+                const codPart0150 = String(fields[2] || '').trim();
+                if (codPart0150) set0150CnpjsPresentes.add(codPart0150);
                 const cnpj0150 = (fields[5] || '').replace(/\D/g, '');
                 if (cnpj0150.length >= 11) set0150CnpjsPresentes.add(cnpj0150);
+                const cpf0150 = (fields[6] || '').replace(/\D/g, '');
+                if (cpf0150.length >= 11) set0150CnpjsPresentes.add(cpf0150);
                 pushLine(line);
                 continue;
             }
@@ -8486,31 +8490,55 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             logger.info(`[Export 1320] Salvos ${savedBicos} encerrantes de bicos em encerrantes_bicos_exportados (${compExp}).`);
         }
 
-        // ── Fix C (pós-loop): injeta 0150 para CNPJs do 1601 que estão ausentes ──
+        // ── Fix C (pós-loop): injeta 0150 para COD_PART do 1601 que estão ausentes ──
+        // O 1601 (totais por instrumento de pagamento — credenciadora/maquininha) cita
+        // COD_PART que o PVA exige ter um 0150 ("Código inválido. Informar código no
+        // Registro 0150"). O ERP costuma omitir esse 0150 (ex.: REDECARD/STONE). Aqui o
+        // COD_PART é, em geral, o próprio CNPJ (14 díg) ou CPF (11 díg) da credenciadora.
         if (map1601Participantes.size > 0) {
-            // Busca CNPJs dos participantes do 1601 na tabela sped_participantes
             const codPartsList = [...map1601Participantes.keys()];
-            let participantes1601 = [];
+            // Recupera o NOME do participante: 1º no próprio arquivo; depois em QUALQUER
+            // arquivo (mais recente), pois o 0150 omitido raramente está no arquivo atual.
+            const nomePorCodPart = new Map();
             try {
-                const res1601 = await dbClient.query(
-                    'SELECT cod_part, nome, cnpj FROM sped_participantes WHERE id_sped_arquivo = $1 AND cod_part = ANY($2)',
-                    [arquivoId, codPartsList]
+                const resNomes = await dbClient.query(
+                    `SELECT DISTINCT ON (cod_part) cod_part, nome
+                       FROM sped_participantes
+                      WHERE cod_part = ANY($1) AND nome IS NOT NULL AND btrim(nome) <> ''
+                      ORDER BY cod_part,
+                               (id_sped_arquivo = $2) DESC,  -- prioriza o arquivo atual
+                               id_sped_arquivo DESC`,
+                    [codPartsList, arquivoId]
                 );
-                participantes1601 = res1601.rows;
+                for (const r of resNomes.rows) nomePorCodPart.set(r.cod_part, r.nome);
             } catch (e) {
-                logger.warn('[Fix C] Erro ao buscar participantes 1601 no banco:', e.message);
+                logger.warn('[Fix C] Erro ao buscar nomes de participantes 1601 no banco:', e.message);
             }
 
-            for (const part of participantes1601) {
-                const cnpjLimpo = (part.cnpj || '').replace(/\D/g, '');
-                if (!cnpjLimpo || set0150CnpjsPresentes.has(cnpjLimpo)) continue;
+            // Itera sobre TODOS os COD_PART do 1601 (não só os achados no banco): se ainda
+            // não há 0150 para ele, injeta um 0150 mínimo. CNPJ/CPF é derivado do COD_PART
+            // quando ele é um documento válido (14 ou 11 dígitos numéricos).
+            for (const codPart of codPartsList) {
+                const docCodPart = String(codPart).replace(/\D/g, '');
+                // Já tem 0150? (chave do set é o doc limpo do 0150, e o 0150 usa COD_PART como doc)
+                if (set0150CnpjsPresentes.has(codPart) || (docCodPart && set0150CnpjsPresentes.has(docCodPart))) continue;
 
-                // Determina COD_MUN a partir do arquivo ou usa padrão
-                const nomePart = (part.nome || 'FORNECEDOR COMBUSTIVEL').toUpperCase().substring(0, 60);
+                const isCnpj = docCodPart.length === 14;
+                const isCpf  = docCodPart.length === 11;
+                if (!isCnpj && !isCpf) {
+                    // COD_PART não é doc — não dá p/ montar 0150 determinístico. Registra e segue.
+                    logger.warn(`[Fix C] COD_PART do 1601 "${codPart}" sem 0150 e não é CNPJ/CPF — 0150 NÃO injetado (corrigir no ERP).`);
+                    continue;
+                }
+
+                const nomePart = (nomePorCodPart.get(codPart) || 'INSTITUICAO DE PAGAMENTO')
+                    .toUpperCase().substring(0, 60);
                 // Formato 0150: |0150|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
-                const nova0150 = `|0150|${part.cod_part}|${nomePart}|1058|${cnpjLimpo}||ISENTO|||||||`;
+                const campoCnpj = isCnpj ? docCodPart : '';
+                const campoCpf  = isCpf  ? docCodPart : '';
+                const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|ISENTO|||||||`;
 
-                // Insere a nova linha 0150 antes do 0990 no outputLines
+                // Insere a nova linha 0150 antes do 0990 no outputLines (bloco 0)
                 const idx0990 = outputLines.findIndex(l => l.split('|')[1] === '0990');
                 if (idx0990 !== -1) {
                     outputLines.splice(idx0990, 0, nova0150);
@@ -8522,9 +8550,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     }
                     outputLines.splice(lastIdx0150 !== -1 ? lastIdx0150 + 1 : 0, 0, nova0150);
                 }
-                set0150CnpjsPresentes.add(cnpjLimpo);
+                set0150CnpjsPresentes.add(codPart);
+                if (docCodPart) set0150CnpjsPresentes.add(docCodPart);
                 changesApplied++;
-                logger.info(`[Fix C] 0150 injetado para participante 1601: ${part.cod_part} / CNPJ: ${cnpjLimpo}`);
+                logger.info(`[Fix C] 0150 injetado para COD_PART do 1601: ${codPart} (${isCnpj ? 'CNPJ' : 'CPF'}) / nome: ${nomePart}`);
             }
         }
 

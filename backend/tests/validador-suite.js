@@ -65,11 +65,12 @@ t('engine: total == bloqueantes + advertencias', () => { const r = run(H(['|0220
 // EST-9XXX-CONT (contadores)
 t('contadores +: 9999 errado dispara', () => assert.ok(fires(H(['|9999|999|']), 'EST-9XXX-CONT')));
 
-// CAD-0220-01 (nº de campos do 0220)
-t('0220 +: ≤019 com 4 campos (split=6) dispara', () => assert.ok(fires(H(['|0220|LT|1,0000||']), 'CAD-0220-01')));
-t('0220 -: ≤019 com 3 campos corretos não dispara', () => assert.ok(!fires(H(['|0220|UN|1|']), 'CAD-0220-01')));
-// Leiaute 020 (2026+): o 0220 tem 4 campos (REG|UNID|FAT|<novo>, em geral vazio) → 3 campos é ERRO.
-t('0220 -: leiaute 020 com 4 campos NÃO dispara (correto p/ 2026)', () => assert.ok(!fires(H(['|0220|L|1||'], { ver: '020', dtIni: '01042026', dtFin: '30042026' }), 'CAD-0220-01')));
+// CAD-0220-01 (nº de campos do 0220) — ≤018 → 3 campos; ≥019 → 4 campos (4º em geral vazio).
+t('0220 +: leiaute 015 com 4 campos dispara (esperado 3)', () => assert.ok(fires(H(['|0220|LT|1,0000||'], { ver: '015' }), 'CAD-0220-01')));
+t('0220 -: leiaute 015 com 3 campos não dispara', () => assert.ok(!fires(H(['|0220|UN|1|'], { ver: '015' }), 'CAD-0220-01')));
+t('0220 -: leiaute 019 com 4 campos NÃO dispara (RAQUEL 2025)', () => assert.ok(!fires(H(['|0220|CX|24||'], { ver: '019' }), 'CAD-0220-01')));
+t('0220 +: leiaute 019 com 3 campos dispara (esperado 4)', () => assert.ok(fires(H(['|0220|CX|24|'], { ver: '019' }), 'CAD-0220-01')));
+t('0220 -: leiaute 020 com 4 campos NÃO dispara (S CRUZ 2026)', () => assert.ok(!fires(H(['|0220|L|1||'], { ver: '020', dtIni: '01042026', dtFin: '30042026' }), 'CAD-0220-01')));
 t('0220 +: leiaute 020 com 3 campos dispara (esperado 4)', () => assert.ok(fires(H(['|0220|L|1|'], { ver: '020', dtIni: '01042026', dtFin: '30042026' }), 'CAD-0220-01')));
 
 // DOC-CHV-DV (chave 44 + DV)
