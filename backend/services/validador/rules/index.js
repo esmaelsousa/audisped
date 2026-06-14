@@ -15,4 +15,5 @@ module.exports = [
     require('./r_participante_0150'),  // CAD-0150-07: COD_PART sem 0150
     require('./r_ncm_0200'),           // CAD-0200-03: mercadoria sem NCM válido
     require('./r_c190_x_c170'),        // DOC-C190-01: combinação CST/CFOP/ALIQ do C190 sem C170
+    require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
 ];
