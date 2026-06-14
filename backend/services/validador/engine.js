@@ -1,0 +1,52 @@
+// Validador SPED — engine PURO. Roda todas as regras do registry sobre o modelo e
+// agrega erros + cobertura por bloco. Sem IO. Determinístico e auditável.
+const regras = require('./rules');
+
+function validar(model) {
+    const erros = [];
+    let regrasExecutadas = 0;
+    for (const regra of regras) {
+        regrasExecutadas++;
+        let achados = [];
+        try { achados = regra.detectar(model) || []; }
+        catch (e) {
+            erros.push({ regra_id: regra.id, bloco: regra.bloco || '?', severidade: 'ADV', titulo: `(falha interna na regra ${regra.id})`, detalhe: e.message });
+            continue;
+        }
+        for (const a of achados) {
+            erros.push({
+                regra_id: regra.id,
+                bloco: a.bloco || regra.bloco || '?',
+                registro: a.registro || regra.registro || '',
+                severidade: a.severidade || regra.severidade || 'ADV',
+                classeCorrecao: regra.classeCorrecao || 'manual',
+                jaCorrigidoNoExport: !!regra.jaCorrigidoNoExport,
+                titulo: regra.titulo,
+                linha: (a.linha ?? null),
+                campo: a.campo || '',
+                valorAtual: (a.valorAtual ?? ''),
+                valorSugerido: a.valorSugerido,
+                detalhe: a.detalhe || '',
+                instrucaoERP: (typeof regra.instrucaoERP === 'function' ? regra.instrucaoERP(a) : (regra.instrucaoERP || '')),
+            });
+        }
+    }
+    // Cobertura por bloco (o "X"): todos os blocos presentes + contagem de erros.
+    const porBloco = {};
+    for (const b of [...model.blocos].sort()) porBloco[b] = { presente: true, erros: 0, bloqueantes: 0 };
+    for (const e of erros) {
+        if (!porBloco[e.bloco]) porBloco[e.bloco] = { presente: false, erros: 0, bloqueantes: 0 };
+        porBloco[e.bloco].erros++;
+        if (e.severidade === 'BLOQ') porBloco[e.bloco].bloqueantes++;
+    }
+    const bloqueantes = erros.filter(e => e.severidade === 'BLOQ').length;
+    return {
+        resumo: {
+            total: erros.length, bloqueantes, advertencias: erros.length - bloqueantes,
+            regrasExecutadas, blocosPresentes: [...model.blocos].sort(),
+        },
+        porBloco, erros,
+    };
+}
+
+module.exports = { validar };
