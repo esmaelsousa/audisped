@@ -8625,6 +8625,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // fonte única de verdade. Antes, C990/D990/etc. eram escritos verbatim e
         // ficavam defasados (ex.: C990 = +1 após a dedup de um C100 → erro PVA
         // "Quantidade de linhas do bloco C ... não confere").
+        // SPED ASSINADO: o original traz linhas de ASSINATURA (binárias, não-pipe) APÓS o |9999|.
+        // O loop principal pulou as vazias, mas empurrou essas para outputLines → inflava o 9999
+        // (totalLines = outputLines.length conta as linhas de assinatura). Não são registros EFD:
+        // removê-las faz 9999/X990 baterem e o arquivo sai limpo (re-assinado no PVA). NÃO-assinado:
+        // não há linha não-pipe → no-op (golden byte-idêntico).
+        {
+            const _antes = outputLines.length;
+            for (let i = outputLines.length - 1; i >= 0; i--) {
+                if (!outputLines[i] || outputLines[i][0] !== '|') outputLines.splice(i, 1);
+            }
+            if (outputLines.length !== _antes) logger.info(`[Export] Removidas ${_antes - outputLines.length} linha(s) não-EFD (assinatura) — arquivo ${arquivoId}.`);
+        }
         const regCountMap = new Map();
         const blockLineCount = {}; // 1º caractere do registro → nº de linhas do bloco
         for (const l of outputLines) {
