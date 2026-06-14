@@ -240,3 +240,65 @@ Sprint 6+ — IA (sugestões baseadas em histórico)
 | Cliente enviar SPED corrigido com erro ao Fisco | Aviso legal explícito no modal de export. Arquivo original sempre preservado |
 | Volume de erros deixar a página lenta | Paginação server-side + filtros obrigatórios antes de carregar |
 | LGPD com dados enviados para LLM | Anonimizar CNPJ/CPF antes de enviar para API externa |
+
+---
+
+# Addendum (2026-06-14) — Análise da orquestra de agentes + curadoria sênior
+
+> Produzido por orquestração de 7 agentes (estrutura, apuração ICMS/ST, combustíveis/LMC, o que o PVA valida, benchmark E-Auditoria/CheckSped/SAAM, inventário do código atual, matriz de testes QA). **Nenhuma linha de código foi alterada** — só análise e planejamento.
+> **Catálogo completo de erros (≈80 regras, com status ✅/🟡/🔴): [CATALOGO_ERROS_SPED.md](CATALOGO_ERROS_SPED.md).**
+
+## 1. Crítica ao plano (questionando o pensamento)
+
+1. **Não construir um `sped-corrector` paralelo (Fase 2.1).** O sistema **já corrige** dezenas de erros no motor de export: totalizadores X990/9900/9999, dedup C100/D100, CFOP de entrada inexistente, CST 61→60, uso/consumo→x90, coerência 1300/1310, realocação 0221, normalização 0220, CAP_TANQUE 2026, E210 VL_RETENCAO_ST. Um novo serviço que "reescreve linhas e recalcula totais" **duplica e vai divergir** do export. → **Correção deve ser DADO, não código paralelo:** correções manuais entram como overrides (igual já existe `sped_1320.corrigido`, `lmc_*_ajustado`, `de_para_xml`) que o **export consome**. A "Central de Erros" *expõe* o que o export já faz como "correções automáticas aplicadas".
+2. **"Rodar PVA automatizado como validador" é inviável.** O PVA é Java desktop, sem CLI oficial confiável. → **Validador interno** (motor de regras) cobrindo exatamente as classes que o PVA bloqueia (mapeadas no catálogo) + **amostragem manual** no PVA. Não prometer automação do PVA.
+3. **O maior valor não é só o que o PVA bloqueia — é o que ele NÃO vê.** O PVA confere aritmética/domínio/DV, mas **não detecta omissão de documento, não cruza com a SEFAZ e não julga mérito fiscal**. O diferencial (e o que mais protege o posto de autuação) são os **cruzamentos**: EFD×SEFAZ (já temos), ST/ressarcimento/E116/E210, EFD×EFD-Contribuições. Priorizar isso **acima** da UI.
+4. **Priorize por SEVERIDADE, não por categoria.** O eixo certo é `BLOQUEANTE` (cliente não transmite) vs `ADVERTÊNCIA`. A tabela do plano ("fiscal/estrutura/lmc") é organização, não prioridade. Ver "Top prioridades" no catálogo.
+5. **A IA (Fase 3) está superdimensionada.** O `regrasFiscaisService` **já é** a "Fase 3a" (regras determinísticas baseadas em padrão fiscal, vigência por competência). A maioria das correções de posto é determinística — não precisa de 500 correções nem LLM. Rebaixar a IA/LLM para "casos ambíguos raros".
+6. **Risco invisível no plano: ZERO testes automatizados.** Não há jest/vitest/cypress (só scripts ad-hoc `test_optimize.js`, `test_keys.js`). Antes de "corrigir mais", blindar os fixes recorrentes com **testes de regressão golden-file** (original → export → checar invariantes: X990 fecha, 0220=3 campos, sem 0221 órfão, sem CFOP de entrada inválido, CST 61 só pós-vigência). Senão, reintroduzimos erros já resolvidos.
+7. **Falta infra de tabelas versionadas** (CFOP/CST/NCM/CEST/ANP/IBGE/IE) por competência. O próprio PVA rejeita códigos novos quando desatualizado; nosso validador precisa de tabelas datadas — senão geramos **falso-erro** ou deixamos passar.
+
+## 2. Reconciliação — o que JÁ existe (não re-planejar)
+
+Detecção (`/api/analisar`, `analisar-sintaxe`, validações-1320): C100×C190 valor, C100 sem C190, salto de numeração, CNPJ da chave (posicional), NCM<8, bico multi-tanque, H010×1300, continuidade 1300 (CRIT-1300-01/02), capacidade/variação/negativo do 1310 (CRIT-1310-01/02/04), participante sem 0150 (CRIT-C100-01), NF entrada×LMC, CST×CFOP de venda (RTAX-C170-01), sequência de saídas, emissão própria, lacunas LMC.
+Correção automática (export/injeção): X990/9900/9999, dedup C100/D100, 0220, 0221, CFOP entrada inexistente, CST 61→60, uso/consumo→x90, coerência 1300/1310, CAP_TANQUE, E210 retenção ST, motor de regras (CST 60/61⇒PIS/COFINS 04; monofásico).
+**Gaps confirmados:** DV de chave/CNPJ; E116 a partir do E110; recálculo de E110 e de C190 no export; crédito ST de entrada (Fase 3); CEST/ANP/IE/IBGE contra tabela; EFD×EFD-Contribuições; status SEFAZ por chave.
+
+## 3. O que o PVA valida × NÃO valida (resumo para a estratégia)
+
+- **Bloqueia:** estrutura/leiaute (nº de campos, `|` no conteúdo, hierarquia, ordem, X990/9900/9999), domínio (CFOP/CST/NCM/CEST/IBGE/ANP/unidade), datas, **DV** (CNPJ/CPF/IE/chave), soma filho×mestre (C190↔C100, D190↔D100, 1310↔1300), combinação CST×CFOP×ALIQ, apuração aritmética (E110/E116/E210/E250), referências (0150/0190/0200).
+- **Advertência (transmite):** NCM "duvidoso", coerências fracas, E113.
+- **NÃO faz:** cruzar com a SEFAZ, detectar omissão de nota, julgar mérito fiscal, recalcular C190 a partir do C170. **← é aqui que o Audisped agrega valor.**
+
+## 4. Benchmark (E-Auditoria / CheckSped / SAAM)
+
+Funcionalidades com maior retorno para postos (detalhe e fontes em [CATALOGO_ERROS_SPED.md](CATALOGO_ERROS_SPED.md)):
+- **EFD × NF-e SEFAZ por chave** (faltante/cancelada/denegada/valor divergente) — modelo CheckSped (baixa XML pela chave). Já temos base (conciliação CSV + MDe).
+- **Cruzamento ST/ressarcimento × E210 + saldo** — núcleo fiscal do posto; é o nosso gap da Fase 3.
+- **EFD × inventário (Bloco H) / estoque negativo** — alinha com LMC 1300/1320.
+- **EFD × EFD-Contribuições** (PIS/COFINS 04 na revenda monofásica).
+- **Correção em lote / editor estilo Excel + reconversão TXT**, **trilha de auditoria**, **captura automática de SPED no e-CAC**, **recuperação de créditos (5 anos)**.
+
+## 5. Plano de Testes QA (matriz resumida)
+
+**Achado crítico: não há nenhum teste automatizado no projeto.** Recomendação prioritária: suíte de **regressão golden-file** do export (proteger os fixes recorrentes) + testes de unidade do `conciliacaoService` e `regrasFiscaisService`.
+
+Funcionalidades a cobrir e cenários de fronteira (matriz completa nas anotações da orquestra): Upload/parse (arquivo sem 0000, UTF-8 vs latin1, CNPJ×empresa divergente, multi-mês, reupload/idempotência); Analisador (sem C100, corrigir-item id inválido, re-análise idempotente, SSE sem cleanup); Injetor XML/CTe (chave inválida, período divergente, duplicata + `forceReplace`, 200+ XMLs, **`analyzeOnly` que persiste quando há `id_sped_arquivo`** — ver achado da sessão); Conciliação (CSV vazio/cabeçalho diferente/`;`vs`,`/BOM, multi-mês, escopo período do SPED); LMC/otimizador (target>capacidade, estoque negativo, mês 1 dia, concorrência em confirmar-sincronizacao); Export (idempotência byte a byte do não-modificado, **IDOR `exportar-sped/:id` + token na query string**, 9999 correto); MDe/EspiãoNFe (certificado expirado, SEFAZ offline, chaves != 44, IDOR delete-notas); NFe Completa (chave inexistente, sem IPI, CT-e no endpoint de NF-e).
+**Riscos transversais que geram SPED inválido:** injeção duplicada, X990 defasado, estoque negativo pós-otimizador, CNPJ divergente, campo numérico NaN por parse de string vazia.
+
+## 6. Catálogo de Erros Mapeados
+
+→ **[CATALOGO_ERROS_SPED.md](CATALOGO_ERROS_SPED.md)** (≈80 regras por bloco: 0, C, D, E, 1, H, 9 + cruzamentos externos), cada uma com **detecção no .txt**, **severidade (BLOQ/ADV)**, **status no Audisped (✅/🟡/🔴)** e **correção**. Substitui a tabela embrionária "Novos Erros a Mapear" acima.
+
+## 7. Roadmap repriorizado (substitui "Ordem de Entrega")
+
+```
+Sprint 0 — Arnês de testes de regressão (golden-file do export) + tabelas versionadas (CFOP/CST/NCM/CEST/ANP/IBGE).  ← pré-requisito, hoje inexistente
+Sprint 1 — Motor de regras como CATÁLOGO (carrega CATALOGO_ERROS_SPED.md como regras); expor no Analisador o que o export já corrige.
+Sprint 2 — BLOQUEANTES recorrentes que faltam: nº de campos genérico, DV (chave/CNPJ), C190 recalculado do C170, dedup/órfão geral.
+Sprint 3 — Apuração: E116 (do E110) + E250 + crédito ST de entrada (ICMS Tributário Fase 3) + recálculo E110 no export.
+Sprint 4 — Cruzamentos (o que o PVA não vê): status SEFAZ por chave; EFD×EFD-Contribuições.
+Sprint 5 — Relatório (Excel/PDF) + correção manual via overrides (sem corrector paralelo) + trilha de auditoria.
+Sprint 6+ — IA só para casos ambíguos (o determinístico já cobre a maioria).
+```
+
