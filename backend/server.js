@@ -8332,7 +8332,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     // inválido. Sem o forçado, mantém o comportamento anterior (aplica o de-para do banco).
                     const ehForcadoUsoConsumo = CFOP_USO_CONSUMO.has(fields[11]);
 
-                    if (!ehForcadoUsoConsumo) {
+                    // GUARD anti-OFF-BY-ONE (importação legada): linhas antigas de documentos_itens_c170
+                    // foram gravadas com índices deslocados em 1 — cst_icms recebeu o IND_MOV (0/1) e cfop
+                    // recebeu o CST_ICMS real (ex.: '061','060','090'). Assinatura inequívoca: cst_icms de
+                    // 1 dígito 0/1 E cfop que NÃO é CFOP válido (/^[1-7]\d{3}$/). Nesse caso o BANCO é lixo →
+                    // confiar no .txt (parser atual lê os campos certos). Sem o guard, o export emitiria
+                    // CFOP '0061' inválido + C170≠C190 (caso CABECEIRINHA 388). Não afeta linhas íntegras
+                    // (cst real tem 3 díg OU cfop é válido), então é byte-seguro p/ a frota.
+                    const _cstDb = String(row.cst_icms || '').trim();
+                    const _cfopDb = String(row.cfop || '').trim();
+                    const _bancoCorrompidoLegado = /^[01]$/.test(_cstDb) && !/^[1-7]\d{3}$/.test(_cfopDb);
+
+                    if (!ehForcadoUsoConsumo && !_bancoCorrompidoLegado) {
                         if (row.cst_icms && fields[10] !== row.cst_icms) {
                             fields[10] = String(row.cst_icms).padStart(3, '0');
                             mapChanged = true;

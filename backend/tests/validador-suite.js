@@ -108,6 +108,16 @@ t('ncm -: tipo 07 (uso/consumo) sem NCM não dispara', () => assert.ok(!fires(H(
 t('c190 +: combinação ausente no C170 dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5405' })]), 'DOC-C190-01')));
 t('c190 -: combinação batendo com C170 não dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5102' })]), 'DOC-C190-01')));
 
+// DOC-C170-CFOP-01 (CFOP inválido no C170, ex.: 0061)
+t('cfop-c170 +: CFOP 0061 dispara', () => assert.ok(fires(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|0,00|0,00|0,00|0,00|0,00|0|']), 'DOC-C170-CFOP-01')));
+t('cfop-c170 +: sugere COD_NAT quando é CFOP válido', () => assert.ok(firesDet(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|']), 'DOC-C170-CFOP-01', '1652')));
+t('cfop-c170 -: CFOP 1652 válido não dispara', () => assert.ok(!fires(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|061|1652||0,00|']), 'DOC-C170-CFOP-01')));
+
+// COMB-1350-1360-01 (bomba 1350 sem lacre 1360)
+t('1350-1360 +: bomba sem 1360 dispara', () => assert.ok(fires(H(['|1350|BOMBA1|MARCA|MOD|1|', '|1370|1|2|12|', '|1370|2|1|11|']), 'COMB-1350-1360-01')));
+t('1350-1360 -: bomba com 1360 não dispara', () => assert.ok(!fires(H(['|1350|BOMBA1|MARCA|MOD|1|', '|1360|LACRE001|01012022|', '|1370|1|2|12|']), 'COMB-1350-1360-01')));
+t('1350-1360 +: 2 bombas sem 1360 = 2 erros', () => { const r = run(H(['|1350|B1|M|MO|1|', '|1370|1|2|12|', '|1350|B2|M|MO|1|', '|1370|2|1|11|'])); assert.equal(r.erros.filter(e => e.regra_id === 'COMB-1350-1360-01').length, 2); });
+
 // COMB-LMC (negativo / coerência / vendas / CAP)
 t('lmc +: estoque negativo dispara', () => assert.ok(firesDet(H([r1300('7085', '02012022', '50,000', '0,000', '50,000', '60,000', '-10,000', '0,000', '0,000', '-10,000')]), 'COMB-LMC', 'negativo')));
 t('lmc +: FECH incoerente dispara', () => assert.ok(firesDet(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '99,000')]), 'COMB-LMC', 'FECH_FISICO')));
