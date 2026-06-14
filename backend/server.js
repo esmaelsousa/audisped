@@ -7083,13 +7083,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (typeof l !== 'string') return l;
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
-                // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES) tem EXATAMENTE 3 campos em
-                // TODAS as versões do leiaute EFD ICMS/IPI: REG | UNID_CONV | FAT_CONV.
-                // NÃO existe COD_BARRA no 0220 (COD_BARRA é campo do 0200, não deste registro).
-                // Qualquer campo a mais — ex.: ERP que emite "|0220|LT|1,0000||" com pipe sobrando,
-                // cujo split tem comprimento 6 — é rejeitado pelo PVA: "nº de campos: esperado 3, contém 4".
-                // Por isso normalizamos SEMPRE para 3 campos, descartando o que vier após FAT_CONV.
-                return `|0220|${f[2] || ''}|${f[3] || ''}|`;
+                // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute:
+                //  • ≤ 019: 3 campos — REG | UNID_CONV | FAT_CONV.
+                //  • ≥ 020 (2026+): 4 campos — REG | UNID_CONV | FAT_CONV | <campo novo do leiaute 020>
+                //    (em geral vazio na prática: "|0220|L|1||").
+                // O PVA conta os campos conforme o COD_VER do 0000: forçar 3 num arquivo 020 dá
+                // "nº de campos: esperado 4, contém 3"; deixar 4 num ≤019 dá "esperado 3, contém 4".
+                // `layoutVersion` aqui já é o COD_VER de SAÍDA — inclui a transmutação 019→020 de 2026
+                // (o 0000 é processado, e layoutVersion atualizado, antes de qualquer 0220 do arquivo).
+                // Por segurança extra, também tratamos como 020 quando a competência é ≥ 2026-01.
+                const _l020 = (layoutVersion >= '020') || (_compRegras >= '2026-01-01');
+                return _l020
+                    ? `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`
+                    : `|0220|${f[2] || ''}|${f[3] || ''}|`;
             }
             // C190: rebaixa CST 61→60 (pré-monofásico, campo 2) e corrige CFOP de entrada inválida (campo 3).
             if (l.startsWith('|C190|')) {
