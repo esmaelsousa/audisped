@@ -5784,6 +5784,7 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
         const { parseSped } = require('./services/validador/parser');
         const { validar } = require('./services/validador/engine');
         const model = parseSped(fs.readFileSync(cam, 'latin1'));
+        model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient); // CEST/NCM
         const resultado = validar(model);
         resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         res.json(resultado);
@@ -5895,6 +5896,7 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         const { parseSped } = require('./services/validador/parser');
         const { validar } = require('./services/validador/engine');
         const model = parseSped(txt);
+        model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient); // CEST/NCM
         const resultado = validar(model);
         resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         resultado.validadoSobre = 'exportado'; // o front mostra "validado sobre o SPED corrigido"

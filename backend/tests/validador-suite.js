@@ -121,6 +121,16 @@ t('codbarra -: COD_BARRA numérico (GTIN) não dispara', () => assert.ok(!fires(
 t('codbarra -: COD_BARRA vazio não dispara', () => assert.ok(!fires(H(['|0200|P1|PROD| | |UN|00|27101259||||||']), 'DOC-0200-GTIN-01')));
 t('codbarra aplicar: correção vazia apaga o campo', () => { const l = ['|0200|CANETA|CANETA BIC|SEM GTIN| |UN|07|96081000||96||||']; aplicar(l, [{ registro: '0200', chave_natural: 'CANETA', campo_idx: 4, valor_corrigido: '' }]); assert.equal(l[0].split('|')[4], ''); });
 
+// DOC-0200-CEST-01 (CEST inexistente / não casa NCM — usa model.dominio). 0200: f8=NCM, f13=CEST.
+const DOM = { cestSet: new Set(['0600200']), cestNcm: new Map([['0600200', ['27101259']]]) };
+const comDom = (linhas) => { const m = parseSped(H(linhas)); m.dominio = DOM; return validar(m).erros; };
+t('cest +: CEST não localizado (1708704) dispara ADV', () => { const e = comDom(['|0200|P1|BOMBONA| | |UN|00|39233090| |39| |20,50|1708704|']).find(x => x.regra_id === 'DOC-0200-CEST-01'); assert.ok(e && e.severidade === 'ADV' && e.detalhe.includes('não localizado')); });
+t('cest +: CEST malformado (5 díg) dispara BLOQ', () => { const e = comDom(['|0200|P1|X| | |UN|00|39233090| |39| |20,50|12345|']).find(x => x.regra_id === 'DOC-0200-CEST-01'); assert.ok(e && e.severidade === 'BLOQ'); });
+t('cest -: CEST válido + NCM casa não dispara', () => assert.ok(!comDom(['|0200|P1|GASOLINA| | |L|00|27101259| |06| |18,00|0600200|']).some(e => e.regra_id === 'DOC-0200-CEST-01')));
+t('cest -: CEST existe (não checamos NCM por prefixo) não dispara', () => assert.ok(!comDom(['|0200|P1|X| | |UN|00|39233090| |39| |20,50|0600200|']).some(e => e.regra_id === 'DOC-0200-CEST-01')));
+t('cest -: sem CEST não dispara', () => assert.ok(!comDom(['|0200|P1|X| | |UN|00|39233090| |39| |20,50||']).some(e => e.regra_id === 'DOC-0200-CEST-01')));
+t('cest -: sem domínio carregado não valida (degradação segura)', () => assert.ok(!fires(H(['|0200|P1|X| | |UN|00|39233090| |39| |20,50|9999999|']), 'DOC-0200-CEST-01')));
+
 // DOC-C190-01 (combinação C190 sem C170)
 t('c190 +: combinação ausente no C170 dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5405' })]), 'DOC-C190-01')));
 t('c190 -: combinação batendo com C170 não dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5102' })]), 'DOC-C190-01')));

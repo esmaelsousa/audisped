@@ -23,6 +23,7 @@ module.exports = [
     require('./r_e110_apuracao'),      // INV-E110-01: E110 (totais de ajuste/saldo) ≠ Σ E111
     require('./r_e116_apuracao'),      // INV-E116-01: Σ E116 (a recolher) ≠ ICMS a recolher do E110
     require('./r_cod_barra_0200'),     // DOC-0200-GTIN-01: COD_BARRA do 0200 não numérico (ex.: "SEM GTIN")
+    require('./r_cest_0200'),          // DOC-0200-CEST-01: CEST inexistente na tabela CEST / não casa NCM (usa model.dominio)
     require('./r_1360_data'),          // INV-1360-DATA-01: DAT_APLICACAO do lacre (1360) < 01/01/2000
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
