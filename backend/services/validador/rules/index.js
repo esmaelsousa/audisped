@@ -5,6 +5,7 @@
 module.exports = [
     // Estruturais (Sprint 1)
     require('./r_contadores'),         // EST-9XXX: X990 / 9900 / 9999
+    require('./r_ncampos_catalogo'),   // EST-NCAMPOS-01: nº de campos por registro (gerado do catálogo/leiaute.json)
     require('./r_0220_campos'),        // CAD-0220-01: nº de campos do 0220
     require('./r_chave_nfe'),          // DOC-CHV-DV: chave 44 díg. + DV
     require('./r_dup_documento'),      // DOC-DUP: C100/D100 duplicado por chave

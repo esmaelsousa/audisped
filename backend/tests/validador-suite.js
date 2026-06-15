@@ -14,7 +14,7 @@ function t(nome, fn) { try { fn(); pass++; } catch (e) { fail++; fails.push(`${n
 
 // ---------- helpers ----------
 const H = (linhas, { ver = '019', dtIni = '01012022', dtFin = '31012022' } = {}) =>
-    [`|0000|${ver}|0|${dtIni}|${dtFin}|EMPRESA TESTE|11111111000191||BA|3550308|||A|0|`, ...linhas].join('\n');
+    [`|0000|${ver}|0|${dtIni}|${dtFin}|EMPRESA TESTE|11111111000191||BA|3550308||||A|0|`, ...linhas].join('\n');
 const run = (txt) => validar(parseSped(txt));
 const fires = (txt, id) => run(txt).erros.some(e => e.regra_id === id);
 const firesDet = (txt, id, sub) => run(txt).erros.some(e => e.regra_id === id && (e.detalhe || '').includes(sub));
@@ -64,6 +64,13 @@ t('engine: total == bloqueantes + advertencias', () => { const r = run(H(['|0220
 
 // EST-9XXX-CONT (contadores)
 t('contadores +: 9999 errado dispara', () => assert.ok(fires(H(['|9999|999|']), 'EST-9XXX-CONT')));
+
+// EST-NCAMPOS-01 (nº de campos por registro, gerado do catálogo/leiaute.json)
+t('ncampos +: 0190 com 1 campo dispara (esperado 2)', () => assert.ok(fires(H(['|0190|UN|']), 'EST-NCAMPOS-01')));
+t('ncampos -: 0190 com 2 campos não dispara', () => assert.ok(!fires(H(['|0190|UN|LITRO|']), 'EST-NCAMPOS-01')));
+t('ncampos -: 0220 é excluído (tem regra dedicada CAD-0220-01)', () => assert.ok(!fires(H(['|0220|UN|1|']), 'EST-NCAMPOS-01')));
+t('ncampos delta: 1310 em 020 exige 10 (CAP_TANQUE) → 9 dispara', () => assert.ok(fires(H(['|1310|1|2|3|4|5|6|7|8|9|'], { ver: '020', dtIni: '01012026', dtFin: '31012026' }), 'EST-NCAMPOS-01')));
+t('ncampos -: 1310 em 019 com 9 campos não dispara', () => assert.ok(!fires(H(['|1310|1|2|3|4|5|6|7|8|9|']), 'EST-NCAMPOS-01')));
 
 // CAD-0220-01 (nº de campos do 0220) — ≤018 → 3 campos; ≥019 → 4 campos (4º em geral vazio).
 t('0220 +: leiaute 015 com 4 campos dispara (esperado 3)', () => assert.ok(fires(H(['|0220|LT|1,0000||'], { ver: '015' }), 'CAD-0220-01')));

@@ -1,0 +1,572 @@
+{
+  "_fonte": "REGRAS_PVA.md (leiaute público — Guia Prático/Ato COTEPE); nCampos = nº de campos de DADOS (sem REG). splitLen esperado no .txt = nCampos+3.",
+  "_gerado": "2026-06-15",
+  "registros": {
+    "1001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "1010": {
+      "nCampos": 13,
+      "campos": [
+        "IND_EXP",
+        "IND_CCRF",
+        "IND_COMB",
+        "IND_USINA",
+        "IND_VA",
+        "IND_EE",
+        "IND_CART",
+        "IND_FORM",
+        "IND_AER",
+        "IND_GIAF1",
+        "IND_GIAF3",
+        "IND_GIAF4",
+        "IND_REST_RESSARC_COMPL_ICMS"
+      ]
+    },
+    "1300": {
+      "nCampos": 10,
+      "campos": [
+        "COD_ITEM",
+        "DT_FECH",
+        "ESTQ_ABERT",
+        "VOL_ENTR",
+        "VOL_DISP",
+        "VOL_SAIDAS",
+        "ESTQ_ESCR",
+        "VAL_AJ_PERDA",
+        "VAL_AJ_GANHO",
+        "FECH_FISICO"
+      ]
+    },
+    "1310": {
+      "nCampos": 9,
+      "campos": [
+        "NUM_TANQUE",
+        "ESTQ_ABERT",
+        "VOL_ENTR",
+        "VOL_DISP",
+        "VOL_SAIDAS",
+        "ESTQ_ESCR",
+        "VAL_AJ_PERDA",
+        "VAL_AJ_GANHO",
+        "FECH_FISICO"
+      ],
+      "nCamposPorVersao": {
+        "020": 10
+      }
+    },
+    "1320": {
+      "nCampos": 10,
+      "campos": [
+        "NUM_BICO",
+        "NR_INTERV",
+        "MOT_INTERV",
+        "NOM_INTERV",
+        "CNPJ_INTERV",
+        "CPF_INTERV",
+        "VAL_FECHA",
+        "VAL_ABERT",
+        "VOL_AFERI",
+        "VOL_VENDAS"
+      ]
+    },
+    "1350": {
+      "nCampos": 4,
+      "campos": [
+        "SERIE",
+        "FABRICANTE",
+        "MODELO",
+        "TIPO_MEDICAO"
+      ]
+    },
+    "1360": {
+      "nCampos": 2,
+      "campos": [
+        "NUM_LACRE",
+        "DAT_APLICACAO"
+      ]
+    },
+    "1370": {
+      "nCampos": 3,
+      "campos": [
+        "NUM_BICO",
+        "COD_ITEM",
+        "NUM_TANQUE"
+      ]
+    },
+    "1990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_1"
+      ]
+    },
+    "9900": {
+      "nCampos": 2,
+      "campos": [
+        "REG_BLC",
+        "QTD_REG_BLC"
+      ]
+    },
+    "9990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_9"
+      ]
+    },
+    "9999": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN"
+      ]
+    },
+    "0000": {
+      "nCampos": 14,
+      "campos": [
+        "COD_VER",
+        "COD_FIN",
+        "DT_INI",
+        "DT_FIN",
+        "NOME",
+        "CNPJ",
+        "CPF",
+        "UF",
+        "IE",
+        "COD_MUN",
+        "IM",
+        "SUFRAMA",
+        "IND_PERFIL",
+        "IND_ATIV"
+      ]
+    },
+    "0001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "0005": {
+      "nCampos": 9,
+      "campos": [
+        "FANTASIA",
+        "CEP",
+        "ENDERECO",
+        "NUM",
+        "COMPL",
+        "BAIRRO",
+        "FONE",
+        "FAX",
+        "EMAIL"
+      ]
+    },
+    "0100": {
+      "nCampos": 13,
+      "campos": [
+        "NOME",
+        "CPF",
+        "CRC",
+        "CNPJ",
+        "CEP",
+        "ENDERECO",
+        "NUM",
+        "COMPL",
+        "BAIRRO",
+        "FONE",
+        "FAX",
+        "EMAIL",
+        "COD_MUN"
+      ]
+    },
+    "0150": {
+      "nCampos": 12,
+      "campos": [
+        "COD_PART",
+        "NOME",
+        "COD_PAIS",
+        "CNPJ",
+        "CPF",
+        "IE",
+        "COD_MUN",
+        "SUFRAMA",
+        "ENDERECO",
+        "NUM",
+        "COMPL",
+        "BAIRRO"
+      ]
+    },
+    "0190": {
+      "nCampos": 2,
+      "campos": [
+        "UNID",
+        "DESCR"
+      ]
+    },
+    "0200": {
+      "nCampos": 12,
+      "campos": [
+        "COD_ITEM",
+        "DESCR_ITEM",
+        "COD_BARRA",
+        "COD_ANT_ITEM",
+        "UNID_INV",
+        "TIPO_ITEM",
+        "COD_NCM",
+        "EX_IPI",
+        "COD_GEN",
+        "COD_LST",
+        "ALIQ_ICMS",
+        "CEST"
+      ]
+    },
+    "0205": {
+      "nCampos": 4,
+      "campos": [
+        "DESCR_ANT_ITEM",
+        "DT_INI",
+        "DT_FIM",
+        "COD_ANT_ITEM"
+      ]
+    },
+    "0206": {
+      "nCampos": 1,
+      "campos": [
+        "COD_COMB"
+      ]
+    },
+    "0220": {
+      "nCampos": 3,
+      "campos": [
+        "UNID_CONV",
+        "FAT_CONV",
+        "COD_BARRA"
+      ],
+      "nCamposPorVersao": {
+        "015": 2
+      }
+    },
+    "0221": {
+      "nCampos": 2,
+      "campos": [
+        "COD_ITEM_ATOMICO",
+        "QTD_CONTIDA"
+      ]
+    },
+    "0400": {
+      "nCampos": 2,
+      "campos": [
+        "COD_NAT",
+        "DESCR_NAT"
+      ]
+    },
+    "0450": {
+      "nCampos": 2,
+      "campos": [
+        "COD_INF",
+        "TXT"
+      ]
+    },
+    "0460": {
+      "nCampos": 2,
+      "campos": [
+        "COD_OBS",
+        "TXT"
+      ]
+    },
+    "0990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_0"
+      ]
+    },
+    "C001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "C100": {
+      "nCampos": 28,
+      "campos": [
+        "IND_OPER",
+        "IND_EMIT",
+        "COD_PART",
+        "COD_MOD",
+        "COD_SIT",
+        "SER",
+        "NUM_DOC",
+        "CHV_NFE",
+        "DT_DOC",
+        "DT_E_S",
+        "VL_DOC",
+        "IND_PGTO",
+        "VL_DESC",
+        "VL_ABAT_NT",
+        "VL_MERC",
+        "IND_FRT",
+        "VL_FRT",
+        "VL_SEG",
+        "VL_OUT_DA",
+        "VL_BC_ICMS",
+        "VL_ICMS",
+        "VL_BC_ICMS_ST",
+        "VL_ICMS_ST",
+        "VL_IPI",
+        "VL_PIS",
+        "VL_COFINS",
+        "VL_PIS_ST",
+        "VL_COFINS_ST"
+      ]
+    },
+    "C110": {
+      "nCampos": 2,
+      "campos": [
+        "COD_INF",
+        "TXT_COMPL"
+      ]
+    },
+    "C113": {
+      "nCampos": 9,
+      "campos": [
+        "IND_OPER",
+        "IND_EMIT",
+        "COD_PART",
+        "COD_MOD",
+        "SER",
+        "SUB",
+        "NUM_DOC",
+        "DT_DOC",
+        "CHV_DOCE"
+      ]
+    },
+    "C170": {
+      "nCampos": 37,
+      "campos": [
+        "NUM_ITEM",
+        "COD_ITEM",
+        "DESCR_COMPL",
+        "QTD",
+        "UNID",
+        "VL_ITEM",
+        "VL_DESC",
+        "IND_MOV",
+        "CST_ICMS",
+        "CFOP",
+        "COD_NAT",
+        "VL_BC_ICMS",
+        "ALIQ_ICMS",
+        "VL_ICMS",
+        "VL_BC_ICMS_ST",
+        "ALIQ_ST",
+        "VL_ICMS_ST",
+        "IND_APUR",
+        "CST_IPI",
+        "COD_ENQ",
+        "VL_BC_IPI",
+        "ALIQ_IPI",
+        "VL_IPI",
+        "CST_PIS",
+        "VL_BC_PIS",
+        "ALIQ_PIS_PERC",
+        "QUANT_BC_PIS",
+        "ALIQ_PIS_REAIS",
+        "VL_PIS",
+        "CST_COFINS",
+        "VL_BC_COFINS",
+        "ALIQ_COFINS_PERC",
+        "QUANT_BC_COFINS",
+        "ALIQ_COFINS_REAIS",
+        "VL_COFINS",
+        "COD_CTA",
+        "VL_ABAT_NT"
+      ]
+    },
+    "C171": {
+      "nCampos": 2,
+      "campos": [
+        "NUM_TANQUE",
+        "QTDE"
+      ]
+    },
+    "C190": {
+      "nCampos": 11,
+      "campos": [
+        "CST_ICMS",
+        "CFOP",
+        "ALIQ_ICMS",
+        "VL_OPR",
+        "VL_BC_ICMS",
+        "VL_ICMS",
+        "VL_BC_ICMS_ST",
+        "VL_ICMS_ST",
+        "VL_RED_BC",
+        "VL_IPI",
+        "COD_OBS"
+      ]
+    },
+    "C191": {
+      "nCampos": 3,
+      "campos": [
+        "VL_FCP_OP",
+        "VL_FCP_ST",
+        "VL_FCP_RET"
+      ]
+    },
+    "C990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_C"
+      ]
+    },
+    "D001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "D100": {
+      "nCampos": 24,
+      "campos": [
+        "IND_OPER",
+        "IND_EMIT",
+        "COD_PART",
+        "COD_MOD",
+        "COD_SIT",
+        "SER",
+        "SUB",
+        "NUM_DOC",
+        "CHV_CTE",
+        "DT_DOC",
+        "DT_A_P",
+        "TP_CT_E",
+        "CHV_CTE_REF",
+        "VL_DOC",
+        "VL_DESC",
+        "IND_FRT",
+        "VL_SERV",
+        "VL_BC_ICMS",
+        "VL_ICMS",
+        "VL_NT",
+        "COD_INF",
+        "COD_CTA",
+        "COD_MUN_ORIG",
+        "COD_MUN_DEST"
+      ]
+    },
+    "D190": {
+      "nCampos": 8,
+      "campos": [
+        "CST_ICMS",
+        "CFOP",
+        "ALIQ_ICMS",
+        "VL_OPR",
+        "VL_BC_ICMS",
+        "VL_ICMS",
+        "VL_RED_BC",
+        "COD_OBS"
+      ]
+    },
+    "D990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_D"
+      ]
+    },
+    "E001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "E100": {
+      "nCampos": 2,
+      "campos": [
+        "DT_INI",
+        "DT_FIN"
+      ]
+    },
+    "E110": {
+      "nCampos": 14,
+      "campos": [
+        "VL_TOT_DEBITOS",
+        "VL_AJ_DEBITOS",
+        "VL_TOT_AJ_DEBITOS",
+        "VL_ESTORNOS_CRED",
+        "VL_TOT_CREDITOS",
+        "VL_AJ_CREDITOS",
+        "VL_TOT_AJ_CREDITOS",
+        "VL_ESTORNOS_DEB",
+        "VL_SLD_CREDOR_ANT",
+        "VL_SLD_APURADO",
+        "VL_TOT_DED",
+        "VL_ICMS_RECOLHER",
+        "VL_SLD_CREDOR_TRANSPORTAR",
+        "DEB_ESP"
+      ]
+    },
+    "E111": {
+      "nCampos": 3,
+      "campos": [
+        "COD_AJ_APUR",
+        "DESCR_COMPL_AJ",
+        "VL_AJ_APUR"
+      ]
+    },
+    "E116": {
+      "nCampos": 9,
+      "campos": [
+        "COD_OR",
+        "VL_OR",
+        "DT_VCTO",
+        "COD_REC",
+        "NUM_PROC",
+        "IND_PROC",
+        "PROC",
+        "TXT_COMPL",
+        "MES_REF"
+      ]
+    },
+    "E990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_E"
+      ]
+    },
+    "H001": {
+      "nCampos": 1,
+      "campos": [
+        "IND_MOV"
+      ]
+    },
+    "H005": {
+      "nCampos": 3,
+      "campos": [
+        "DT_INV",
+        "VL_INV",
+        "MOT_INV"
+      ]
+    },
+    "H010": {
+      "nCampos": 10,
+      "campos": [
+        "COD_ITEM",
+        "UNID",
+        "QTD",
+        "VL_UNIT",
+        "VL_ITEM",
+        "IND_PROP",
+        "COD_PART",
+        "TXT_COMPL",
+        "COD_CTA",
+        "VL_ITEM_IR"
+      ]
+    },
+    "H990": {
+      "nCampos": 1,
+      "campos": [
+        "QTD_LIN_H"
+      ]
+    }
+  }
+}
