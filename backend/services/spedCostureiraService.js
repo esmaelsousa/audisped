@@ -908,6 +908,37 @@ function recalcularVlInvH005(linhas) {
     return linhas;
 }
 
+// ── Injeção do registro 1360 (Lacres das bombas) ───────────────────────────────────
+// O PVA exige ≥1 registro 1360 (Lacres) como filho de cada 1350 (bomba/medidor). Muitos
+// ERPs omitem (caso CABECEIRINHA). A partir do cadastro lmc_lacres (CNPJ + série da bomba),
+// injetamos o 1360 logo APÓS o 1350 e ANTES dos 1370 (bicos) — a hierarquia é 1350→1360→1370.
+// NÃO duplica: se o 1350 já tem ao menos um 1360, pula. Layout: 1350 |1350|SERIE|FABR|MODELO|TIPO|
+// (série = f[2]); 1360 |1360|NUM_LACRE|DT_APLICACAO| (data DDMMYYYY). mapLacres: Map<serie,[{num,dt}]>.
+// Muta in-place; retorna nº de 1360 injetados (0 = byte-idêntico).
+function injetarLacres1360(linhas, mapLacres) {
+    if (!mapLacres || mapLacres.size === 0) return 0;
+    let injetados = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        if (linhas[i].split('|')[1] !== '1350') continue;
+        const serie = String(linhas[i].split('|')[2] || '').trim();
+        const lacres = mapLacres.get(serie);
+        if (!lacres || !lacres.length) continue;
+        // Já há 1360 entre este 1350 e o próximo 1350? então não injeta (evita duplicar).
+        let temLacre = false;
+        for (let j = i + 1; j < linhas.length; j++) {
+            const r = linhas[j].split('|')[1];
+            if (r === '1350') break;
+            if (r === '1360') { temLacre = true; break; }
+        }
+        if (temLacre) continue;
+        const novos = lacres.map(l => `|1360|${String(l.num || '').trim()}|${String(l.dt || '').trim()}|`);
+        linhas.splice(i + 1, 0, ...novos);
+        injetados += novos.length;
+        i += novos.length; // pula os recém-inseridos
+    }
+    return injetados;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -916,5 +947,6 @@ module.exports = {
     realocar0221,
     normalizarUsoConsumoCst90,
     enforcarCoerencia1300,
-    recalcularVlInvH005
+    recalcularVlInvH005,
+    injetarLacres1360
 };

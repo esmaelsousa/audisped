@@ -158,6 +158,18 @@ async function setupDatabase() {
             );
         `);
 
+        // Cadastro de lacres das bombas (registro 1360, injetado no export por CNPJ + série da bomba)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS lmc_lacres (
+                id SERIAL PRIMARY KEY,
+                cnpj TEXT NOT NULL,
+                serie_bomba TEXT NOT NULL,
+                num_lacre TEXT NOT NULL,
+                dt_aplicacao TEXT,
+                UNIQUE(cnpj, serie_bomba, num_lacre)
+            );
+        `);
+
         // --- FASE 5: DE-PARA XML (PRODUTOS) ---
         await client.query(`
             CREATE TABLE IF NOT EXISTS de_para_xml (

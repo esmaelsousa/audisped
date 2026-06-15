@@ -5427,6 +5427,101 @@ app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
 });
 
 
+// --- CADASTRO DE LACRES DAS BOMBAS (registro 1360) ---
+// O PVA exige 1360 (Lacres) como filho de cada 1350 (bomba); ERPs costumam omitir. O usuário
+// cadastra aqui (por CNPJ + série da bomba) e o export injeta o 1360. Espelha tanques-config.
+async function ensureLacresTable(db) {
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS lmc_lacres (
+            id SERIAL PRIMARY KEY,
+            cnpj TEXT NOT NULL,
+            serie_bomba TEXT NOT NULL,
+            num_lacre TEXT NOT NULL,
+            dt_aplicacao TEXT,
+            UNIQUE(cnpj, serie_bomba, num_lacre)
+        )`);
+}
+
+// Lista os lacres cadastrados de um CNPJ.
+app.get('/api/lmc/lacres/:cnpj', authMiddleware, async (req, res) => {
+    const cnpj = String(req.params.cnpj || '').replace(/\D/g, '');
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureLacresTable(dbClient);
+        const r = await dbClient.query(
+            `SELECT serie_bomba, num_lacre, dt_aplicacao FROM lmc_lacres
+             WHERE regexp_replace(cnpj,'\\D','','g') = $1 ORDER BY serie_bomba, id`, [cnpj]);
+        res.json(r.rows);
+    } catch (e) {
+        logger.error('Erro ao buscar lacres:', e);
+        res.status(500).json({ message: 'Erro ao buscar lacres.' });
+    } finally { dbClient.release(); }
+});
+
+// Lista as BOMBAS (1350) do arquivo SPED + se já têm 1360 + os lacres cadastrados — p/ a UI.
+app.get('/api/lmc/lacres-bombas/:id_arquivo', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureLacresTable(dbClient);
+        const arq = await dbClient.query('SELECT caminho_arquivo, cnpj_empresa FROM sped_arquivos WHERE id = $1', [arquivoId]);
+        if (!arq.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = arq.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        const fs = require('fs');
+        if (!cam || !fs.existsSync(cam)) return res.status(404).json({ message: 'Arquivo físico não encontrado.' });
+        const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/);
+        const bombas = []; let cur = null;
+        for (const l of linhas) {
+            const f = l.split('|');
+            if (f[1] === '1350') { cur = { serie: (f[2] || '').trim(), fabricante: (f[3] || '').trim(), modelo: (f[4] || '').trim(), temLacre: false }; bombas.push(cur); }
+            else if (f[1] === '1360' && cur) { cur.temLacre = true; }
+        }
+        const cnpj = (arq.rows[0].cnpj_empresa || '').replace(/\D/g, '');
+        const rLac = await dbClient.query(
+            `SELECT serie_bomba, num_lacre, dt_aplicacao FROM lmc_lacres
+             WHERE regexp_replace(cnpj,'\\D','','g') = $1 ORDER BY serie_bomba, id`, [cnpj]);
+        res.json({ cnpj: arq.rows[0].cnpj_empresa, bombas, lacres: rLac.rows });
+    } catch (e) {
+        logger.error('Erro ao listar bombas/lacres:', e);
+        res.status(500).json({ message: 'Erro ao listar bombas/lacres.' });
+    } finally { dbClient.release(); }
+});
+
+// Salva (substitui) os lacres de um CNPJ.
+app.post('/api/lmc/lacres', authMiddleware, async (req, res) => {
+    const cnpj = String(req.body.cnpj || '').replace(/\D/g, '');
+    const lacres = req.body.lacres; // [{ serie_bomba, num_lacre, dt_aplicacao }]
+    if (!cnpj || !Array.isArray(lacres)) return res.status(400).json({ message: 'Dados inválidos (cnpj + lacres[]).' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureLacresTable(dbClient);
+        await dbClient.query('BEGIN');
+        await dbClient.query(`DELETE FROM lmc_lacres WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpj]);
+        for (const l of lacres) {
+            const serie = String(l.serie_bomba || '').trim();
+            const num = String(l.num_lacre || '').trim();
+            if (!serie || !num) continue;
+            const dt = String(l.dt_aplicacao || '').replace(/\D/g, '').slice(0, 8);
+            await dbClient.query(
+                `INSERT INTO lmc_lacres (cnpj, serie_bomba, num_lacre, dt_aplicacao) VALUES ($1,$2,$3,$4)
+                 ON CONFLICT (cnpj, serie_bomba, num_lacre) DO UPDATE SET dt_aplicacao = EXCLUDED.dt_aplicacao`,
+                [cnpj, serie, num, dt]);
+        }
+        await dbClient.query('COMMIT');
+        res.json({ message: 'Lacres salvos com sucesso.' });
+    } catch (e) {
+        await safeRollback(dbClient);
+        logger.error('Erro ao salvar lacres:', e);
+        res.status(500).json({ message: 'Erro ao salvar lacres.' });
+    } finally { dbClient.release(); }
+});
+
+
 // --- CONCILIAÇÃO SEFAZ (CSV) × ESCRITURAÇÃO DE ENTRADAS (Fase 1) ---
 // Recebe o CSV da "Relação de NF-e" da SEFAZ + o CNPJ da empresa, e cruza contra as
 // notas de entrada (documentos_c100, mod 55) já no banco — sem re-upload do SPED.
@@ -8632,6 +8727,30 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         {
             const { recalcularVlInvH005 } = require('./services/spedCostureiraService');
             recalcularVlInvH005(outputLines); // muta in-place
+        }
+
+        // ── Injeção do registro 1360 (Lacres das bombas) ───────────────────────
+        // O PVA exige 1360 (Lacres) como filho de cada 1350 (bomba). ERPs costumam omitir.
+        // A partir do cadastro lmc_lacres (CNPJ + série da bomba), injeta o 1360 após o 1350.
+        // No-op se não há cadastro p/ o CNPJ ou o 1350 já tem 1360. Antes do recálculo X990.
+        try {
+            const cnpjLacres = (arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
+            const rLac = await dbClient.query(
+                `SELECT serie_bomba, num_lacre, dt_aplicacao FROM lmc_lacres
+                 WHERE regexp_replace(cnpj,'\\D','','g') = $1 ORDER BY serie_bomba, id`, [cnpjLacres]);
+            if (rLac.rows.length) {
+                const mapLacres = new Map();
+                for (const r of rLac.rows) {
+                    const s = String(r.serie_bomba || '').trim();
+                    if (!mapLacres.has(s)) mapLacres.set(s, []);
+                    mapLacres.get(s).push({ num: r.num_lacre, dt: r.dt_aplicacao });
+                }
+                const { injetarLacres1360 } = require('./services/spedCostureiraService');
+                const n = injetarLacres1360(outputLines, mapLacres);
+                if (n) { changesApplied += n; logger.info(`[Lacres] ${n} registro(s) 1360 injetado(s) no export do arquivo ${arquivoId}.`); }
+            }
+        } catch (eLac) {
+            logger.warn('[Lacres] injeção de 1360 não aplicada (não bloqueia o export): ' + eLac.message);
         }
 
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
