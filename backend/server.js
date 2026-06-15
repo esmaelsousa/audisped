@@ -5946,6 +5946,22 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
         model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient); // CEST/NCM
         await marcarCadApuracaoE116(model, dbClient); // E116 ausente vira jaCorrigidoNoExport se há COD_REC
         const resultado = validar(model);
+        // Marca os erros que o usuário JÁ corrigiu (val_correcoes) — o "Analisar" lê o ORIGINAL, onde
+        // o erro ainda aparece; sem isso o usuário acha que a correção não pegou (corrige → re-Analisa →
+        // vê o mesmo erro). Aqui sinalizamos "corrigidoPeloUsuario" + contamos quantos → a UI mostra
+        // como resolvido e orienta a re-validar o SPED corrigido.
+        try {
+            const correcoesSvc = require('./services/validador/correcoes');
+            const corrs = await correcoesSvc.buscarCorrecoes(dbClient, arquivoId);
+            if (corrs.length) {
+                const set = new Set(corrs.map(c => `${c.registro}::${c.chave_natural}::${c.campo_idx}`));
+                let nCorr = 0;
+                for (const e of resultado.erros) {
+                    if (e.chaveNatural != null && e.campoIdx != null && set.has(`${e.registro}::${e.chaveNatural}::${e.campoIdx}`)) { e.corrigidoPeloUsuario = true; nCorr++; }
+                }
+                if (resultado.resumo) resultado.resumo.corrigidosPeloUsuario = nCorr;
+            }
+        } catch (_) { /* sem correções → segue normal */ }
         resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         res.json(resultado);
     } catch (e) {

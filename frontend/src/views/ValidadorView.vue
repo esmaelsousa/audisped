@@ -474,10 +474,14 @@ onMounted(async () => {
                 <p class="text-sm font-semibold text-slate-800 truncate">{{ e.titulo }}</p>
                 <p class="text-[11px] text-slate-500">{{ e.regra_id }} · {{ e.registro }} · linha {{ e.linha ?? '-' }}</p>
               </div>
-              <span v-if="e.jaCorrigidoNoExport" class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">auto no download</span>
+              <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-bold text-white bg-emerald-600 px-1.5 py-0.5 rounded shrink-0 mt-0.5">✓ corrigido por você</span>
+              <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">auto no download</span>
               <component :is="expandido === i ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
             </button>
             <div v-if="expandido === i" class="px-5 pb-4 pt-1 bg-slate-50/50 text-xs space-y-2">
+              <div v-if="e.corrigidoPeloUsuario" class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-emerald-800">
+                <b>✓ Você já corrigiu este item.</b> Ele ainda aparece aqui porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Re-validar (sobre o SPED corrigido)"</b> ou baixe o SPED corrigido para confirmar — a correção é aplicada no arquivo final.
+              </div>
               <p class="text-slate-600">{{ e.detalhe }}</p>
               <div class="grid sm:grid-cols-2 gap-2">
                 <div v-if="e.valorAtual !== '' && e.valorAtual != null"><span class="text-slate-400">Valor atual:</span> <span class="font-mono text-slate-700 break-all">{{ e.valorAtual }}</span></div>
