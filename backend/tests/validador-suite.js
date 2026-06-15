@@ -128,6 +128,11 @@ t('1350-1360 +: bomba sem 1360 dispara', () => assert.ok(fires(H(['|1350|BOMBA1|
 t('1350-1360 -: bomba com 1360 não dispara', () => assert.ok(!fires(H(['|1350|BOMBA1|MARCA|MOD|1|', '|1360|LACRE001|01012022|', '|1370|1|2|12|']), 'COMB-1350-1360-01')));
 t('1350-1360 +: 2 bombas sem 1360 = 2 erros', () => { const r = run(H(['|1350|B1|M|MO|1|', '|1370|1|2|12|', '|1350|B2|M|MO|1|', '|1370|2|1|11|'])); assert.equal(r.erros.filter(e => e.regra_id === 'COMB-1350-1360-01').length, 2); });
 
+// INV-1360-DATA-01 (DAT_APLICACAO do lacre < 01/01/2000)
+t('1360-data +: ano 0205 dispara', () => assert.ok(fires(H(['|1350|B1|M|MO|1|', '|1360|I7651130-7|03120205|']), 'INV-1360-DATA-01')));
+t('1360-data -: data válida (2016) não dispara', () => assert.ok(!fires(H(['|1350|B1|M|MO|1|', '|1360|G0829928-3|08082016|']), 'INV-1360-DATA-01')));
+t('1360-data corrigível por NUM_LACRE (campoIdx 3)', () => { const e = run(H(['|1360|LX|03120205|'])).erros.find(x => x.regra_id === 'INV-1360-DATA-01'); assert.equal(e.campoIdx, 3); assert.equal(e.chaveNatural, 'LX'); assert.equal(e.corrigivel, true); });
+
 // DOC-C100-DTES-01 (C100 DT_E_S > data final). H() usa DT_FIN=31012022.
 t('c100-dtes +: DT_E_S 03022022 > 31012022 dispara', () => assert.ok(fires(H(['|C100|0|1|PART|55|00|1|100|' + CHAVE() + '|30012022|03022022|100,00|']), 'DOC-C100-DTES-01')));
 t('c100-dtes -: DT_E_S dentro do período não dispara', () => assert.ok(!fires(H(['|C100|0|1|PART|55|00|1|100|' + CHAVE() + '|30012022|30012022|100,00|']), 'DOC-C100-DTES-01')));

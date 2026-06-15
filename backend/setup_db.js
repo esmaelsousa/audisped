@@ -170,6 +170,20 @@ async function setupDatabase() {
             );
         `);
 
+        // Cadastro de credenciadoras (participantes do 1601) p/ injetar 0150 completo no export
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS cad_credenciadoras (
+                id SERIAL PRIMARY KEY,
+                cnpj TEXT UNIQUE NOT NULL,
+                nome TEXT,
+                ie TEXT,
+                cod_mun TEXT,
+                endereco TEXT,
+                num TEXT,
+                bairro TEXT
+            );
+        `);
+
         // --- FASE 5: DE-PARA XML (PRODUTOS) ---
         await client.query(`
             CREATE TABLE IF NOT EXISTS de_para_xml (

@@ -21,6 +21,7 @@ module.exports = [
     require('./r_c100_extemporaneo'),  // DOC-C100-DTES-01: C100 com DT_E_S > data final do período
     require('./r_e110_apuracao'),      // INV-E110-01: E110 (totais de ajuste/saldo) ≠ Σ E111
     require('./r_cod_barra_0200'),     // DOC-0200-GTIN-01: COD_BARRA do 0200 não numérico (ex.: "SEM GTIN")
+    require('./r_1360_data'),          // INV-1360-DATA-01: DAT_APLICACAO do lacre (1360) < 01/01/2000
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques

@@ -5522,6 +5522,83 @@ app.post('/api/lmc/lacres', authMiddleware, async (req, res) => {
 });
 
 
+// --- CADASTRO DE CREDENCIADORAS (participantes do registro 1601) ---
+// O 1601 (instrumentos de pagamento) cita CNPJ de credenciadora que o PVA exige ter um 0150 COMPLETO
+// (com COD_MUN + ENDEREÇO, obrigatórios p/ COD_PAIS 1058). Como não temos esses dados, o usuário
+// cadastra aqui (CNPJ → nome/IE/município/endereço) e o export injeta o 0150 completo.
+async function ensureCredTable(db) {
+    await db.query(`CREATE TABLE IF NOT EXISTS cad_credenciadoras (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, nome TEXT, ie TEXT, cod_mun TEXT, endereco TEXT, num TEXT, bairro TEXT)`);
+}
+
+// Lista as credenciadoras do 1601 de um arquivo + seu cadastro (p/ a UI).
+app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureCredTable(dbClient);
+        const arq = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id=$1', [arquivoId]);
+        if (!arq.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = arq.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        const fs = require('fs');
+        if (!cam || !fs.existsSync(cam)) return res.status(404).json({ message: 'Arquivo físico não encontrado.' });
+        const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/);
+        const parts0150 = new Set();
+        const cods1601 = [];
+        for (const l of linhas) {
+            const f = l.split('|');
+            if (f[1] === '0150') { parts0150.add(String(f[2] || '').trim()); }
+            else if (f[1] === '1601') { const c = String(f[2] || '').trim(); if (c && !cods1601.includes(c)) cods1601.push(c); }
+        }
+        // só as que NÃO têm 0150 no arquivo
+        const faltantes = cods1601.filter(c => !parts0150.has(c));
+        const cad = await dbClient.query(`SELECT cnpj, nome, ie, cod_mun, endereco, num, bairro FROM cad_credenciadoras`);
+        const cadMap = {}; for (const r of cad.rows) cadMap[String(r.cnpj).replace(/\D/g, '')] = r;
+        const lista = faltantes.map(c => {
+            const doc = String(c).replace(/\D/g, '');
+            const r = cadMap[doc] || {};
+            return { cnpj: c, nome: r.nome || '', ie: r.ie || 'ISENTO', cod_mun: r.cod_mun || '', endereco: r.endereco || '', num: r.num || '', bairro: r.bairro || '' };
+        });
+        res.json({ credenciadoras: lista });
+    } catch (e) {
+        logger.error('Erro ao listar credenciadoras 1601:', e);
+        res.status(500).json({ message: 'Erro ao listar credenciadoras.' });
+    } finally { dbClient.release(); }
+});
+
+// Salva (upsert) o cadastro de uma ou mais credenciadoras.
+app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
+    const lista = Array.isArray(req.body.credenciadoras) ? req.body.credenciadoras : [];
+    if (!lista.length) return res.status(400).json({ message: 'Envie credenciadoras[].' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureCredTable(dbClient);
+        await dbClient.query('BEGIN');
+        for (const c of lista) {
+            const cnpj = String(c.cnpj || '').replace(/\D/g, '');
+            if (cnpj.length !== 14) continue;
+            await dbClient.query(
+                `INSERT INTO cad_credenciadoras (cnpj, nome, ie, cod_mun, endereco, num, bairro)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 ON CONFLICT (cnpj) DO UPDATE SET nome=EXCLUDED.nome, ie=EXCLUDED.ie, cod_mun=EXCLUDED.cod_mun,
+                   endereco=EXCLUDED.endereco, num=EXCLUDED.num, bairro=EXCLUDED.bairro`,
+                [cnpj, String(c.nome || '').trim().toUpperCase().slice(0, 60), String(c.ie || 'ISENTO').trim(),
+                 String(c.cod_mun || '').replace(/\D/g, '').slice(0, 7), String(c.endereco || '').trim().slice(0, 60),
+                 String(c.num || '').trim().slice(0, 10), String(c.bairro || '').trim().slice(0, 60)]);
+        }
+        await dbClient.query('COMMIT');
+        res.json({ message: 'Credenciadoras salvas com sucesso.' });
+    } catch (e) {
+        await safeRollback(dbClient);
+        logger.error('Erro ao salvar credenciadoras:', e);
+        res.status(500).json({ message: 'Erro ao salvar credenciadoras.' });
+    } finally { dbClient.release(); }
+});
+
+
 // --- CONCILIAÇÃO SEFAZ (CSV) × ESCRITURAÇÃO DE ENTRADAS (Fase 1) ---
 // Recebe o CSV da "Relação de NF-e" da SEFAZ + o CNPJ da empresa, e cruza contra as
 // notas de entrada (documentos_c100, mod 55) já no banco — sem re-upload do SPED.
@@ -8604,27 +8681,29 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // COD_PART é, em geral, o próprio CNPJ (14 díg) ou CPF (11 díg) da credenciadora.
         if (map1601Participantes.size > 0) {
             const codPartsList = [...map1601Participantes.keys()];
-            // Recupera o NOME do participante: 1º no próprio arquivo; depois em QUALQUER
-            // arquivo (mais recente), pois o 0150 omitido raramente está no arquivo atual.
+            // Dados cadastrais da credenciadora (cad_credenciadoras): nome, IE, COD_MUN, ENDEREÇO etc.
+            // O 0150 de participante BRASILEIRO (COD_PAIS 1058) EXIGE COD_MUN (f8) e ENDERECO (f10) —
+            // injetar um 0150 sem eles vira 2 erros PVA (pior que o 1 erro "sem 0150"). Por isso só
+            // injetamos quando o cadastro tem município + endereço; senão NÃO injetamos.
+            const cadMap = new Map();
             const nomePorCodPart = new Map();
             try {
+                await dbClient.query(`CREATE TABLE IF NOT EXISTS cad_credenciadoras (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, nome TEXT, ie TEXT, cod_mun TEXT, endereco TEXT, num TEXT, bairro TEXT)`);
+                const docs = codPartsList.map(c => String(c).replace(/\D/g, '')).filter(Boolean);
+                if (docs.length) {
+                    const rc = await dbClient.query(`SELECT regexp_replace(cnpj,'\\D','','g') AS doc, nome, ie, cod_mun, endereco, num, bairro FROM cad_credenciadoras WHERE regexp_replace(cnpj,'\\D','','g') = ANY($1)`, [docs]);
+                    for (const r of rc.rows) cadMap.set(r.doc, r);
+                }
+            } catch (e) { logger.warn('[Fix C] cad_credenciadoras: ' + e.message); }
+            try {
                 const resNomes = await dbClient.query(
-                    `SELECT DISTINCT ON (cod_part) cod_part, nome
-                       FROM sped_participantes
+                    `SELECT DISTINCT ON (cod_part) cod_part, nome FROM sped_participantes
                       WHERE cod_part = ANY($1) AND nome IS NOT NULL AND btrim(nome) <> ''
-                      ORDER BY cod_part,
-                               (id_sped_arquivo = $2) DESC,  -- prioriza o arquivo atual
-                               id_sped_arquivo DESC`,
-                    [codPartsList, arquivoId]
-                );
+                      ORDER BY cod_part, (id_sped_arquivo = $2) DESC, id_sped_arquivo DESC`,
+                    [codPartsList, arquivoId]);
                 for (const r of resNomes.rows) nomePorCodPart.set(r.cod_part, r.nome);
-            } catch (e) {
-                logger.warn('[Fix C] Erro ao buscar nomes de participantes 1601 no banco:', e.message);
-            }
+            } catch (e) { logger.warn('[Fix C] nomes participantes: ' + e.message); }
 
-            // Itera sobre TODOS os COD_PART do 1601 (não só os achados no banco): se ainda
-            // não há 0150 para ele, injeta um 0150 mínimo. CNPJ/CPF é derivado do COD_PART
-            // quando ele é um documento válido (14 ou 11 dígitos numéricos).
             for (const codPart of codPartsList) {
                 const docCodPart = String(codPart).replace(/\D/g, '');
                 // Já tem 0150? (chave do set é o doc limpo do 0150, e o 0150 usa COD_PART como doc)
@@ -8633,17 +8712,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const isCnpj = docCodPart.length === 14;
                 const isCpf  = docCodPart.length === 11;
                 if (!isCnpj && !isCpf) {
-                    // COD_PART não é doc — não dá p/ montar 0150 determinístico. Registra e segue.
                     logger.warn(`[Fix C] COD_PART do 1601 "${codPart}" sem 0150 e não é CNPJ/CPF — 0150 NÃO injetado (corrigir no ERP).`);
                     continue;
                 }
-
-                const nomePart = (nomePorCodPart.get(codPart) || 'INSTITUICAO DE PAGAMENTO')
-                    .toUpperCase().substring(0, 60);
+                const cad = cadMap.get(docCodPart);
+                const codMun = String(cad?.cod_mun || '').trim();
+                const endereco = String(cad?.endereco || '').trim();
+                if (!codMun || !endereco) {
+                    // Sem cadastro completo (município/endereço) → NÃO injeta (não introduz erro novo).
+                    logger.warn(`[Fix C] 0150 do 1601 "${codPart}" NÃO injetado: credenciadora sem cadastro de município/endereço. Cadastre em "Credenciadoras (1601)".`);
+                    continue;
+                }
+                const nomePart = String(cad?.nome || nomePorCodPart.get(codPart) || 'INSTITUICAO DE PAGAMENTO').toUpperCase().substring(0, 60);
                 // Formato 0150: |0150|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
                 const campoCnpj = isCnpj ? docCodPart : '';
                 const campoCpf  = isCpf  ? docCodPart : '';
-                const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|ISENTO|||||||`;
+                const ie = String(cad?.ie || 'ISENTO').trim();
+                const num = String(cad?.num || '').trim();
+                const bairro = String(cad?.bairro || '').trim();
+                const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|${ie}|${codMun}||${endereco}|${num}||${bairro}|`;
 
                 // Insere a nova 0150 logo APÓS o último 0150 existente (mantém o sub-bloco 0150
                 // CONTÍGUO). Inserir no fim do bloco 0 (antes do 0990) colocaria o 0150 depois de
