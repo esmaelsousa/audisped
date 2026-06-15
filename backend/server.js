@@ -7189,12 +7189,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
                 // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute
-                // (comprovado em arquivos+PVA reais): COD_VER ≤ 018 → 3 campos (REG|UNID_CONV|FAT_CONV);
-                // COD_VER ≥ 019 → 4 campos (REG|UNID_CONV|FAT_CONV|<campo novo>, em geral vazio: "|0220|L|1||").
-                // Evidências: 2021 leiaute 015 → PVA "esperado 3, contém 4"; RAQUEL 2025 leiaute 019 e
-                // S CRUZ 2026 leiaute 020 → PVA "esperado 4, contém 3" quando emitido com 3.
+                // (comprovado em arquivos+PVA reais): COD_VER = 015 → 3 campos (REG|UNID_CONV|FAT_CONV);
+                // COD_VER ≥ 016 → 4 campos (REG|UNID_CONV|FAT_CONV|<campo novo>, em geral vazio: "|0220|CX|6||").
+                // O ERP emite SEMPRE 4 campos (015→020). Evidências PVA: 2021 leiaute 015 → "esperado 3";
+                // 2023 leiaute 017, 2025 leiaute 019, 2026 leiaute 020 → "esperado 4" quando emitido com 3.
+                // Mapa ano→ver: 2021=015, 2022=016, 2023=017, 2024=018, 2025=019, 2026=020.
                 // `layoutVersion` aqui já é o COD_VER de SAÍDA (inclui a transmutação 019→020 de 2026).
-                const _4campos = layoutVersion >= '019';
+                const _4campos = layoutVersion >= '016';
                 return _4campos
                     ? `|0220|${f[2] || ''}|${f[3] || ''}|${f[4] || ''}|`
                     : `|0220|${f[2] || ''}|${f[3] || ''}|`;

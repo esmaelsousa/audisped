@@ -68,6 +68,9 @@ t('contadores +: 9999 errado dispara', () => assert.ok(fires(H(['|9999|999|']), 
 // CAD-0220-01 (nº de campos do 0220) — ≤018 → 3 campos; ≥019 → 4 campos (4º em geral vazio).
 t('0220 +: leiaute 015 com 4 campos dispara (esperado 3)', () => assert.ok(fires(H(['|0220|LT|1,0000||'], { ver: '015' }), 'CAD-0220-01')));
 t('0220 -: leiaute 015 com 3 campos não dispara', () => assert.ok(!fires(H(['|0220|UN|1|'], { ver: '015' }), 'CAD-0220-01')));
+t('0220 -: leiaute 016 com 4 campos NÃO dispara (2022)', () => assert.ok(!fires(H(['|0220|CX|24||'], { ver: '016' }), 'CAD-0220-01')));
+t('0220 +: leiaute 017 com 3 campos dispara (esperado 4 — RAQUEL 2023)', () => assert.ok(fires(H(['|0220|CX|6|'], { ver: '017' }), 'CAD-0220-01')));
+t('0220 -: leiaute 017 com 4 campos NÃO dispara (2023)', () => assert.ok(!fires(H(['|0220|CX|6||'], { ver: '017' }), 'CAD-0220-01')));
 t('0220 -: leiaute 019 com 4 campos NÃO dispara (RAQUEL 2025)', () => assert.ok(!fires(H(['|0220|CX|24||'], { ver: '019' }), 'CAD-0220-01')));
 t('0220 +: leiaute 019 com 3 campos dispara (esperado 4)', () => assert.ok(fires(H(['|0220|CX|24|'], { ver: '019' }), 'CAD-0220-01')));
 t('0220 -: leiaute 020 com 4 campos NÃO dispara (S CRUZ 2026)', () => assert.ok(!fires(H(['|0220|L|1||'], { ver: '020', dtIni: '01042026', dtFin: '30042026' }), 'CAD-0220-01')));
