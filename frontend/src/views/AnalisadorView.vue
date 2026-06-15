@@ -22,6 +22,11 @@ const activeErrorSubTab = ref('TODOS');
 const showSuccessToast = ref(false);
 const showLmcConfigModal = ref(false);
 const tankConfigs = ref([]);
+// Cadastro de lacres das bombas (registro 1360)
+const showLacresModal = ref(false);
+const lacresBombas = ref([]); // [{ serie, fabricante, modelo, temLacre, lacres:[{num_lacre, dt_aplicacao}] }]
+const lacresCnpj = ref('');
+const savingLacres = ref(false);
 
 // --- Estado de Upload e Progresso ---
 const isUploading = ref(false);
@@ -622,6 +627,51 @@ async function saveLmcConfig() {
         alert("Erro ao salvar capacidades: " + e.message);
     } finally {
         savingLmcConfig.value = false;
+    }
+}
+
+// --- Cadastro de Lacres das bombas (registro 1360) ---
+async function openLacresModal() {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/lmc/lacres-bombas/${idArquivoSped.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        lacresCnpj.value = res.data.cnpj || (empresaSelecionada.value && empresaSelecionada.value.cnpj) || '';
+        const porSerie = {};
+        for (const l of (res.data.lacres || [])) {
+            (porSerie[l.serie_bomba] = porSerie[l.serie_bomba] || []).push({ num_lacre: l.num_lacre, dt_aplicacao: l.dt_aplicacao || '' });
+        }
+        lacresBombas.value = (res.data.bombas || []).map(b => ({
+            serie: b.serie, fabricante: b.fabricante, modelo: b.modelo, temLacre: b.temLacre,
+            lacres: (porSerie[b.serie] && porSerie[b.serie].length) ? porSerie[b.serie] : [{ num_lacre: '', dt_aplicacao: '' }]
+        }));
+        showLacresModal.value = true;
+    } catch (e) {
+        alert('Erro ao carregar bombas/lacres: ' + (e.response?.data?.message || e.message));
+    }
+}
+function addLacre(b) { b.lacres.push({ num_lacre: '', dt_aplicacao: '' }); }
+function removeLacre(b, i) { b.lacres.splice(i, 1); if (!b.lacres.length) b.lacres.push({ num_lacre: '', dt_aplicacao: '' }); }
+async function saveLacres() {
+    savingLacres.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        const lacres = [];
+        for (const b of lacresBombas.value) {
+            for (const l of (b.lacres || [])) {
+                if ((l.num_lacre || '').trim()) lacres.push({ serie_bomba: b.serie, num_lacre: String(l.num_lacre).trim(), dt_aplicacao: String(l.dt_aplicacao || '').trim() });
+            }
+        }
+        await axios.post(`${API_BASE_URL}/api/lmc/lacres`, { cnpj: lacresCnpj.value, lacres }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        showLacresModal.value = false;
+        alert('Lacres salvos. Re-exporte o SPED para injetar os registros 1360.');
+    } catch (e) {
+        alert('Erro ao salvar lacres: ' + (e.response?.data?.message || e.message));
+    } finally {
+        savingLacres.value = false;
     }
 }
 
@@ -2347,6 +2397,9 @@ const statusAnpGeral = computed(() => {
             <button @click="openLmcConfig" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5">
                 ⚙️ Configurar Tanques
             </button>
+            <button @click="openLacresModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar lacres das bombas (registro 1360) — injetados no SPED ao exportar">
+                🔒 Lacres das Bombas
+            </button>
         </div>
 
         <!-- Banner de Continuidade de Estoque -->
@@ -2800,6 +2853,55 @@ const statusAnpGeral = computed(() => {
                 <button @click="saveLmcConfig" :disabled="savingLmcConfig" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
                     <Loader2 v-if="savingLmcConfig" class="w-4 h-4 animate-spin"/>
                     {{ savingLmcConfig ? 'SALVANDO...' : 'SALVAR CAPACIDADES' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Lacres das Bombas (registro 1360) -->
+    <div v-if="showLacresModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">🔒 Lacres das <span class="text-brand-accent">Bombas</span></h3>
+                    <p class="text-sm text-slate-400 font-medium">Informe os lacres de cada bomba (registro 1360). São injetados no SPED ao exportar.</p>
+                </div>
+                <button @click="showLacresModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+            </div>
+
+            <div v-if="!lacresBombas.length" class="text-sm text-slate-400 italic py-6 text-center">Nenhuma bomba (registro 1350) encontrada neste arquivo.</div>
+
+            <div class="overflow-y-auto pr-2 space-y-4 custom-scrollbar flex-1">
+                <div v-for="(b, bi) in lacresBombas" :key="bi" class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-black text-slate-700">Bomba: {{ b.serie }}</span>
+                            <span class="text-[9px] font-mono text-slate-400">{{ b.fabricante }} · {{ b.modelo }}</span>
+                        </div>
+                        <span v-if="b.temLacre" class="text-[8px] font-black text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">já tem 1360</span>
+                        <span v-else class="text-[8px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">sem lacre</span>
+                    </div>
+                    <div v-for="(l, li) in b.lacres" :key="li" class="flex items-center gap-2">
+                        <input v-model="l.num_lacre" placeholder="Nº do lacre" class="flex-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-bold outline-none transition-all" />
+                        <input v-model="l.dt_aplicacao" placeholder="DDMMAAAA" maxlength="8" class="w-32 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-mono text-center outline-none transition-all" />
+                        <button @click="removeLacre(b, li)" class="w-8 h-8 shrink-0 bg-slate-100 hover:bg-red-100 hover:text-red-600 rounded-lg text-slate-400 transition-colors" title="Remover lacre">✕</button>
+                    </div>
+                    <button @click="addLacre(b)" class="text-[10px] font-black text-brand-accent hover:underline">+ adicionar lacre</button>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
+                <div class="text-xl">💡</div>
+                <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
+                    O nº do lacre e a data (DDMMAAAA) são os do lacre físico aplicado na bomba. O PVA exige ao menos um lacre (1360) por bomba (1350).
+                </p>
+            </div>
+
+            <div class="flex gap-3">
+                <button @click="showLacresModal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
+                <button @click="saveLacres" :disabled="savingLacres" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                    <Loader2 v-if="savingLacres" class="w-4 h-4 animate-spin"/>
+                    {{ savingLacres ? 'SALVANDO...' : 'SALVAR LACRES' }}
                 </button>
             </div>
         </div>
