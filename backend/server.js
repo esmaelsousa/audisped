@@ -8753,6 +8753,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             logger.warn('[Lacres] injeção de 1360 não aplicada (não bloqueia o export): ' + eLac.message);
         }
 
+        // ── Coerência Apuração ICMS: E110 (totais de ajuste) = Σ E111 + cascata do saldo ──
+        // ERPs preenchem o detalhe (E111) mas esquecem de totalizar no E110 (f4/f8) → PVA
+        // "VL_TOT_AJ_DÉBITOS/CRÉDITOS deve corresponder à soma dos E111". Recalcula f4/f5/f8/f9
+        // pela natureza (4ª pos do COD_AJ_APUR) e propaga p/ o saldo (f11/f13/f14). Só altera o
+        // que muda; no-op byte-idêntico quando já coerente (379/400 da frota). Antes do recálculo X990.
+        {
+            const { recalcularE110 } = require('./services/spedCostureiraService');
+            recalcularE110(outputLines); // muta in-place
+        }
+
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
         // Após dedup C100/D100, injeção de 0220, filtros 0200/0206 e demais
         // ajustes, as contagens originais do arquivo ficam incorretas. Recalcula

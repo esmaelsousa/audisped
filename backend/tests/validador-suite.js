@@ -179,6 +179,13 @@ t('aplicar: H005 único keyed 01 (compat. com correções já gravadas) ainda ap
     assert.equal(l[0].split('|')[2], 'ZZZ');
 });
 
+// INV-E110-01 (apuração ICMS E110 = Σ E111 por natureza + cascata). COD_AJ_APUR 4ª pos: 0=déb, 2=créd.
+const E110z = '|E110|100,00|0|0,00|0|0,00|0|0,00|0|0|0,00|0|0,00|0,00|0|';
+t('e110 +: f4/f8 zerados com E111 dispara', () => assert.ok(fires(H([E110z, '|E111|BA009999|DIFAL|50,00|', '|E111|BA020003|CIAP|30,00|']), 'INV-E110-01')));
+t('e110 + sugere soma do E111 (50,00 débito)', () => assert.ok(firesDet(H([E110z, '|E111|BA009999|DIFAL|50,00|', '|E111|BA020003|CIAP|30,00|']), 'INV-E110-01', '50,00')));
+t('e110 -: E110 coerente sem E111 não dispara', () => assert.ok(!fires(H(['|E110|100,00|0|0,00|0|0,00|0|0,00|0|0|100,00|0|100,00|0,00|0|']), 'INV-E110-01')));
+t('e110 -: E110 coerente COM E111 (totais e saldo certos) não dispara', () => assert.ok(!fires(H(['|E110|100,00|0|50,00|0|0,00|0|30,00|0|0|120,00|0|120,00|0,00|0|', '|E111|BA009999|DIFAL|50,00|', '|E111|BA020003|CIAP|30,00|']), 'INV-E110-01')));
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

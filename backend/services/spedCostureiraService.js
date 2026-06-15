@@ -939,6 +939,52 @@ function injetarLacres1360(linhas, mapLacres) {
     return injetados;
 }
 
+// ── Coerência da Apuração ICMS (E110) a partir dos ajustes E111 ─────────────────────
+// PVA: VL_TOT_AJ_DEBITOS (f4) = Σ E111 "outros débitos"; VL_TOT_AJ_CREDITOS (f8) = Σ "outros
+// créditos"; VL_ESTORNOS_CRED (f5)=Σ estorno créd; VL_ESTORNOS_DEB (f9)=Σ estorno déb. A NATUREZA
+// do ajuste é a 4ª posição do COD_AJ_APUR (validado em 4/4 arquivos BA reais via charAt(3); a 3ª
+// posição falhou 0/4): '0'→f4, '1'→f5, '2'→f8, '3'→f9. Recalcula esses 4 e, EM CASCATA, o saldo:
+//   base = (f2+f3+f4+f5) - (f6+f7+f8+f9) - f10(saldo credor anterior).
+//   base>=0 (devedor): f11(SLD_APURADO)=base, f13(ICMS_RECOLHER)=max(0,base-f12+f15), f14=0.
+//   base<0  (credor):  f11=0, f13=0, f14(SLD_CREDOR_TRANSPORTAR)=-base.
+// Só altera o campo cujo VALOR (em centavos) muda → no-op byte-idêntico quando já coerente
+// (validado: 379/400 arquivos da frota INALTERADOS; corrige os 21 que esqueceram de totalizar o E111).
+// Layout E110 (1-idx): 2 TOT_DEB,3 AJ_DEB,4 TOT_AJ_DEB,5 ESTORNOS_CRED,6 TOT_CRED,7 AJ_CRED,
+// 8 TOT_AJ_CRED,9 ESTORNOS_DEB,10 SLD_CREDOR_ANT,11 SLD_APURADO,12 TOT_DED,13 ICMS_RECOLHER,
+// 14 SLD_CREDOR_TRANSPORTAR,15 DEB_ESP. E111: 2 COD_AJ_APUR, 4 VL_AJ_APUR.
+function recalcularE110(linhas) {
+    const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
+    const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
+    const NAT = { '0': 4, '1': 5, '2': 8, '3': 9 };
+    let i110 = -1, soma = null;
+    const fechar = () => {
+        if (i110 < 0 || !soma) return;
+        const f = linhas[i110].split('|');
+        if (f.length <= 14) return; // E110 truncado/atípico: não mexe
+        let mudou = false;
+        const setF = (k, val) => { if (c(f[k]) !== val) { f[k] = fmt(val); mudou = true; } };
+        if (soma.tem) { setF(4, soma[4]); setF(5, soma[5]); setF(8, soma[8]); setF(9, soma[9]); }
+        const totDeb = c(f[2]) + c(f[3]) + c(f[4]) + c(f[5]);
+        const totCred = c(f[6]) + c(f[7]) + c(f[8]) + c(f[9]);
+        const base = totDeb - totCred - c(f[10]);
+        if (base >= 0) { setF(11, base); setF(13, Math.max(0, base - c(f[12]) + c(f[15]))); setF(14, 0); }
+        else { setF(11, 0); setF(13, 0); setF(14, -base); }
+        if (mudou) linhas[i110] = f.join('|');
+    };
+    for (let i = 0; i < linhas.length; i++) {
+        const reg = linhas[i].split('|')[1];
+        if (reg === 'E110') { fechar(); i110 = i; soma = { 4: 0, 5: 0, 8: 0, 9: 0, tem: false }; }
+        else if (reg === 'E111' && soma) {
+            const ff = linhas[i].split('|');
+            const campo = NAT[String(ff[2] || '').charAt(3)];
+            if (campo) soma[campo] += c(ff[4]);
+            soma.tem = true;
+        }
+    }
+    fechar();
+    return linhas;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -948,5 +994,6 @@ module.exports = {
     normalizarUsoConsumoCst90,
     enforcarCoerencia1300,
     recalcularVlInvH005,
-    injetarLacres1360
+    injetarLacres1360,
+    recalcularE110
 };
