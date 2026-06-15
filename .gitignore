@@ -34,6 +34,9 @@ backend/uploads/
 speds/
 backend/tests/golden/
 SEGURANCA_AUDITORIA_VALIDADA.md
+# Docs derivados do datadir de terceiro (leiaute forense) — NÃO versionar (procedência/sigilo).
+# O leiaute para o produto deve ser semeado do Guia Prático / Ato COTEPE (fonte pública).
+REGRAS_PVA.md
 *.txt
 *.pdf
 !package.json
