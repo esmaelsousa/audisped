@@ -221,6 +221,19 @@ async function setupDatabase() {
             );
         `);
 
+        // De-para de COD_ITEM: vincula um COD_ITEM órfão de C170 a um produto 0200 cadastrado
+        // (escolhido na "lista suspensa") — resolve DOC-C170-01 sem inventar produto/NCM.
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS val_cod_item_map (
+                id SERIAL PRIMARY KEY,
+                id_sped_arquivo INTEGER,
+                cod_origem TEXT NOT NULL,
+                cod_destino TEXT NOT NULL,
+                criado_em TIMESTAMP DEFAULT NOW(),
+                UNIQUE(id_sped_arquivo, cod_origem)
+            );
+        `);
+
         // Semeia a biblioteca das principais credenciadoras (Stone/Cielo/Rede/Getnet/PagSeguro/
         // Mercado Pago) — ON CONFLICT DO NOTHING (não sobrescreve ajustes do usuário).
         try {

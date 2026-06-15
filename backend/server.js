@@ -5953,14 +5953,21 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
         try {
             const correcoesSvc = require('./services/validador/correcoes');
             const corrs = await correcoesSvc.buscarCorrecoes(dbClient, arquivoId);
-            if (corrs.length) {
-                const set = new Set(corrs.map(c => `${c.registro}::${c.chave_natural}::${c.campo_idx}`));
-                let nCorr = 0;
-                for (const e of resultado.erros) {
-                    if (e.chaveNatural != null && e.campoIdx != null && set.has(`${e.registro}::${e.chaveNatural}::${e.campoIdx}`)) { e.corrigidoPeloUsuario = true; nCorr++; }
-                }
-                if (resultado.resumo) resultado.resumo.corrigidosPeloUsuario = nCorr;
+            const set = new Set(corrs.map(c => `${c.registro}::${c.chave_natural}::${c.campo_idx}`));
+            // de-para de COD_ITEM (DOC-C170-01): erro do item órfão vira "corrigido" quando há vínculo
+            let codMapSet = new Set();
+            try {
+                await dbClient.query(`CREATE TABLE IF NOT EXISTS val_cod_item_map (id SERIAL PRIMARY KEY, id_sped_arquivo INT, cod_origem TEXT NOT NULL, cod_destino TEXT NOT NULL, criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, cod_origem))`);
+                const cm = await dbClient.query(`SELECT cod_origem FROM val_cod_item_map WHERE id_sped_arquivo=$1`, [arquivoId]);
+                codMapSet = new Set(cm.rows.map(r => String(r.cod_origem).trim()));
+            } catch (_) {}
+            let nCorr = 0;
+            for (const e of resultado.erros) {
+                const porCampo = e.chaveNatural != null && e.campoIdx != null && set.has(`${e.registro}::${e.chaveNatural}::${e.campoIdx}`);
+                const porCodMap = e.regra_id === 'DOC-C170-01' && codMapSet.has(String(e.valorAtual || '').trim());
+                if (porCampo || porCodMap) { e.corrigidoPeloUsuario = true; nCorr++; }
             }
+            if (resultado.resumo) resultado.resumo.corrigidosPeloUsuario = nCorr;
         } catch (_) { /* sem correções → segue normal */ }
         resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         res.json(resultado);
@@ -6196,6 +6203,57 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
         logger.error('Erro ao gerar relatório de correções:', e);
         if (!res.headersSent) res.status(500).json({ message: 'Erro ao gerar o relatório: ' + e.message });
         else res.end();
+    } finally { dbClient.release(); }
+});
+
+// Lista os produtos (registros 0200) do arquivo — alimenta a "lista suspensa" para vincular um
+// COD_ITEM órfão de C170 a um produto cadastrado (resolve DOC-C170-01 sem inventar produto/NCM).
+app.get('/api/validador/produtos-0200/:id', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.params.id);
+    if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const a = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id=$1', [idArq]);
+        if (!a.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = a.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        if (!cam || !fs.existsSync(cam)) return res.status(404).json({ message: 'Arquivo físico não encontrado.' });
+        const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/);
+        const seen = new Set(); const produtos = [];
+        for (const l of linhas) {
+            if (!l.startsWith('|0200|')) continue;
+            const f = l.split('|'); const cod = String(f[2] || '').trim();
+            if (!cod || seen.has(cod)) continue;
+            seen.add(cod);
+            produtos.push({ cod_item: cod, descr: String(f[3] || '').trim(), ncm: String(f[8] || '').trim() });
+        }
+        produtos.sort((x, y) => (x.descr || '').localeCompare(y.descr || ''));
+        res.json({ produtos, total: produtos.length });
+    } catch (e) {
+        logger.error('Erro ao listar produtos 0200:', e);
+        res.status(500).json({ message: 'Erro ao listar produtos.' });
+    } finally { dbClient.release(); }
+});
+
+// Salva/remove o vínculo COD_ITEM órfão (C170) → produto 0200 (de-para por arquivo).
+app.post('/api/validador/cod-item-map', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.body.id_sped_arquivo);
+    const origem = String(req.body.cod_origem || '').trim();
+    const destino = String(req.body.cod_destino || '').trim();
+    const ativo = req.body.ativo !== false;
+    if (isNaN(idArq) || !origem) return res.status(400).json({ message: 'id_sped_arquivo e cod_origem são obrigatórios.' });
+    if (ativo && !destino) return res.status(400).json({ message: 'Selecione o produto (0200) de destino.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS val_cod_item_map (id SERIAL PRIMARY KEY, id_sped_arquivo INT, cod_origem TEXT NOT NULL, cod_destino TEXT NOT NULL, criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, cod_origem))`);
+        if (ativo) await dbClient.query(`INSERT INTO val_cod_item_map (id_sped_arquivo, cod_origem, cod_destino) VALUES ($1,$2,$3) ON CONFLICT (id_sped_arquivo, cod_origem) DO UPDATE SET cod_destino=EXCLUDED.cod_destino`, [idArq, origem, destino]);
+        else await dbClient.query(`DELETE FROM val_cod_item_map WHERE id_sped_arquivo=$1 AND cod_origem=$2`, [idArq, origem]);
+        res.json({ message: ativo ? 'Vínculo salvo. Re-valide / baixe o SPED corrigido para aplicar.' : 'Vínculo removido.', ativo });
+    } catch (e) {
+        logger.error('Erro ao salvar cod-item-map:', e);
+        res.status(500).json({ message: 'Erro ao salvar o vínculo.' });
     } finally { dbClient.release(); }
 });
 
@@ -7305,6 +7363,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             for (const s of sk.rows) skipSet.add(`${s.regra_id}|${s.chave || ''}`);
         } catch (e) { logger.warn('[Skip] val_correcoes_skip: ' + e.message); }
         const pular = (regra, chave) => skipSet.has(`${regra}|`) || (chave != null && skipSet.has(`${regra}|${chave}`));
+
+        // De-para de COD_ITEM (val_cod_item_map): item de C170 com código-lixo/órfão → COD_ITEM de um
+        // 0200 REAL escolhido pelo usuário. Aplicado a TODOS os C170 daquele código (de uma vez). O 0200
+        // de destino já tem NCM → resolve o DOC-C170-01 sem inventar produto. Origem = código exato do .txt.
+        const codItemMap = new Map();
+        try {
+            await dbClient.query(`CREATE TABLE IF NOT EXISTS val_cod_item_map (id SERIAL PRIMARY KEY, id_sped_arquivo INT, cod_origem TEXT NOT NULL, cod_destino TEXT NOT NULL, criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, cod_origem))`);
+            const cm = await dbClient.query(`SELECT cod_origem, cod_destino FROM val_cod_item_map WHERE id_sped_arquivo=$1`, [arquivoId]);
+            for (const r of cm.rows) codItemMap.set(String(r.cod_origem).trim(), String(r.cod_destino));
+        } catch (e) { logger.warn('[CodItemMap] val_cod_item_map: ' + e.message); }
 
         // Deduplicar D100 (CT-e duplicados no arquivo original)
         {
@@ -9163,6 +9231,25 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         } catch (eCorr) {
             logger.warn('[Validador] correções não aplicadas (não bloqueia o export): ' + eCorr.message);
+        }
+
+        // ── De-para de COD_ITEM (val_cod_item_map): aponta C170 órfão p/ o 0200 escolhido ──
+        // Aplica a TODOS os C170 cujo COD_ITEM (f3) está no mapa → o item passa a referenciar um
+        // produto 0200 real (com NCM). Resolve o DOC-C170-01. Roda após val_correcoes, antes do X990.
+        if (codItemMap.size) {
+            let nMap = 0;
+            for (let i = 0; i < outputLines.length; i++) {
+                if (outputLines[i].charCodeAt(1) !== 67) continue; // rápido: só linhas que começam com |C
+                const f = outputLines[i].split('|');
+                if (f[1] !== 'C170') continue;
+                const cod = String(f[3] || '').trim();
+                if (codItemMap.has(cod)) {
+                    const novo = codItemMap.get(cod);
+                    f[3] = novo; outputLines[i] = f.join('|'); nMap++;
+                    changelog.add({ registro: 'C170', regraId: 'DOC-C170-01', motivo: 'COD_ITEM órfão vinculado a um produto 0200 cadastrado (escolha do usuário)', escopo: 'campo', linha: i, campo: 'COD_ITEM', antes: cod, depois: novo, origem: 'manual', classe: 'manual' });
+                }
+            }
+            if (nMap) { changesApplied += nMap; logger.info(`[CodItemMap] ${nMap} C170 remapeado(s) p/ produto 0200 no arquivo ${arquivoId}.`); }
         }
 
         // ── Coerência Bloco H: VL_INV(H005) = Σ VL_ITEM(H010) ──────────────────

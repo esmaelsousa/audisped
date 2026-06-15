@@ -218,6 +218,31 @@ async function verAlteracoes() {
   } finally { loadingAlt.value = false; }
 }
 
+// DOC-C170-01 — vincular COD_ITEM órfão a um produto 0200 (lista suspensa, estilo PVA)
+const produtos0200 = ref([]);
+const loadingProds = ref(false);
+const vincSel = ref({});        // keyErro -> cod_destino selecionado
+const salvandoVinc = ref(null);
+async function carregarProdutos0200() {
+  if (produtos0200.value.length || loadingProds.value || !resultadoId.value) return;
+  loadingProds.value = true;
+  try {
+    const r = await axios.get(`${API_BASE_URL}/api/validador/produtos-0200/${resultadoId.value}`, { headers: authHeader() });
+    produtos0200.value = r.data.produtos || [];
+  } catch (e) { erro.value = 'Erro ao carregar produtos (0200): ' + (e.response?.data?.message || e.message); }
+  finally { loadingProds.value = false; }
+}
+async function vincularCodItem(e) {
+  const dest = vincSel.value[keyErro(e)];
+  if (!dest) return;
+  salvandoVinc.value = keyErro(e);
+  try {
+    await axios.post(`${API_BASE_URL}/api/validador/cod-item-map`, { id_sped_arquivo: resultadoId.value, cod_origem: e.valorAtual, cod_destino: dest }, { headers: authHeader() });
+    await analisar(); // re-analisa → o erro do item passa a aparecer como "✓ corrigido por você"
+  } catch (err) { erro.value = err.response?.data?.message || ('Erro ao vincular: ' + err.message); }
+  finally { salvandoVinc.value = null; }
+}
+
 // Relatório consolidado em PDF (para enviar à contabilidade / setor fiscal)
 function baixarRelatorioPdf() {
   if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
@@ -490,6 +515,18 @@ onMounted(async () => {
               <div class="bg-white border border-slate-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Como corrigir no ERP</p>
                 <p class="text-slate-600">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
+              </div>
+              <!-- DOC-C170-01: vincular o COD_ITEM órfão a um produto 0200 cadastrado (lista suspensa) -->
+              <div v-if="e.regra_id === 'DOC-C170-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-violet-50/60 border border-violet-100 rounded-xl p-3">
+                <p class="text-[10px] uppercase font-bold text-violet-400 mb-1">Vincular a um produto cadastrado (0200)</p>
+                <p class="text-[11px] text-slate-500 mb-2">Este COD_ITEM não existe no 0200. Selecione o produto correspondente do posto — vale para <b>todas</b> as notas com esse item.</p>
+                <div class="flex items-center gap-2">
+                  <select v-model="vincSel[keyErro(e)]" @focus="carregarProdutos0200" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 bg-white">
+                    <option value="">{{ loadingProds ? 'carregando produtos...' : (produtos0200.length ? 'selecione o produto…' : 'clique para carregar…') }}</option>
+                    <option v-for="p in produtos0200" :key="p.cod_item" :value="p.cod_item">{{ p.cod_item }} — {{ p.descr }}{{ p.ncm ? ' (NCM ' + p.ncm + ')' : '' }}</option>
+                  </select>
+                  <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 shrink-0">Vincular</button>
+                </div>
               </div>
               <div v-if="e.corrigivel && resultadoId" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
