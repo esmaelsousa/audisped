@@ -13,4 +13,5 @@ module.exports = [
     { cnpj: '10440482000154', nome: 'GETNET ADQUIRENCIA E SERVICOS PARA MEIOS DE PAGAMENTO SA', ie: '', cod_mun: '3550308', endereco: 'AVENIDA PRESIDENTE JUSCELINO KUBITSCHEK', num: '2041', bairro: 'VILA NOVA CONCEICAO' },
     { cnpj: '08561701000101', nome: 'PAGSEGURO INTERNET INSTITUICAO DE PAGAMENTO S.A.', ie: '', cod_mun: '3550308', endereco: 'AVENIDA BRIGADEIRO FARIA LIMA', num: '1384', bairro: 'JARDIM PAULISTANO' },
     { cnpj: '10573521000191', nome: 'MERCADO PAGO INSTITUICAO DE PAGAMENTO LTDA', ie: '', cod_mun: '3534401', endereco: 'AVENIDA DAS NACOES UNIDAS', num: '3003', bairro: 'BONFIM' },
+    { cnpj: '03106213000190', nome: 'SICREDI CARTOES LTDA', ie: '', cod_mun: '4314902', endereco: 'AVENIDA ASSIS BRASIL', num: '3940', bairro: 'SAO SEBASTIAO' },
 ];

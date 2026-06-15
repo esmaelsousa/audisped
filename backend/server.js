@@ -5629,17 +5629,11 @@ app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
 async function ensureApuracaoE116Table(db) {
     await db.query(`CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, cod_rec TEXT NOT NULL, dia_vcto INTEGER DEFAULT 9)`);
 }
-// Marca no model se a empresa tem COD_REC cadastrado (cad_apuracao_e116) → a regra INV-E116-01
-// passa a tratar "E116 ausente" como jaCorrigidoNoExport (será injetado no export). NÃO muta o
-// dominio cacheado (CEST/NCM) — usa campo próprio do model (por requisição).
-async function marcarCadApuracaoE116(model, db) {
-    try {
-        const cnpj = String(model.cnpj || '').replace(/\D/g, '');
-        if (!cnpj) return;
-        await ensureApuracaoE116Table(db);
-        const r = await db.query(`SELECT 1 FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g')=$1 AND coalesce(btrim(cod_rec),'')<>'' LIMIT 1`, [cnpj]);
-        model.apuracaoE116CadOk = r.rows.length > 0;
-    } catch (_) { /* degrada: sem flag */ }
+// E116 ausente é SEMPRE injetável no export (COD_REC default GLOBAL 0767, override por CNPJ em
+// cad_apuracao_e116) → a regra INV-E116-01 trata "E116 ausente" como jaCorrigidoNoExport p/ todas
+// as empresas. NÃO muta o dominio cacheado (CEST/NCM) — usa campo próprio do model (por requisição).
+async function marcarCadApuracaoE116(model /*, db */) {
+    model.apuracaoE116CadOk = true;
 }
 app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
@@ -8835,20 +8829,30 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     continue;
                 }
                 const cad = cadMap.get(docCodPart);
-                const codMun = String(cad?.cod_mun || '').trim();
-                const endereco = String(cad?.endereco || '').trim();
+                let codMun = String(cad?.cod_mun || '').trim();
+                let endereco = String(cad?.endereco || '').trim();
+                let ie = String(cad?.ie || '').trim(); // credenciadora não tem IE → 0150 com IE em branco (PVA aceita)
+                let num = String(cad?.num || '').trim();
+                let bairro = String(cad?.bairro || '').trim();
+                let nomePart = String(cad?.nome || nomePorCodPart.get(codPart) || '').toUpperCase().substring(0, 60);
                 if (!codMun || !endereco) {
-                    // Sem cadastro completo (município/endereço) → NÃO injeta (não introduz erro novo).
-                    logger.warn(`[Fix C] 0150 do 1601 "${codPart}" NÃO injetado: credenciadora sem cadastro de município/endereço. Cadastre em "Credenciadoras (1601)".`);
-                    continue;
+                    // FALLBACK (decisão do usuário): credenciadora sem cadastro nem na biblioteca →
+                    // injeta com a credenciadora PADRÃO (STONE) p/ o erro do 1601 nunca sobrar. O
+                    // COD_PART/CNPJ permanecem os REAIS; só o endereço usa o padrão. O nome usa o do
+                    // participante (0150/sped_participantes) quando existir. Cadastre a real p/ sobrepor.
+                    const def = require('./data/credenciadoras_seed').find(c => c.cnpj === '16501555000157')
+                        || { cod_mun: '3550308', endereco: 'AVENIDA REBOUCAS', num: '2880', bairro: 'PINHEIROS', ie: '', nome: 'STONE INSTITUICAO DE PAGAMENTO S.A' };
+                    codMun = def.cod_mun; endereco = def.endereco;
+                    if (!num) num = def.num;
+                    if (!bairro) bairro = def.bairro;
+                    if (!ie) ie = def.ie;
+                    if (!nomePart) nomePart = String(def.nome).toUpperCase().substring(0, 60);
+                    logger.info(`[Fix C] 0150 do 1601 "${codPart}" sem cadastro → injetado com credenciadora PADRÃO (STONE).`);
                 }
-                const nomePart = String(cad?.nome || nomePorCodPart.get(codPart) || 'INSTITUICAO DE PAGAMENTO').toUpperCase().substring(0, 60);
+                if (!nomePart) nomePart = 'INSTITUICAO DE PAGAMENTO';
                 // Formato 0150: |0150|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
                 const campoCnpj = isCnpj ? docCodPart : '';
                 const campoCpf  = isCpf  ? docCodPart : '';
-                const ie = String(cad?.ie || '').trim(); // credenciadora não tem IE → 0150 com IE em branco (PVA aceita)
-                const num = String(cad?.num || '').trim();
-                const bairro = String(cad?.bairro || '').trim();
                 const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|${ie}|${codMun}||${endereco}|${num}||${bairro}|`;
 
                 // Insere a nova 0150 logo APÓS o último 0150 existente (mantém o sub-bloco 0150
@@ -8977,16 +8981,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // por CNPJ), injeta o E116 com o valor apurado + competência do 0000. Sem cadastro → não
         // injeta (não inventa código de receita). Roda DEPOIS do recalcularE110 e ANTES do X990.
         try {
+            // COD_REC global padrão 0767 (ICMS regime normal BA) p/ TODAS as empresas; override por
+            // CNPJ em cad_apuracao_e116. Assim o E116 ausente é injetado em qualquer empresa, não só
+            // nas cadastradas. O valor/vencimento/competência são derivados do E110 e do 0000.
+            let codRecE116 = '0767';
             const cnpjE116 = (arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
             if (cnpjE116) {
                 await dbClient.query(`CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, cod_rec TEXT NOT NULL, dia_vcto INTEGER DEFAULT 9)`);
-                const rE116 = await dbClient.query(`SELECT cod_rec, dia_vcto FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpjE116]);
-                if (rE116.rows.length && rE116.rows[0].cod_rec) {
-                    const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
-                    const n = injetarE116SeNecessario(outputLines, rE116.rows[0].cod_rec);
-                    if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${rE116.rows[0].cod_rec}) no export do arquivo ${arquivoId}.`); }
-                }
+                const rE116 = await dbClient.query(`SELECT cod_rec FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpjE116]);
+                if (rE116.rows.length && String(rE116.rows[0].cod_rec || '').trim()) codRecE116 = String(rE116.rows[0].cod_rec).trim();
             }
+            const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
+            const n = injetarE116SeNecessario(outputLines, codRecE116);
+            if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${codRecE116}) no export do arquivo ${arquivoId}.`); }
         } catch (eE116) {
             logger.warn('[E116] injeção de E116 não aplicada (não bloqueia o export): ' + eE116.message);
         }
