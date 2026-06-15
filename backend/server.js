@@ -6124,6 +6124,65 @@ app.post('/api/validador/skip', authMiddleware, async (req, res) => {
     } finally { dbClient.release(); }
 });
 
+// Relatório CONSOLIDADO de correções em PDF (para o contribuinte enviar à contabilidade / fiscal).
+// Re-exporta internamente (changelog fresco + situação residual), lê val_alteracoes + skips +
+// identificação, e gera o PDF. Read-only (não altera o arquivo).
+app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.params.id);
+    if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT cnpj_empresa, nome_arquivo, periodo_apuracao FROM sped_arquivos WHERE id=$1', [idArq]);
+        if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        const arq = r.rows[0];
+        const cnpjNum = String(arq.cnpj_empresa || '').replace(/\D/g, '');
+        // Export interno (gera changelog fresco + permite validar o resultado)
+        const PORT_ = process.env.PORT || 15435;
+        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-relatorio', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
+        const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}` } });
+        if (!exp.ok) { const motivo = (await exp.text().catch(() => '')).trim(); return res.status(exp.status === 422 ? 422 : 502).json({ message: motivo || `Falha ao gerar o SPED corrigido (HTTP ${exp.status}).` }); }
+        const txt = Buffer.from(await exp.arrayBuffer()).toString('latin1');
+        const { parseSped } = require('./services/validador/parser');
+        const { validar } = require('./services/validador/engine');
+        const model = parseSped(txt);
+        model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient);
+        await marcarCadApuracaoE116(model, dbClient);
+        const resVal = validar(model);
+        const l0000 = (model.porReg.get('0000') || [])[0];
+        const emp = (await dbClient.query('SELECT nome_empresa, nome_fantasia FROM empresas WHERE cnpj=$1', [cnpjNum])).rows[0] || {};
+        const al = (await dbClient.query(`SELECT total, dados FROM val_alteracoes WHERE id_sped_arquivo=$1 ORDER BY id DESC LIMIT 1`, [idArq])).rows[0];
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
+        const sk = (await dbClient.query(`SELECT regra_id, chave FROM val_correcoes_skip WHERE id_sped_arquivo=$1`, [idArq])).rows;
+        const fmtDt = (d) => (/^\d{8}$/.test(d || '') ? `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4, 8)}` : (d || '—'));
+        const dados = {
+            empresa: {
+                razao_social: emp.nome_empresa || emp.nome_fantasia || (l0000 ? l0000.f[6] : '') || '—',
+                cnpj: cnpjNum.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') || cnpjNum,
+                ie: (l0000 ? String(l0000.f[10] || '').trim() : '') || '—',
+            },
+            arquivo: { periodo: `${fmtDt(model.dtIni)} a ${fmtDt(model.dtFin)}`, versao: model.versao || '—', nome: arq.nome_arquivo, totalLinhas: model.totalLinhas },
+            geradoEm: new Date().toLocaleString('pt-BR'),
+            resumo: al ? Object.assign({ total: al.total }, (al.dados.totais || {})) : { total: 0, porOrigem: {} },
+            agrupado: al ? (al.dados.agrupado || []) : [],
+            skips: sk.map(s => ({ regra_id: s.regra_id, chave: s.chave || '' })),
+            residual: { bloqueantes: resVal.resumo.bloqueantes, advertencias: resVal.resumo.advertencias },
+        };
+        const PDFDocument = require('pdfkit');
+        const { gerarRelatorioCorrecoes } = require('./services/validador/relatorioCorrecoes-pdf');
+        const docp = new PDFDocument({ size: 'A4', margin: 36, bufferPages: true, autoFirstPage: true });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=Correcoes_SPED_${cnpjNum}_${String(arq.periodo_apuracao || '').substring(0, 7)}.pdf`);
+        docp.pipe(res);
+        gerarRelatorioCorrecoes(docp, dados);
+        docp.end();
+    } catch (e) {
+        logger.error('Erro ao gerar relatório de correções:', e);
+        if (!res.headersSent) res.status(500).json({ message: 'Erro ao gerar o relatório: ' + e.message });
+        else res.end();
+    } finally { dbClient.release(); }
+});
+
 
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
 app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {

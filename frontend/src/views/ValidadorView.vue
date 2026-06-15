@@ -218,6 +218,13 @@ async function verAlteracoes() {
   } finally { loadingAlt.value = false; }
 }
 
+// Relatório consolidado em PDF (para enviar à contabilidade / setor fiscal)
+function baixarRelatorioPdf() {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
+  const t = localStorage.getItem('token') || '';
+  window.open(`${API_BASE_URL}/api/validador/relatorio-correcoes/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
+}
+
 // Fase B — ligar/desligar correções. Só fiscais/injeções; estruturais sempre aplicadas.
 const EXCLUIVEIS = new Set(['INV-E116-01', 'CAD-0150-08', 'COMB-1350-1360-01', 'COMB-CST-01', 'DOC-C170-CFOP-01', 'USO-CONSUMO-X90']);
 const LABEL_REGRA = { 'INV-E116-01': 'Injetar E116 (ICMS a recolher)', 'CAD-0150-08': '0150 da credenciadora (1601)', 'COMB-1350-1360-01': 'Injetar lacres (1360)', 'COMB-CST-01': 'CST 61→60 (pré-monofásico)', 'DOC-C170-CFOP-01': 'Corrigir CFOP de entrada', 'USO-CONSUMO-X90': 'Uso/consumo → CST x90' };
@@ -398,7 +405,8 @@ onMounted(async () => {
           <span class="text-sm font-bold text-slate-700">📋 O que foi corrigido</span>
           <span class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">{{ alteracoes.total }} alteração(ões)</span>
           <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ k }}: {{ n }}</span>
-          <button @click="alteracoes = null" class="ml-auto text-[11px] text-slate-400 hover:text-slate-600 font-bold">fechar ✕</button>
+          <button @click="baixarRelatorioPdf" class="ml-auto px-3 py-1 rounded-lg text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">📄 Relatório (PDF)</button>
+          <button @click="alteracoes = null" class="text-[11px] text-slate-400 hover:text-slate-600 font-bold">fechar ✕</button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
         <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-amber-50 border-b border-amber-100">
