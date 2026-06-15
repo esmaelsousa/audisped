@@ -27,6 +27,10 @@ const showLacresModal = ref(false);
 const lacresBombas = ref([]); // [{ serie, fabricante, modelo, temLacre, lacres:[{num_lacre, dt_aplicacao}] }]
 const lacresCnpj = ref('');
 const savingLacres = ref(false);
+// Cadastro de credenciadoras (participantes do 1601 — injeta 0150 completo)
+const showCredModal = ref(false);
+const credList = ref([]); // [{ cnpj, nome, ie, cod_mun, endereco, num, bairro }]
+const savingCred = ref(false);
 
 // --- Estado de Upload e Progresso ---
 const isUploading = ref(false);
@@ -672,6 +676,35 @@ async function saveLacres() {
         alert('Erro ao salvar lacres: ' + (e.response?.data?.message || e.message));
     } finally {
         savingLacres.value = false;
+    }
+}
+
+// --- Cadastro de credenciadoras (participantes do 1601 sem 0150) ---
+async function openCredModal() {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/cad/credenciadoras-1601/${idArquivoSped.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        credList.value = (res.data.credenciadoras || []).map(c => ({ ...c }));
+        showCredModal.value = true;
+    } catch (e) {
+        alert('Erro ao carregar credenciadoras: ' + (e.response?.data?.message || e.message));
+    }
+}
+async function saveCred() {
+    savingCred.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/cad/credenciadoras`, { credenciadoras: credList.value }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        showCredModal.value = false;
+        alert('Credenciadoras salvas. Re-exporte o SPED — o 0150 completo será injetado para as que têm município e endereço.');
+    } catch (e) {
+        alert('Erro ao salvar credenciadoras: ' + (e.response?.data?.message || e.message));
+    } finally {
+        savingCred.value = false;
     }
 }
 
@@ -2400,6 +2433,9 @@ const statusAnpGeral = computed(() => {
             <button @click="openLacresModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar lacres das bombas (registro 1360) — injetados no SPED ao exportar">
                 🔒 Lacres das Bombas
             </button>
+            <button @click="openCredModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar credenciadoras do 1601 (maquininhas) — injeta o 0150 completo no SPED ao exportar">
+                💳 Credenciadoras (1601)
+            </button>
         </div>
 
         <!-- Banner de Continuidade de Estoque -->
@@ -2902,6 +2938,55 @@ const statusAnpGeral = computed(() => {
                 <button @click="saveLacres" :disabled="savingLacres" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
                     <Loader2 v-if="savingLacres" class="w-4 h-4 animate-spin"/>
                     {{ savingLacres ? 'SALVANDO...' : 'SALVAR LACRES' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Credenciadoras (participantes do 1601) -->
+    <div v-if="showCredModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-3xl w-full shadow-2xl space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">💳 Credenciadoras <span class="text-brand-accent">(1601)</span></h3>
+                    <p class="text-sm text-slate-400 font-medium">Dados das maquininhas/credenciadoras p/ gerar o registro 0150. Município e Endereço são obrigatórios.</p>
+                </div>
+                <button @click="showCredModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+            </div>
+
+            <div v-if="!credList.length" class="text-sm text-slate-400 italic py-6 text-center">Nenhuma credenciadora do 1601 sem 0150 neste arquivo. 👍</div>
+
+            <div class="overflow-y-auto pr-2 space-y-4 custom-scrollbar flex-1">
+                <div v-for="(c, ci) in credList" :key="ci" class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[9px] font-mono text-slate-400">CNPJ</span>
+                        <span class="text-xs font-black text-slate-700">{{ c.cnpj }}</span>
+                    </div>
+                    <input v-model="c.nome" placeholder="Razão social" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-bold outline-none" />
+                    <div class="grid grid-cols-2 gap-2">
+                        <input v-model="c.cod_mun" placeholder="Cód. município IBGE (7 díg) *" maxlength="7" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-mono outline-none" />
+                        <input v-model="c.ie" placeholder="IE (ou ISENTO)" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                    </div>
+                    <input v-model="c.endereco" placeholder="Endereço (logradouro) *" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                    <div class="grid grid-cols-2 gap-2">
+                        <input v-model="c.num" placeholder="Número" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                        <input v-model="c.bairro" placeholder="Bairro" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
+                <div class="text-xl">💡</div>
+                <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
+                    O 0150 só é injetado para credenciadoras com <b>Código de município</b> e <b>Endereço</b> preenchidos (obrigatórios no PVA). Os dados são reaproveitados em todos os arquivos.
+                </p>
+            </div>
+
+            <div class="flex gap-3">
+                <button @click="showCredModal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
+                <button @click="saveCred" :disabled="savingCred || !credList.length" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                    <Loader2 v-if="savingCred" class="w-4 h-4 animate-spin"/>
+                    {{ savingCred ? 'SALVANDO...' : 'SALVAR CREDENCIADORAS' }}
                 </button>
             </div>
         </div>
