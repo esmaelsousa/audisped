@@ -5629,6 +5629,18 @@ app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
 async function ensureApuracaoE116Table(db) {
     await db.query(`CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, cod_rec TEXT NOT NULL, dia_vcto INTEGER DEFAULT 9)`);
 }
+// Marca no model se a empresa tem COD_REC cadastrado (cad_apuracao_e116) → a regra INV-E116-01
+// passa a tratar "E116 ausente" como jaCorrigidoNoExport (será injetado no export). NÃO muta o
+// dominio cacheado (CEST/NCM) — usa campo próprio do model (por requisição).
+async function marcarCadApuracaoE116(model, db) {
+    try {
+        const cnpj = String(model.cnpj || '').replace(/\D/g, '');
+        if (!cnpj) return;
+        await ensureApuracaoE116Table(db);
+        const r = await db.query(`SELECT 1 FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g')=$1 AND coalesce(btrim(cod_rec),'')<>'' LIMIT 1`, [cnpj]);
+        model.apuracaoE116CadOk = r.rows.length > 0;
+    } catch (_) { /* degrada: sem flag */ }
+}
 app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
@@ -5855,6 +5867,7 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
         const { validar } = require('./services/validador/engine');
         const model = parseSped(fs.readFileSync(cam, 'latin1'));
         model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient); // CEST/NCM
+        await marcarCadApuracaoE116(model, dbClient); // E116 ausente vira jaCorrigidoNoExport se há COD_REC
         const resultado = validar(model);
         resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         res.json(resultado);
@@ -5967,6 +5980,7 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         const { validar } = require('./services/validador/engine');
         const model = parseSped(txt);
         model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient); // CEST/NCM
+        await marcarCadApuracaoE116(model, dbClient); // E116 ausente vira jaCorrigidoNoExport se há COD_REC
         const resultado = validar(model);
         resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         resultado.validadoSobre = 'exportado'; // o front mostra "validado sobre o SPED corrigido"

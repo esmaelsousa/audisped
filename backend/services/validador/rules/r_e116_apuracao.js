@@ -21,6 +21,8 @@ module.exports = {
         const erros = [];
         const grupos = [];
         let cur = null;
+        // COD_REC cadastrado (cad_apuracao_e116) p/ esta empresa → o export INJETA o E116 ausente.
+        const cadOk = !!model.apuracaoE116CadOk;
         for (const l of model.linhas) {
             if (l.reg === 'E110') { if (cur) grupos.push(cur); cur = { linha: l.n, f: l.f, e116: [] }; }
             else if (l.reg === 'E116' && cur) { cur.e116.push(l.f); }
@@ -32,13 +34,17 @@ module.exports = {
             const target = c(f[13]) + (f.length > 15 ? c(f[15]) : 0);
             const soma = g.e116.reduce((s, ff) => s + c(ff[3]), 0);
             if (soma === target) continue;
-            const auto = g.e116.length === 1; // 1 E116 → o export ajusta o VL_OR
+            const ausente = g.e116.length === 0;
+            // 1 E116 divergente → export ajusta o VL_OR. E116 ausente COM COD_REC cadastrado → export injeta.
+            const auto = (g.e116.length === 1) || (ausente && cadOk);
             erros.push({
                 bloco: 'E', registro: 'E110', linha: g.linha, campo: '(E116 VL_OR)',
                 severidade: 'BLOQ', jaCorrigidoNoExport: auto,
                 valorAtual: fmt(soma), valorSugerido: fmt(target),
-                detalhe: g.e116.length === 0
-                    ? `Falta o registro E116: o ICMS a recolher do E110 é ${fmt(target)} mas não há E116. Informe o E116 (código de receita + vencimento) no ERP.`
+                detalhe: ausente
+                    ? (cadOk
+                        ? `Falta o E116, mas há COD_REC cadastrado (Apuração ICMS E116) — será INJETADO no export com VL_OR ${fmt(target)}. Re-exporte / re-valide para confirmar.`
+                        : `Falta o registro E116: o ICMS a recolher do E110 é ${fmt(target)} mas não há E116. Cadastre o código de receita em "Apuração ICMS (E116)" e re-exporte (ou informe no ERP).`)
                     : `Σ E116.VL_OR (${fmt(soma)}) ≠ ICMS a recolher + extra-apuração do E110 (${fmt(target)}).`,
             });
         }
