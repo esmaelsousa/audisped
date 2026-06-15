@@ -184,6 +184,30 @@ async function setupDatabase() {
             );
         `);
 
+        // Tabelas fiscais de referência (popular via scripts/importar_tabelas_fiscais.js):
+        // ncm = NCM oficial vigente (Receita/Siscomex); cest = CEST↔NCM (Conv. 142/2018).
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS ncm (
+                codigo      TEXT PRIMARY KEY,
+                codigo_fmt  TEXT,
+                descricao   TEXT,
+                nivel       INTEGER,
+                data_inicio TEXT,
+                data_fim    TEXT
+            );
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS cest (
+                id          SERIAL PRIMARY KEY,
+                cest        TEXT NOT NULL,
+                cest_fmt    TEXT,
+                ncm_prefix  TEXT NOT NULL,
+                descricao   TEXT,
+                segmento    TEXT,
+                UNIQUE(cest, ncm_prefix)
+            );
+        `);
+
         // --- FASE 5: DE-PARA XML (PRODUTOS) ---
         await client.query(`
             CREATE TABLE IF NOT EXISTS de_para_xml (
