@@ -5808,6 +5808,89 @@ app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => 
     }
 });
 
+// === IMPORTAR VALORES DE NOTAS CFOP 5929 ("venda com cupom") =========================
+// Notas 5929 (NF-e mod 55 espelho de cupom) vêm ZERADAS no SPED de origem. Este endpoint lê o
+// relatório de NOTAS EMITIDAS do ERP (CSV/TXT), casa por NÚMERO+SÉRIE com as notas 5929 do
+// arquivo e GRAVA os valores em vl_doc_ajustado (C100) / vl_opr_ajustado (C190). O EXPORT já
+// aplica esses overrides automaticamente. Original preservado (colunas _ajustado) → reversível.
+//   modo = 'preview'  → só casa e devolve o relatório (default; não grava)
+//   modo = 'aplicar'  → grava os valores das notas casadas com 1 C190
+//   modo = 'reverter' → zera (NULL) os ajustes das notas 5929 do arquivo
+app.post('/api/analisador/importar-5929/:id_arquivo', authMiddleware, upload.single('arquivo'), async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    const modo = String(req.body.modo || 'preview').toLowerCase();
+    const cleanup = () => { if (req.file) { try { fs.unlinkSync(req.file.path); } catch (_) {} } };
+    if (isNaN(arquivoId)) { cleanup(); return res.status(400).json({ message: 'ID de arquivo inválido.' }); }
+
+    const svc = require('./services/importador5929Service');
+    const dbClient = await safeConnect(res);
+    if (!dbClient) { cleanup(); return; }
+    try {
+        // Notas 5929 do arquivo (uma por C100), com série derivada da chave e nº de C190.
+        const dbNotas = (await dbClient.query(`
+            SELECT d.id, d.num_doc, d.chv_nfe,
+                   substring(d.chv_nfe from 23 for 3) AS serie_chave,
+                   COUNT(r.id)::int AS qtd_c190
+            FROM documentos_c100 d
+            JOIN documentos_c190 r ON r.id_documento_c100 = d.id
+            WHERE d.id_sped_arquivo = $1 AND d.ind_oper = '1' AND r.cfop = '5929'
+            GROUP BY d.id, d.num_doc, d.chv_nfe
+        `, [arquivoId])).rows;
+
+        // REVERTER: zera os ajustes das 5929 deste arquivo (volta ao SPED original).
+        if (modo === 'reverter') {
+            await dbClient.query('BEGIN');
+            const ids = dbNotas.map(n => n.id);
+            let nC100 = 0, nC190 = 0;
+            if (ids.length) {
+                nC100 = (await dbClient.query(`UPDATE documentos_c100 SET vl_doc_ajustado = NULL WHERE id = ANY($1) AND vl_doc_ajustado IS NOT NULL`, [ids])).rowCount;
+                nC190 = (await dbClient.query(`UPDATE documentos_c190 SET vl_opr_ajustado = NULL, vl_bc_icms_ajustado = NULL, vl_icms_ajustado = NULL WHERE id_documento_c100 = ANY($1) AND cfop = '5929'`, [ids])).rowCount;
+            }
+            await dbClient.query('COMMIT');
+            cleanup();
+            return res.json({ modo: 'reverter', revertidasC100: nC100, revertidasC190: nC190, message: `Ajustes revertidos (${nC100} C100, ${nC190} C190). O SPED volta ao original.` });
+        }
+
+        // PREVIEW / APLICAR: precisa do arquivo do relatório.
+        if (!req.file) return res.status(400).json({ message: 'Envie o relatório de notas (campo "arquivo").' });
+        let parsed;
+        try { parsed = svc.parseRelatorio5929(fs.readFileSync(req.file.path, 'latin1')); }
+        catch (e) { return res.status(400).json({ message: 'Relatório inválido: ' + e.message }); }
+        if (!parsed.count) return res.status(400).json({ message: 'Nenhuma nota válida encontrada no relatório.' });
+
+        const r = svc.casar(parsed.linhas, dbNotas);
+
+        if (modo === 'aplicar') {
+            await dbClient.query('BEGIN');
+            let aplC100 = 0, aplC190 = 0;
+            for (const c of r.casadas) {
+                const v = c.valor.toFixed(2);
+                aplC100 += (await dbClient.query(`UPDATE documentos_c100 SET vl_doc_ajustado = $1 WHERE id = $2`, [v, c.id])).rowCount;
+                // Valor total na PRIMEIRA linha C190 (menor id) e 0 nas demais → mantém C100 = Σ C190
+                // tanto p/ nota com 1 C190 quanto com vários. BC/ICMS = 0 (CST 060/000 alíq 0).
+                aplC190 += (await dbClient.query(`
+                    UPDATE documentos_c190
+                    SET vl_opr_ajustado = CASE WHEN id = (SELECT MIN(id) FROM documentos_c190 WHERE id_documento_c100 = $2 AND cfop = '5929') THEN $1::numeric ELSE 0 END,
+                        vl_bc_icms_ajustado = 0, vl_icms_ajustado = 0
+                    WHERE id_documento_c100 = $2 AND cfop = '5929'`, [v, c.id])).rowCount;
+            }
+            await dbClient.query('COMMIT');
+            logger.info(`[Importador5929] arq ${arquivoId}: ${aplC100} C100 + ${aplC190} C190 ajustados (R$ ${r.resumo.somaCasadas}).`);
+            return res.json({ modo: 'aplicar', aplicadasC100: aplC100, aplicadasC190: aplC190, ...r, parsed: { count: parsed.count, total: parsed.total, ignoradas: parsed.ignoradas } });
+        }
+
+        // PREVIEW
+        return res.json({ modo: 'preview', ...r, parsed: { count: parsed.count, total: parsed.total, ignoradas: parsed.ignoradas } });
+    } catch (e) {
+        await safeRollback(dbClient);
+        logger.error('Erro no importador 5929:', e);
+        res.status(500).json({ message: 'Erro ao importar valores 5929: ' + e.message });
+    } finally {
+        cleanup();
+        dbClient.release();
+    }
+});
+
 
 // === CATÁLOGO DE REGRAS / LEIAUTE (admin, read-only) =================================
 // Expõe o que o Validador conhece: as regras (do registry) + o leiaute dos registros
@@ -7098,6 +7181,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         const fileContent = fs.readFileSync(pathOrig, 'latin1');
         let fileLines = fileContent.split(/\r?\n/);
 
+        // Changelog (side-channel): registra o que cada correção muda, p/ o relatório "o que foi
+        // corrigido". NÃO altera as linhas → .txt byte-idêntico. Persistido em val_alteracoes ao fim.
+        const { Changelog } = require('./services/validador/changelog');
+        const changelog = new Changelog();
+        // Snapshot da contagem por registro do ORIGINAL (antes de qualquer ajuste) p/ a rede de
+        // segurança: ao final, qualquer registro cuja contagem mudou sem entrada no changelog vira
+        // "ajuste de contagem (detalhe não rastreado)" — nunca dizer "corrigi tudo" escondendo algo.
+        const origRegCount = {};
+        for (const _l of fileLines) { if (_l && _l[0] === '|') { const _r = _l.split('|')[1]; if (_r) origRegCount[_r] = (origRegCount[_r] || 0) + 1; } }
+
         // Deduplicar D100 (CT-e duplicados no arquivo original)
         {
             const d100Keys = new Set();
@@ -7120,6 +7213,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
             if (dedupCount > 0) {
                 fileLines = dedupLines;
+                changelog.add({ bloco: 'D', registro: 'D100', regraId: 'DOC-DUP', motivo: `${dedupCount} D100/CT-e duplicado(s) removido(s) (chave repetida)`, escopo: 'registro', antes: `${dedupCount} duplicado(s)`, depois: '(removidos)', origem: 'remocao', classe: 'estrutural-seguro' });
                 logger.info(`[Export] Removidos ${dedupCount} D100 duplicados do arquivo ${arquivoId}.`);
             }
         }
@@ -7147,6 +7241,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
             if (dedupCount > 0) {
                 fileLines = dedupLines;
+                changelog.add({ bloco: 'C', registro: 'C100', regraId: 'DOC-DUP', motivo: `${dedupCount} C100 duplicado(s) removido(s) (chave repetida) + filhos`, escopo: 'registro', antes: `${dedupCount} duplicado(s)`, depois: '(removidos)', origem: 'remocao', classe: 'estrutural-seguro' });
                 logger.info(`[Export] Removidos ${dedupCount} C100 duplicados (chave repetida) do arquivo ${arquivoId}.`);
             }
         }
@@ -7360,10 +7455,6 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
-        // Changelog (side-channel): registra o que cada correção muda, p/ o relatório "o que foi
-        // corrigido". NÃO altera outputLines → .txt byte-idêntico. Persistido em val_alteracoes ao fim.
-        const { Changelog } = require('./services/validador/changelog');
-        const changelog = new Changelog();
         // CFOPs de uso/consumo (entrada): quando o C170 do .txt já está nesses CFOPs, o
         // "forçar uso/consumo" foi aplicado na injeção e é AUTORITATIVO — o export não pode
         // deixá-lo ser revertido pelos valores CRUS de documentos_itens_c170 (que guarda
@@ -7422,16 +7513,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (l.startsWith('|C190|')) {
                 const f = l.split('|');
                 let mudou = false;
-                if (_preMonofasico && f.length > 2) { const n = _cst61to60(f[2]); if (n !== f[2]) { f[2] = n; mudou = true; } }
-                if (f.length > 3 && CFOP_ENTRADA_CORRIGIR[f[3]]) { f[3] = CFOP_ENTRADA_CORRIGIR[f[3]]; mudou = true; }
+                if (_preMonofasico && f.length > 2) { const n = _cst61to60(f[2]); if (n !== f[2]) { const a = f[2]; f[2] = n; mudou = true; changelog.add({ registro: 'C190', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
+                if (f.length > 3 && CFOP_ENTRADA_CORRIGIR[f[3]]) { const a = f[3]; f[3] = CFOP_ENTRADA_CORRIGIR[f[3]]; mudou = true; changelog.add({ registro: 'C190', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[3], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
                 return mudou ? f.join('|') : l;
             }
             // C170: rebaixa CST 61→60 (pré-monofásico, campo 10) e corrige CFOP de entrada inválida
             // (campo 11) ANTES do motor de regras, mantendo o item coerente com o C190.
             if (l.startsWith('|C170|')) {
                 const f = l.split('|');
-                if (_preMonofasico && f.length > 10) { const n = _cst61to60(f[10]); if (n !== f[10]) f[10] = n; }
-                if (f.length > 11 && CFOP_ENTRADA_CORRIGIR[f[11]]) f[11] = CFOP_ENTRADA_CORRIGIR[f[11]];
+                if (_preMonofasico && f.length > 10) { const n = _cst61to60(f[10]); if (n !== f[10]) { const a = f[10]; f[10] = n; changelog.add({ registro: 'C170', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
+                if (f.length > 11 && CFOP_ENTRADA_CORRIGIR[f[11]]) { const a = f[11]; f[11] = CFOP_ENTRADA_CORRIGIR[f[11]]; changelog.add({ registro: 'C170', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[11], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
                 l = f.join('|'); // segue p/ o motor de regras (byte-idêntico se nada mudou)
             }
             if (l.startsWith('|C170|') && regrasExport.length) {
@@ -9098,6 +9189,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
         // ──────────────────────────────────────────────────────────────────────
+
+        // Rede de segurança (completude): qualquer registro cuja CONTAGEM mudou (original → final)
+        // e que NÃO tem entrada no changelog vira um item "ajuste de contagem (detalhe não rastreado)".
+        // Cobre os efeitos colaterais não instrumentados (ex.: filhos C170/C190 removidos junto de um
+        // C100 deduplicado, fusão de C190 x90, reconstrução) — honestidade: nada de mudança escondida.
+        {
+            const comEntrada = new Set(changelog.entradas.filter(e => e.escopo === 'registro').map(e => e.registro));
+            const regs = new Set([...Object.keys(origRegCount), ...regCountMap.keys()]);
+            for (const reg of regs) {
+                const o = origRegCount[reg] || 0, fnl = regCountMap.get(reg) || 0;
+                if (o !== fnl && !comEntrada.has(reg)) {
+                    changelog.add({ registro: reg, regraId: 'RECONCILIACAO', motivo: 'ajuste de contagem (efeito colateral de outra correção; detalhe não rastreado individualmente)', escopo: 'registro', campo: 'QTD', antes: String(o), depois: String(fnl), origem: fnl > o ? 'auto' : 'remocao', classe: 'estrutural-seguro' });
+                }
+            }
+        }
 
         // Persiste o changelog (substitui o do export anterior deste arquivo) p/ o relatório "o que
         // foi corrigido". Falha NÃO quebra o download (a resposta já foi transmitida).
