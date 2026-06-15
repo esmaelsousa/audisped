@@ -184,6 +184,18 @@ async function setupDatabase() {
             );
         `);
 
+        // Cadastro de apuração do ICMS (E116): código de receita + dia de vencimento por CNPJ.
+        // Usado para injetar o E116 ausente no export (quando o E110 tem ICMS a recolher e o ERP
+        // não emitiu E116). O valor é calculado no export; aqui guarda-se só COD_REC + dia_vcto.
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (
+                id SERIAL PRIMARY KEY,
+                cnpj TEXT UNIQUE NOT NULL,
+                cod_rec TEXT NOT NULL,
+                dia_vcto INTEGER DEFAULT 9
+            );
+        `);
+
         // Tabelas fiscais de referência (popular via scripts/importar_tabelas_fiscais.js):
         // ncm = NCM oficial vigente (Receita/Siscomex); cest = CEST↔NCM (Conv. 142/2018).
         await client.query(`

@@ -1016,6 +1016,53 @@ function recalcularE116(linhas) {
     return linhas;
 }
 
+// ── Injeção de E116 AUSENTE (obrigação do ICMS a recolher) ──────────────────────────
+// PVA exige Σ E116.VL_OR = E110.VL_ICMS_RECOLHER (f13) + DEB_ESP (f15). Quando o ERP NÃO emite
+// nenhum E116 mas há ICMS a recolher, o PVA acusa "soma E116 ≠ E110". recalcularE116 NÃO fabrica
+// (faltam COD_REC/DT_VCTO, que variam por empresa). Aqui, COM o COD_REC do cadastro (cad_apuracao_e116)
+// e a competência do 0000, injetamos o E116 no fim do sub-bloco do E110 (após E111/E115, antes do
+// próximo E110/E200/E990). VL_OR = total apurado; MES_REF = MMAAAA da competência; DT_VCTO = dia
+// <diaVcto> (default 9) do mês seguinte. Sem COD_REC → não injeta (no-op). Roda antes do recálculo X990.
+// Layout E116: |E116|COD_OR(000)|VL_OR|DT_VCTO(DDMMAAAA)|COD_REC|NUM_PROC|IND_PROC|PROC|TXT_COMPL|MES_REF(MMAAAA)|
+function injetarE116SeNecessario(linhas, codRec, diaVcto) {
+    codRec = String(codRec || '').trim();
+    if (!codRec) return 0; // sem cadastro → não injeta (degradação segura)
+    const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
+    const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
+    // competência: DT_FIN do 0000 (f5, DDMMAAAA)
+    let dtFin = '';
+    for (const l of linhas) { const f = l.split('|'); if (f[1] === '0000') { dtFin = String(f[5] || '').trim(); break; } }
+    if (!/^\d{8}$/.test(dtFin)) return 0;
+    const mm = dtFin.slice(2, 4), aaaa = dtFin.slice(4, 8);
+    const mesRef = mm + aaaa;
+    let mV = parseInt(mm, 10) + 1, yV = parseInt(aaaa, 10);
+    if (mV > 12) { mV = 1; yV += 1; }
+    const dia = String(parseInt(diaVcto, 10) || 9).padStart(2, '0');
+    const dtVcto = dia + String(mV).padStart(2, '0') + String(yV);
+    const FILHOS = new Set(['E111', 'E112', 'E113', 'E115', 'E116']);
+    let injetados = 0, i = 0;
+    while (i < linhas.length) {
+        if (linhas[i].split('|')[1] !== 'E110') { i++; continue; }
+        const f110 = linhas[i].split('|');
+        const target = (f110.length > 13 ? c(f110[13]) : 0) + (f110.length > 15 ? c(f110[15]) : 0);
+        let j = i + 1, temE116 = false;
+        for (; j < linhas.length; j++) {
+            const r = linhas[j].split('|')[1];
+            if (r === 'E116') { temE116 = true; continue; }
+            if (FILHOS.has(r)) continue;
+            break; // 1º registro que não é filho do E110 → fim do sub-bloco do E110
+        }
+        if (!temE116 && target > 0) {
+            linhas.splice(j, 0, `|E116|000|${fmt(target)}|${dtVcto}|${codRec}|||||${mesRef}|`);
+            injetados++;
+            i = j + 1;
+        } else {
+            i = j;
+        }
+    }
+    return injetados;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -1027,5 +1074,6 @@ module.exports = {
     recalcularVlInvH005,
     injetarLacres1360,
     recalcularE110,
-    recalcularE116
+    recalcularE116,
+    injetarE116SeNecessario
 };

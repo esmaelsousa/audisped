@@ -5547,11 +5547,21 @@ app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, 
         const linhas = fs.readFileSync(cam, 'latin1').split(/\r?\n/);
         const parts0150 = new Set();
         const cods1601 = [];
+        let f0000 = null, f0005 = null; // dados do PRÓPRIO posto (declarante)
         for (const l of linhas) {
             const f = l.split('|');
             if (f[1] === '0150') { parts0150.add(String(f[2] || '').trim()); }
             else if (f[1] === '1601') { const c = String(f[2] || '').trim(); if (c && !cods1601.includes(c)) cods1601.push(c); }
+            else if (f[1] === '0000' && !f0000) f0000 = f;
+            else if (f[1] === '0005' && !f0005) f0005 = f;
         }
+        // Dados do próprio posto: COD_MUN no 0000 (f11); ENDEREÇO/NÚMERO/BAIRRO no 0005 (f4/f5/f7).
+        const dadosPosto = {
+            cod_mun: f0000 ? String(f0000[11] || '').trim() : '',
+            endereco: f0005 ? String(f0005[4] || '').trim() : '',
+            num: f0005 ? String(f0005[5] || '').trim() : '',
+            bairro: f0005 ? String(f0005[7] || '').trim() : '',
+        };
         // só as que NÃO têm 0150 no arquivo
         const faltantes = cods1601.filter(c => !parts0150.has(c));
         const cad = await dbClient.query(`SELECT cnpj, nome, ie, cod_mun, endereco, num, bairro FROM cad_credenciadoras`);
@@ -5561,7 +5571,7 @@ app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, 
             const r = cadMap[doc] || {};
             return { cnpj: c, nome: r.nome || '', ie: r.ie || 'ISENTO', cod_mun: r.cod_mun || '', endereco: r.endereco || '', num: r.num || '', bairro: r.bairro || '' };
         });
-        res.json({ credenciadoras: lista });
+        res.json({ credenciadoras: lista, dadosPosto });
     } catch (e) {
         logger.error('Erro ao listar credenciadoras 1601:', e);
         res.status(500).json({ message: 'Erro ao listar credenciadoras.' });
@@ -5595,6 +5605,52 @@ app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
         await safeRollback(dbClient);
         logger.error('Erro ao salvar credenciadoras:', e);
         res.status(500).json({ message: 'Erro ao salvar credenciadoras.' });
+    } finally { dbClient.release(); }
+});
+
+// --- Cadastro de Apuração do ICMS (E116): COD_REC + dia de vencimento por CNPJ ---
+// Usado para INJETAR o registro E116 ausente no export quando o E110 tem ICMS a recolher
+// mas o ERP não emitiu E116 (PVA: "soma E116 ≠ E110"). O valor é calculado no export;
+// aqui o usuário só informa o código de receita (ex.: 0759 ICMS normal BA) e o dia do vencimento.
+async function ensureApuracaoE116Table(db) {
+    await db.query(`CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, cod_rec TEXT NOT NULL, dia_vcto INTEGER DEFAULT 9)`);
+}
+app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id_arquivo);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureApuracaoE116Table(dbClient);
+        const arq = await dbClient.query('SELECT cnpj_empresa FROM sped_arquivos WHERE id=$1', [arquivoId]);
+        if (!arq.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        const cnpj = String(arq.rows[0].cnpj_empresa || '').replace(/\D/g, '');
+        const r = await dbClient.query(`SELECT cod_rec, dia_vcto FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g')=$1`, [cnpj]);
+        const cad = r.rows[0] || {};
+        res.json({ cnpj, cod_rec: cad.cod_rec || '', dia_vcto: cad.dia_vcto || 9 });
+    } catch (e) {
+        logger.error('Erro ao ler apuração E116:', e);
+        res.status(500).json({ message: 'Erro ao ler apuração E116.' });
+    } finally { dbClient.release(); }
+});
+app.post('/api/cad/apuracao-e116', authMiddleware, async (req, res) => {
+    const cnpj = String(req.body.cnpj || '').replace(/\D/g, '');
+    const codRec = String(req.body.cod_rec || '').trim();
+    const diaVcto = Math.min(28, Math.max(1, parseInt(req.body.dia_vcto, 10) || 9));
+    if (cnpj.length !== 14) return res.status(400).json({ message: 'CNPJ inválido.' });
+    if (!codRec) return res.status(400).json({ message: 'Informe o código de receita (COD_REC).' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await ensureApuracaoE116Table(dbClient);
+        await dbClient.query(
+            `INSERT INTO cad_apuracao_e116 (cnpj, cod_rec, dia_vcto) VALUES ($1,$2,$3)
+             ON CONFLICT (cnpj) DO UPDATE SET cod_rec=EXCLUDED.cod_rec, dia_vcto=EXCLUDED.dia_vcto`,
+            [cnpj, codRec.slice(0, 10), diaVcto]);
+        res.json({ message: 'Apuração E116 salva. Re-exporte o SPED — o E116 será injetado quando faltar.' });
+    } catch (e) {
+        logger.error('Erro ao salvar apuração E116:', e);
+        res.status(500).json({ message: 'Erro ao salvar apuração E116.' });
     } finally { dbClient.release(); }
 });
 
@@ -8885,6 +8941,26 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const { recalcularE110, recalcularE116 } = require('./services/spedCostureiraService');
             recalcularE110(outputLines); // muta in-place
             recalcularE116(outputLines); // ajusta VL_OR do E116 ao total do E110 (depois do E110)
+        }
+
+        // ── Injeta E116 AUSENTE quando há ICMS a recolher e há cadastro de receita ──
+        // O ERP às vezes não emite NENHUM E116 mesmo com ICMS a recolher no E110 → PVA acusa
+        // "soma E116 ≠ E110". Com o COD_REC + dia de vencimento cadastrados (cad_apuracao_e116,
+        // por CNPJ), injeta o E116 com o valor apurado + competência do 0000. Sem cadastro → não
+        // injeta (não inventa código de receita). Roda DEPOIS do recalcularE110 e ANTES do X990.
+        try {
+            const cnpjE116 = (arqInfo.rows[0].cnpj_empresa || '').replace(/\D/g, '');
+            if (cnpjE116) {
+                await dbClient.query(`CREATE TABLE IF NOT EXISTS cad_apuracao_e116 (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, cod_rec TEXT NOT NULL, dia_vcto INTEGER DEFAULT 9)`);
+                const rE116 = await dbClient.query(`SELECT cod_rec, dia_vcto FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpjE116]);
+                if (rE116.rows.length && rE116.rows[0].cod_rec) {
+                    const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
+                    const n = injetarE116SeNecessario(outputLines, rE116.rows[0].cod_rec, rE116.rows[0].dia_vcto);
+                    if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${rE116.rows[0].cod_rec}) no export do arquivo ${arquivoId}.`); }
+                }
+            }
+        } catch (eE116) {
+            logger.warn('[E116] injeção de E116 não aplicada (não bloqueia o export): ' + eE116.message);
         }
 
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────

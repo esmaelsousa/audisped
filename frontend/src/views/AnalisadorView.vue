@@ -31,6 +31,11 @@ const savingLacres = ref(false);
 const showCredModal = ref(false);
 const credList = ref([]); // [{ cnpj, nome, ie, cod_mun, endereco, num, bairro }]
 const savingCred = ref(false);
+const dadosPosto = ref(null); // { cod_mun, endereco, num, bairro } do próprio posto (0000/0005)
+// Cadastro de apuração do ICMS (E116) — injeta o E116 ausente no export
+const showE116Modal = ref(false);
+const e116Cad = ref({ cod_rec: '0759', dia_vcto: 9 });
+const savingE116 = ref(false);
 
 // --- Estado de Upload e Progresso ---
 const isUploading = ref(false);
@@ -687,10 +692,24 @@ async function openCredModal() {
             headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
         credList.value = (res.data.credenciadoras || []).map(c => ({ ...c }));
+        dadosPosto.value = res.data.dadosPosto || null;
         showCredModal.value = true;
     } catch (e) {
         alert('Erro ao carregar credenciadoras: ' + (e.response?.data?.message || e.message));
     }
+}
+// Preenche município/endereço/número/bairro de TODAS as credenciadoras com os dados do próprio posto
+// (0000/0005). Útil quando não se tem o endereço da credenciadora — o 0150 fica estruturalmente válido.
+function usarDadosPosto() {
+    const d = dadosPosto.value;
+    if (!d || (!d.cod_mun && !d.endereco)) { alert('Não foi possível ler o município/endereço do posto (0000/0005) deste arquivo.'); return; }
+    credList.value = credList.value.map(c => ({
+        ...c,
+        cod_mun: c.cod_mun || d.cod_mun || '',
+        endereco: c.endereco || d.endereco || '',
+        num: c.num || d.num || '',
+        bairro: c.bairro || d.bairro || '',
+    }));
 }
 async function saveCred() {
     savingCred.value = true;
@@ -705,6 +724,36 @@ async function saveCred() {
         alert('Erro ao salvar credenciadoras: ' + (e.response?.data?.message || e.message));
     } finally {
         savingCred.value = false;
+    }
+}
+
+// --- Cadastro de apuração do ICMS (E116) — injeta o E116 ausente no export ---
+async function openE116Modal() {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API_BASE_URL}/api/cad/apuracao-e116/${idArquivoSped.value}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        e116Cad.value = { cod_rec: res.data.cod_rec || '0759', dia_vcto: res.data.dia_vcto || 9, cnpj: res.data.cnpj };
+        showE116Modal.value = true;
+    } catch (e) {
+        alert('Erro ao carregar apuração E116: ' + (e.response?.data?.message || e.message));
+    }
+}
+async function saveE116() {
+    if (!e116Cad.value.cod_rec) { alert('Informe o código de receita (COD_REC).'); return; }
+    savingE116.value = true;
+    try {
+        const token = localStorage.getItem('token');
+        await axios.post(`${API_BASE_URL}/api/cad/apuracao-e116`, {
+            cnpj: e116Cad.value.cnpj, cod_rec: e116Cad.value.cod_rec, dia_vcto: e116Cad.value.dia_vcto
+        }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        showE116Modal.value = false;
+        alert('Apuração E116 salva. Re-exporte o SPED — o E116 será injetado com o valor do ICMS a recolher do E110.');
+    } catch (e) {
+        alert('Erro ao salvar apuração E116: ' + (e.response?.data?.message || e.message));
+    } finally {
+        savingE116.value = false;
     }
 }
 
@@ -2436,6 +2485,9 @@ const statusAnpGeral = computed(() => {
             <button @click="openCredModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar credenciadoras do 1601 (maquininhas) — injeta o 0150 completo no SPED ao exportar">
                 💳 Credenciadoras (1601)
             </button>
+            <button @click="openE116Modal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar o código de receita (COD_REC) p/ injetar o E116 ausente quando o E110 tem ICMS a recolher">
+                🧾 Apuração ICMS (E116)
+            </button>
         </div>
 
         <!-- Banner de Continuidade de Estoque -->
@@ -2975,6 +3027,16 @@ const statusAnpGeral = computed(() => {
                 </div>
             </div>
 
+            <div v-if="credList.length && dadosPosto && (dadosPosto.cod_mun || dadosPosto.endereco)" class="flex items-center justify-between gap-3 bg-sky-50 rounded-2xl p-3 border border-sky-100">
+                <p class="text-[10px] text-sky-700 font-medium leading-snug">
+                    Sem o endereço da credenciadora? Use os dados do próprio posto
+                    <span class="font-mono">({{ dadosPosto.cod_mun }} · {{ dadosPosto.endereco }})</span> — o 0150 fica válido no PVA.
+                </p>
+                <button @click="usarDadosPosto" type="button" class="shrink-0 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors">
+                    🏪 Usar dados do posto
+                </button>
+            </div>
+
             <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
                 <div class="text-xl">💡</div>
                 <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
@@ -2987,6 +3049,47 @@ const statusAnpGeral = computed(() => {
                 <button @click="saveCred" :disabled="savingCred || !credList.length" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
                     <Loader2 v-if="savingCred" class="w-4 h-4 animate-spin"/>
                     {{ savingCred ? 'SALVANDO...' : 'SALVAR CREDENCIADORAS' }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Apuração do ICMS (E116) -->
+    <div v-if="showE116Modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6 animate-fade-in">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">🧾 Apuração ICMS <span class="text-brand-accent">(E116)</span></h3>
+                    <p class="text-sm text-slate-400 font-medium">Para gerar o E116 ausente quando o E110 tem ICMS a recolher.</p>
+                </div>
+                <button @click="showE116Modal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-wider">Código de receita (COD_REC)</label>
+                    <input v-model="e116Cad.cod_rec" placeholder="ex.: 0759" maxlength="10" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
+                    <p class="text-[10px] text-slate-400 mt-1 italic">BA costuma usar <b>0759</b> (ICMS regime normal). Confirme no seu DARE/ERP — pode ser 0783, 2036 etc.</p>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-wider">Dia do vencimento (mês seguinte)</label>
+                    <input v-model.number="e116Cad.dia_vcto" type="number" min="1" max="28" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
+                    <p class="text-[10px] text-slate-400 mt-1 italic">Padrão BA: dia <b>09</b> do mês seguinte à competência.</p>
+                </div>
+            </div>
+
+            <div class="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-start gap-3">
+                <div class="text-xl">✅</div>
+                <p class="text-[10px] text-emerald-700 font-medium leading-relaxed italic">
+                    O <b>valor (VL_OR)</b> é calculado automaticamente do ICMS a recolher do E110 — você não precisa digitar. Ao re-exportar, o E116 é injetado com COD_OR=000, este COD_REC, o vencimento e a competência do arquivo.
+                </p>
+            </div>
+
+            <div class="flex gap-3">
+                <button @click="showE116Modal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
+                <button @click="saveE116" :disabled="savingE116 || !e116Cad.cod_rec" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                    <Loader2 v-if="savingE116" class="w-4 h-4 animate-spin"/>
+                    {{ savingE116 ? 'SALVANDO...' : 'SALVAR APURAÇÃO' }}
                 </button>
             </div>
         </div>
