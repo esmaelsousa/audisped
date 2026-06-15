@@ -6065,7 +6065,10 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         try {
             const al = await dbClient.query(`SELECT total, dados FROM val_alteracoes WHERE id_sped_arquivo=$1 ORDER BY id DESC LIMIT 1`, [idArq]);
             resultado.alteracoes = al.rows.length ? Object.assign({ total: al.rows[0].total }, al.rows[0].dados) : { total: 0, agrupado: [], totais: {} };
-        } catch (_) { resultado.alteracoes = { total: 0, agrupado: [], totais: {} }; }
+            await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
+            const sk = await dbClient.query(`SELECT regra_id, chave FROM val_correcoes_skip WHERE id_sped_arquivo=$1`, [idArq]);
+            resultado.alteracoes.skips = sk.rows.map(s => ({ regra_id: s.regra_id, chave: s.chave || '' }));
+        } catch (_) { resultado.alteracoes = { total: 0, agrupado: [], totais: {}, skips: [] }; }
         res.json(resultado);
     } catch (e) {
         logger.error('Erro na revalidação:', e);
@@ -6085,12 +6088,39 @@ app.get('/api/validador/alteracoes/:id', authMiddleware, async (req, res) => {
     if (!dbClient) return;
     try {
         await dbClient.query(`CREATE TABLE IF NOT EXISTS val_alteracoes (id SERIAL PRIMARY KEY, id_sped_arquivo INT, criado_em TIMESTAMP DEFAULT NOW(), total INT, dados JSONB)`);
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
+        const sk = await dbClient.query(`SELECT regra_id, chave FROM val_correcoes_skip WHERE id_sped_arquivo=$1`, [idArq]);
+        const skips = sk.rows.map(s => ({ regra_id: s.regra_id, chave: s.chave || '' }));
         const r = await dbClient.query(`SELECT total, dados, criado_em FROM val_alteracoes WHERE id_sped_arquivo=$1 ORDER BY id DESC LIMIT 1`, [idArq]);
-        if (!r.rows.length) return res.json({ total: 0, agrupado: [], totais: {}, geradoEm: null, semExport: true });
-        res.json(Object.assign({ total: r.rows[0].total, geradoEm: r.rows[0].criado_em }, r.rows[0].dados));
+        if (!r.rows.length) return res.json({ total: 0, agrupado: [], totais: {}, geradoEm: null, semExport: true, skips });
+        res.json(Object.assign({ total: r.rows[0].total, geradoEm: r.rows[0].criado_em, skips }, r.rows[0].dados));
     } catch (e) {
         logger.error('Erro ao ler alterações:', e);
         res.status(500).json({ message: 'Erro ao ler o relatório de correções.' });
+    } finally { dbClient.release(); }
+});
+
+// Fase B — liga/desliga uma correção (val_correcoes_skip). Só regras EXCLUÍVEIS (fiscais/injeções);
+// estruturais (totalizadores/dedup/coerência) são sempre aplicadas. chave='' = a regra toda;
+// chave preenchida = só aquele item (ex.: 0150 de uma credenciadora específica).
+app.post('/api/validador/skip', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.body.id_sped_arquivo);
+    const regra = String(req.body.regra_id || '').trim();
+    const chave = String(req.body.chave || '').trim();
+    const ativo = req.body.ativo !== false; // true = excluir a correção; false = reativar
+    const EXCLUIVEIS = new Set(['INV-E116-01', 'CAD-0150-08', 'COMB-1350-1360-01', 'COMB-CST-01', 'DOC-C170-CFOP-01', 'USO-CONSUMO-X90']);
+    if (isNaN(idArq) || !regra) return res.status(400).json({ message: 'id_sped_arquivo e regra_id são obrigatórios.' });
+    if (!EXCLUIVEIS.has(regra)) return res.status(400).json({ message: 'Essa correção é estrutural e não pode ser desligada (o arquivo ficaria inválido).' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
+        if (ativo) await dbClient.query(`INSERT INTO val_correcoes_skip (id_sped_arquivo, regra_id, chave) VALUES ($1,$2,$3) ON CONFLICT (id_sped_arquivo, regra_id, chave) DO NOTHING`, [idArq, regra, chave]);
+        else await dbClient.query(`DELETE FROM val_correcoes_skip WHERE id_sped_arquivo=$1 AND regra_id=$2 AND chave=$3`, [idArq, regra, chave]);
+        res.json({ message: ativo ? 'Correção desligada. Re-exporte/re-valide para ver o efeito.' : 'Correção reativada.', ativo });
+    } catch (e) {
+        logger.error('Erro ao alternar skip:', e);
+        res.status(500).json({ message: 'Erro ao alterar a correção.' });
     } finally { dbClient.release(); }
 });
 
@@ -7190,6 +7220,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // "ajuste de contagem (detalhe não rastreado)" — nunca dizer "corrigi tudo" escondendo algo.
         const origRegCount = {};
         for (const _l of fileLines) { if (_l && _l[0] === '|') { const _r = _l.split('|')[1]; if (_r) origRegCount[_r] = (origRegCount[_r] || 0) + 1; } }
+        // Fase B — correções EXCLUÍDAS pelo usuário (val_correcoes_skip): o export NÃO as aplica.
+        // Só fiscais/injeções são excluíveis; estruturais (totalizadores/dedup/coerência) são sempre
+        // aplicadas (o arquivo quebraria). Chave '' = exclui a regra inteira; chave preenchida = só aquele item.
+        const skipSet = new Set();
+        try {
+            await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
+            const sk = await dbClient.query(`SELECT regra_id, chave FROM val_correcoes_skip WHERE id_sped_arquivo=$1`, [arquivoId]);
+            for (const s of sk.rows) skipSet.add(`${s.regra_id}|${s.chave || ''}`);
+        } catch (e) { logger.warn('[Skip] val_correcoes_skip: ' + e.message); }
+        const pular = (regra, chave) => skipSet.has(`${regra}|`) || (chave != null && skipSet.has(`${regra}|${chave}`));
 
         // Deduplicar D100 (CT-e duplicados no arquivo original)
         {
@@ -7513,16 +7553,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (l.startsWith('|C190|')) {
                 const f = l.split('|');
                 let mudou = false;
-                if (_preMonofasico && f.length > 2) { const n = _cst61to60(f[2]); if (n !== f[2]) { const a = f[2]; f[2] = n; mudou = true; changelog.add({ registro: 'C190', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
-                if (f.length > 3 && CFOP_ENTRADA_CORRIGIR[f[3]]) { const a = f[3]; f[3] = CFOP_ENTRADA_CORRIGIR[f[3]]; mudou = true; changelog.add({ registro: 'C190', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[3], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+                if (_preMonofasico && !pular('COMB-CST-01') && f.length > 2) { const n = _cst61to60(f[2]); if (n !== f[2]) { const a = f[2]; f[2] = n; mudou = true; changelog.add({ registro: 'C190', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
+                if (!pular('DOC-C170-CFOP-01') && f.length > 3 && CFOP_ENTRADA_CORRIGIR[f[3]]) { const a = f[3]; f[3] = CFOP_ENTRADA_CORRIGIR[f[3]]; mudou = true; changelog.add({ registro: 'C190', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[3], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
                 return mudou ? f.join('|') : l;
             }
             // C170: rebaixa CST 61→60 (pré-monofásico, campo 10) e corrige CFOP de entrada inválida
             // (campo 11) ANTES do motor de regras, mantendo o item coerente com o C190.
             if (l.startsWith('|C170|')) {
                 const f = l.split('|');
-                if (_preMonofasico && f.length > 10) { const n = _cst61to60(f[10]); if (n !== f[10]) { const a = f[10]; f[10] = n; changelog.add({ registro: 'C170', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
-                if (f.length > 11 && CFOP_ENTRADA_CORRIGIR[f[11]]) { const a = f[11]; f[11] = CFOP_ENTRADA_CORRIGIR[f[11]]; changelog.add({ registro: 'C170', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[11], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+                if (_preMonofasico && !pular('COMB-CST-01') && f.length > 10) { const n = _cst61to60(f[10]); if (n !== f[10]) { const a = f[10]; f[10] = n; changelog.add({ registro: 'C170', regraId: 'COMB-CST-01', motivo: 'CST 61→60 (combustível antes da vigência monofásica)', escopo: 'campo', campo: 'CST_ICMS', antes: a, depois: n, origem: 'fiscal', classe: 'fiscal-deterministico' }); } }
+                if (!pular('DOC-C170-CFOP-01') && f.length > 11 && CFOP_ENTRADA_CORRIGIR[f[11]]) { const a = f[11]; f[11] = CFOP_ENTRADA_CORRIGIR[f[11]]; changelog.add({ registro: 'C170', regraId: 'DOC-C170-CFOP-01', motivo: 'CFOP de entrada inexistente corrigida', escopo: 'campo', campo: 'CFOP', antes: a, depois: f[11], origem: 'fiscal', classe: 'fiscal-deterministico' }); }
                 l = f.join('|'); // segue p/ o motor de regras (byte-idêntico se nada mudou)
             }
             if (l.startsWith('|C170|') && regrasExport.length) {
@@ -8940,6 +8980,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const docCodPart = String(codPart).replace(/\D/g, '');
                 // Já tem 0150? (chave do set é o doc limpo do 0150, e o 0150 usa COD_PART como doc)
                 if (set0150CnpjsPresentes.has(codPart) || (docCodPart && set0150CnpjsPresentes.has(docCodPart))) continue;
+                if (pular('CAD-0150-08', codPart)) continue; // usuário excluiu a injeção desta credenciadora
 
                 const isCnpj = docCodPart.length === 14;
                 const isCpf  = docCodPart.length === 11;
@@ -9002,7 +9043,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // Entrada de uso/consumo (CFOP 1407/1556/2407/2556) não gera crédito de ICMS →
         // CST_ICMS = x90 ("Outras"). Aplica em C170 e C190 (e funde C190 duplicado),
         // evitando o erro PVA de combinação CST/CFOP/ALIQ. Decisão fiscal do contribuinte.
-        {
+        if (!pular('USO-CONSUMO-X90')) {
             const { normalizarUsoConsumoCst90 } = require('./services/spedCostureiraService');
             const _normUso = normalizarUsoConsumoCst90(outputLines, changelog);
             if (_normUso !== outputLines) {
@@ -9069,7 +9110,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const rLac = await dbClient.query(
                 `SELECT serie_bomba, num_lacre, dt_aplicacao FROM lmc_lacres
                  WHERE regexp_replace(cnpj,'\\D','','g') = $1 ORDER BY serie_bomba, id`, [cnpjLacres]);
-            if (rLac.rows.length) {
+            if (rLac.rows.length && !pular('COMB-1350-1360-01')) {
                 const mapLacres = new Map();
                 for (const r of rLac.rows) {
                     const s = String(r.serie_bomba || '').trim();
@@ -9111,9 +9152,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const rE116 = await dbClient.query(`SELECT cod_rec FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpjE116]);
                 if (rE116.rows.length && String(rE116.rows[0].cod_rec || '').trim()) codRecE116 = String(rE116.rows[0].cod_rec).trim();
             }
-            const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
-            const n = injetarE116SeNecessario(outputLines, codRecE116, changelog);
-            if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${codRecE116}) no export do arquivo ${arquivoId}.`); }
+            if (!pular('INV-E116-01')) {
+                const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
+                const n = injetarE116SeNecessario(outputLines, codRecE116, changelog);
+                if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${codRecE116}) no export do arquivo ${arquivoId}.`); }
+            }
         } catch (eE116) {
             logger.warn('[E116] injeção de E116 não aplicada (não bloqueia o export): ' + eE116.message);
         }

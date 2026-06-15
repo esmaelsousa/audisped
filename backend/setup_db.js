@@ -208,6 +208,19 @@ async function setupDatabase() {
             );
         `);
 
+        // Fase B do relatório de correções: correções que o usuário DESLIGOU (o export não as aplica).
+        // chave='' = a regra toda; chave preenchida = só aquele item (ex.: 0150 de uma credenciadora).
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS val_correcoes_skip (
+                id SERIAL PRIMARY KEY,
+                id_sped_arquivo INTEGER,
+                regra_id TEXT NOT NULL,
+                chave TEXT NOT NULL DEFAULT '',
+                criado_em TIMESTAMP DEFAULT NOW(),
+                UNIQUE(id_sped_arquivo, regra_id, chave)
+            );
+        `);
+
         // Semeia a biblioteca das principais credenciadoras (Stone/Cielo/Rede/Getnet/PagSeguro/
         // Mercado Pago) — ON CONFLICT DO NOTHING (não sobrescreve ajustes do usuário).
         try {

@@ -218,6 +218,25 @@ async function verAlteracoes() {
   } finally { loadingAlt.value = false; }
 }
 
+// Fase B — ligar/desligar correções. Só fiscais/injeções; estruturais sempre aplicadas.
+const EXCLUIVEIS = new Set(['INV-E116-01', 'CAD-0150-08', 'COMB-1350-1360-01', 'COMB-CST-01', 'DOC-C170-CFOP-01', 'USO-CONSUMO-X90']);
+const LABEL_REGRA = { 'INV-E116-01': 'Injetar E116 (ICMS a recolher)', 'CAD-0150-08': '0150 da credenciadora (1601)', 'COMB-1350-1360-01': 'Injetar lacres (1360)', 'COMB-CST-01': 'CST 61→60 (pré-monofásico)', 'DOC-C170-CFOP-01': 'Corrigir CFOP de entrada', 'USO-CONSUMO-X90': 'Uso/consumo → CST x90' };
+function rotuloRegra(r) { return LABEL_REGRA[r] || r; }
+// chave de exclusão: 0150 é por credenciadora (it.chave); as demais desligam a regra toda ('').
+function chaveSkip(it) { return it.regraId === 'CAD-0150-08' ? (it.chave || '') : ''; }
+async function toggleSkip(regraId, chave, ativo) {
+  if (!resultadoId.value) return;
+  if (ativo && regraId !== 'CAD-0150-08' && !confirm('Desligar esta correção afeta TODAS as ocorrências desse tipo neste arquivo. O erro pode voltar no PVA. Continuar?')) return;
+  loadingAlt.value = true;
+  try {
+    await axios.post(`${API_BASE_URL}/api/validador/skip`, { id_sped_arquivo: resultadoId.value, regra_id: regraId, chave: chave || '', ativo }, { headers: authHeader() });
+    await verAlteracoes(); // re-exporta e atualiza relatório + erros residuais
+  } catch (e) {
+    erro.value = e.response?.data?.message || ('Erro ao alterar a correção: ' + e.message);
+    loadingAlt.value = false;
+  }
+}
+
 onMounted(async () => {
   await carregarEmpresas();
   const storeArq = idArquivoSped.value ? Number(idArquivoSped.value) : null;
@@ -381,6 +400,16 @@ onMounted(async () => {
           <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ k }}: {{ n }}</span>
           <button @click="alteracoes = null" class="ml-auto text-[11px] text-slate-400 hover:text-slate-600 font-bold">fechar ✕</button>
         </div>
+        <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
+        <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-amber-50 border-b border-amber-100">
+          <p class="text-[11px] font-bold text-amber-800 mb-1.5">⏸️ Correções desligadas por você ({{ alteracoes.skips.length }}) — NÃO aplicadas (o erro pode voltar no PVA):</p>
+          <div class="flex flex-wrap gap-2">
+            <span v-for="(s, i) in alteracoes.skips" :key="i" class="inline-flex items-center gap-1.5 text-[10px] bg-white border border-amber-200 rounded-full px-2 py-0.5">
+              <span class="font-semibold text-amber-800">{{ rotuloRegra(s.regra_id) }}<span v-if="s.chave" class="font-mono text-amber-600"> · {{ s.chave }}</span></span>
+              <button @click="toggleSkip(s.regra_id, s.chave, false)" :disabled="loadingAlt" class="text-emerald-600 hover:text-emerald-800 font-bold">reativar ↺</button>
+            </span>
+          </div>
+        </div>
         <div v-if="!alteracoes.total" class="px-5 py-6 text-xs text-slate-400 italic text-center">Nenhuma correção aplicada neste arquivo (o SPED já estava coerente nos pontos que tratamos).</div>
         <div v-else class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
           <div v-for="b in alteracoes.agrupado" :key="b.bloco" class="p-4">
@@ -391,13 +420,17 @@ onMounted(async () => {
                 <div v-for="(it, i) in reg.itens" :key="i" class="text-[11px] flex items-start gap-2 bg-slate-50/60 rounded-lg px-2 py-1.5">
                   <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded"
                     :class="{ 'bg-violet-100 text-violet-700': it.origem==='injecao', 'bg-amber-100 text-amber-700': it.origem==='fiscal', 'bg-sky-100 text-sky-700': it.origem==='manual', 'bg-slate-200 text-slate-600': it.origem==='auto', 'bg-rose-100 text-rose-700': it.origem==='remocao' }">{{ it.origem }}</span>
-                  <span class="min-w-0">
+                  <span class="min-w-0 flex-1">
                     <b class="text-slate-600">{{ it.campo || it.escopo }}</b>:
                     <span class="text-slate-400 line-through break-all">{{ it.antes || '—' }}</span>
                     <span class="text-slate-300 mx-1">→</span>
                     <span class="font-mono text-emerald-700 break-all">{{ it.depois }}</span>
                     <span class="block text-[10px] text-slate-400 italic">{{ it.motivo }}</span>
                   </span>
+                  <button v-if="EXCLUIVEIS.has(it.regraId)" @click="toggleSkip(it.regraId, chaveSkip(it), true)" :disabled="loadingAlt"
+                    title="Não aplicar esta correção no SPED corrigido"
+                    class="shrink-0 self-center text-[9px] font-bold text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded px-1.5 py-0.5 transition-colors">desligar</button>
+                  <span v-else class="shrink-0 self-center text-[9px] text-slate-300" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela)">🔒</span>
                 </div>
               </div>
             </div>
