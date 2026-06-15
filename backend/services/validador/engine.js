@@ -26,6 +26,7 @@ function validar(model) {
                 linha: (a.linha ?? null),
                 campo: a.campo || '',
                 campoIdx: (a.campoIdx ?? null),   // índice do campo no pipe (p/ correção)
+                permiteVazio: (a.permiteVazio ?? false), // correção pode salvar valor vazio (ex.: apagar COD_BARRA)
                 valorAtual: (a.valorAtual ?? ''),
                 valorSugerido: a.valorSugerido,
                 detalhe: a.detalhe || '',

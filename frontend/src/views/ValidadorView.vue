@@ -161,7 +161,7 @@ async function salvarCorrecao(e) {
   if (!resultadoId.value) { msgCorr.value = 'Valide um SPED do banco primeiro.'; return; }
   const k = keyErro(e);
   const valor = (valoresCorrecao.value[k] ?? '').toString().trim();
-  if (valor === '') { msgCorr.value = 'Informe o valor corrigido.'; return; }
+  if (valor === '' && !e.permiteVazio) { msgCorr.value = 'Informe o valor corrigido.'; return; }
   if (e.chaveNatural == null || e.campoIdx == null) { msgCorr.value = 'Este erro não é corrigível por campo.'; return; }
   salvando.value = k; msgCorr.value = '';
   try {
@@ -396,11 +396,12 @@ onMounted(async () => {
               <div v-if="e.corrigivel && resultadoId" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
                 <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
                 <div class="flex items-center gap-2">
-                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="(e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor'">
+                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">
                   <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">
                     {{ salvando === keyErro(e) ? 'Salvando…' : 'Salvar correção' }}
                   </button>
                 </div>
+                <p v-if="e.permiteVazio" class="text-[9px] text-slate-400 mt-1 italic">Campo opcional: deixe vazio para apagar o conteúdo inválido, ou informe o código correto.</p>
                 <p class="text-[10px] text-slate-400 mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
               </div>
               <p class="text-[10px] text-slate-400">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>

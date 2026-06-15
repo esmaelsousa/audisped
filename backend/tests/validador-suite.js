@@ -107,6 +107,13 @@ t('ncm +: 0200 tipo 00 sem NCM dispara', () => assert.ok(fires(H(['|0200|P1|PROD
 t('ncm -: NCM de 8 dígitos não dispara', () => assert.ok(!fires(H(['|0200|P1|PROD|||UN|00|27101259||']), 'CAD-0200-03')));
 t('ncm -: tipo 07 (uso/consumo) sem NCM não dispara', () => assert.ok(!fires(H(['|0200|P1|PROD|||UN|07||']), 'CAD-0200-03')));
 
+// DOC-0200-GTIN-01 (COD_BARRA não numérico)
+t('codbarra +: COD_BARRA "SEM GTIN" dispara', () => assert.ok(fires(H(['|0200|CANETA|CANETA BIC|SEM GTIN| |UN|07|96081000||96||||']), 'DOC-0200-GTIN-01')));
+t('codbarra +: marcado permiteVazio + sugere vazio', () => { const e = run(H(['|0200|CANETA|CANETA BIC|SEM GTIN| |UN|07|96081000||96||||'])).erros.find(x => x.regra_id === 'DOC-0200-GTIN-01'); assert.equal(e.permiteVazio, true); assert.equal(e.valorSugerido, ''); assert.equal(e.campoIdx, 4); });
+t('codbarra -: COD_BARRA numérico (GTIN) não dispara', () => assert.ok(!fires(H(['|0200|P1|PROD|7891234567895| |UN|00|27101259||||||']), 'DOC-0200-GTIN-01')));
+t('codbarra -: COD_BARRA vazio não dispara', () => assert.ok(!fires(H(['|0200|P1|PROD| | |UN|00|27101259||||||']), 'DOC-0200-GTIN-01')));
+t('codbarra aplicar: correção vazia apaga o campo', () => { const l = ['|0200|CANETA|CANETA BIC|SEM GTIN| |UN|07|96081000||96||||']; aplicar(l, [{ registro: '0200', chave_natural: 'CANETA', campo_idx: 4, valor_corrigido: '' }]); assert.equal(l[0].split('|')[4], ''); });
+
 // DOC-C190-01 (combinação C190 sem C170)
 t('c190 +: combinação ausente no C170 dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5405' })]), 'DOC-C190-01')));
 t('c190 -: combinação batendo com C170 não dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5102' })]), 'DOC-C190-01')));
