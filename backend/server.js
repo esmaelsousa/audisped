@@ -8549,18 +8549,22 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const campoCpf  = isCpf  ? docCodPart : '';
                 const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|ISENTO|||||||`;
 
-                // Insere a nova linha 0150 antes do 0990 no outputLines (bloco 0)
-                const idx0990 = outputLines.findIndex(l => l.split('|')[1] === '0990');
-                if (idx0990 !== -1) {
-                    outputLines.splice(idx0990, 0, nova0150);
-                } else {
-                    // Fallback: insere após o último 0150 existente
-                    let lastIdx0150 = -1;
-                    for (let i = outputLines.length - 1; i >= 0; i--) {
-                        if (outputLines[i].split('|')[1] === '0150') { lastIdx0150 = i; break; }
-                    }
-                    outputLines.splice(lastIdx0150 !== -1 ? lastIdx0150 + 1 : 0, 0, nova0150);
+                // Insere a nova 0150 logo APÓS o último 0150 existente (mantém o sub-bloco 0150
+                // CONTÍGUO). Inserir no fim do bloco 0 (antes do 0990) colocaria o 0150 depois de
+                // 0200/0460/etc. → PVA "Organização hierárquica fora dos padrões: esperado 0460" +
+                // totalizadores furados (regressão observada no CABECEIRINHA). Ordem do bloco 0:
+                // ...|0100|0150|0190|0200|...|0460|...|0990 — 0150 vem cedo.
+                let idxIns = -1;
+                for (let i = outputLines.length - 1; i >= 0; i--) {
+                    if (outputLines[i].split('|')[1] === '0150') { idxIns = i + 1; break; }
                 }
+                if (idxIns === -1) {
+                    // Nenhum 0150 ainda: insere antes do 1º registro que SUCEDE o 0150 no bloco 0.
+                    const SUC = new Set(['0190', '0200', '0205', '0206', '0208', '0210', '0220', '0221', '0300', '0305', '0400', '0450', '0460', '0500', '0600', '0990']);
+                    idxIns = outputLines.findIndex(l => SUC.has(l.split('|')[1]));
+                    if (idxIns === -1) idxIns = outputLines.length;
+                }
+                outputLines.splice(idxIns, 0, nova0150);
                 set0150CnpjsPresentes.add(codPart);
                 if (docCodPart) set0150CnpjsPresentes.add(docCodPart);
                 changesApplied++;
