@@ -118,6 +118,11 @@ t('1350-1360 +: bomba sem 1360 dispara', () => assert.ok(fires(H(['|1350|BOMBA1|
 t('1350-1360 -: bomba com 1360 não dispara', () => assert.ok(!fires(H(['|1350|BOMBA1|MARCA|MOD|1|', '|1360|LACRE001|01012022|', '|1370|1|2|12|']), 'COMB-1350-1360-01')));
 t('1350-1360 +: 2 bombas sem 1360 = 2 erros', () => { const r = run(H(['|1350|B1|M|MO|1|', '|1370|1|2|12|', '|1350|B2|M|MO|1|', '|1370|2|1|11|'])); assert.equal(r.erros.filter(e => e.regra_id === 'COMB-1350-1360-01').length, 2); });
 
+// DOC-C100-DTES-01 (C100 DT_E_S > data final). H() usa DT_FIN=31012022.
+t('c100-dtes +: DT_E_S 03022022 > 31012022 dispara', () => assert.ok(fires(H(['|C100|0|1|PART|55|00|1|100|' + CHAVE() + '|30012022|03022022|100,00|']), 'DOC-C100-DTES-01')));
+t('c100-dtes -: DT_E_S dentro do período não dispara', () => assert.ok(!fires(H(['|C100|0|1|PART|55|00|1|100|' + CHAVE() + '|30012022|30012022|100,00|']), 'DOC-C100-DTES-01')));
+t('c100-dtes sugere DT_DOC', () => assert.ok(firesDet(H(['|C100|0|1|PART|55|00|1|100|' + CHAVE() + '|30012022|03022022|100,00|']), 'DOC-C100-DTES-01', '30/01/2022')));
+
 // COMB-LMC (negativo / coerência / vendas / CAP)
 t('lmc +: estoque negativo dispara', () => assert.ok(firesDet(H([r1300('7085', '02012022', '50,000', '0,000', '50,000', '60,000', '-10,000', '0,000', '0,000', '-10,000')]), 'COMB-LMC', 'negativo')));
 t('lmc +: FECH incoerente dispara', () => assert.ok(firesDet(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '99,000')]), 'COMB-LMC', 'FECH_FISICO')));

@@ -18,6 +18,7 @@ module.exports = [
     require('./r_c190_x_c170'),        // DOC-C190-01: combinação CST/CFOP/ALIQ do C190 sem C170
     require('./r_cfop_c170_invalido'), // DOC-C170-CFOP-01: CFOP inválido no C170 (ex.: 0061)
     require('./r_bloco1_equipamentos_lmc'), // COMB-1350-1360-01: bomba (1350) sem lacre (1360)
+    require('./r_c100_extemporaneo'),  // DOC-C100-DTES-01: C100 com DT_E_S > data final do período
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques
