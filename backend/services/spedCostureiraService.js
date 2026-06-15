@@ -985,6 +985,37 @@ function recalcularE110(linhas) {
     return linhas;
 }
 
+// ── Coerência E116 (obrigações do ICMS a recolher) × E110 ───────────────────────────
+// PVA: Σ E116.VL_OR (f3) = E110.VL_ICMS_RECOLHER (f13) + DEB_ESP (f15). Quando há UM E116 no grupo
+// do E110 e o VL_OR diverge do total (ex.: após recalcularE110 mudar o f13), ajusta o VL_OR.
+// NÃO cria E116 ausente (exigiria COD_REC/DT_VCTO fiscais que variam por empresa/período e não
+// temos) nem mexe quando há VÁRIOS E116 (ambíguo) — esses casos são detectados pela regra INV-E116-01.
+// Roda DEPOIS de recalcularE110. Só altera valor que muda → no-op byte-idêntico quando já coerente.
+// Layout E116: f2 COD_OR, f3 VL_OR, f4 DT_VCTO, f5 COD_REC, ...
+function recalcularE116(linhas) {
+    const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
+    const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
+    let i = 0;
+    while (i < linhas.length) {
+        if (linhas[i].split('|')[1] !== 'E110') { i++; continue; }
+        const f110 = linhas[i].split('|');
+        const target = (f110.length > 13 ? c(f110[13]) : 0) + (f110.length > 15 ? c(f110[15]) : 0);
+        const e116idx = [];
+        let j = i + 1;
+        for (; j < linhas.length; j++) {
+            const r = linhas[j].split('|')[1];
+            if (r === 'E110') break;
+            if (r === 'E116') e116idx.push(j);
+        }
+        if (e116idx.length === 1) { // único E116 → ajusta o VL_OR ao total apurado
+            const f = linhas[e116idx[0]].split('|');
+            if (f.length > 3 && c(f[3]) !== target) { f[3] = fmt(target); linhas[e116idx[0]] = f.join('|'); }
+        }
+        i = j;
+    }
+    return linhas;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -995,5 +1026,6 @@ module.exports = {
     enforcarCoerencia1300,
     recalcularVlInvH005,
     injetarLacres1360,
-    recalcularE110
+    recalcularE110,
+    recalcularE116
 };

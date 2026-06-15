@@ -201,6 +201,13 @@ t('e110 + sugere soma do E111 (50,00 débito)', () => assert.ok(firesDet(H([E110
 t('e110 -: E110 coerente sem E111 não dispara', () => assert.ok(!fires(H(['|E110|100,00|0|0,00|0|0,00|0|0,00|0|0|100,00|0|100,00|0,00|0|']), 'INV-E110-01')));
 t('e110 -: E110 coerente COM E111 (totais e saldo certos) não dispara', () => assert.ok(!fires(H(['|E110|100,00|0|50,00|0|0,00|0|30,00|0|0|120,00|0|120,00|0,00|0|', '|E111|BA009999|DIFAL|50,00|', '|E111|BA020003|CIAP|30,00|']), 'INV-E110-01')));
 
+// INV-E116-01 (Σ E116.VL_OR = E110 f13 ICMS_RECOLHER + f15 DEB_ESP). E110 coerente p/ não acionar INV-E110-01.
+const E110ok = '|E110|120,00|0|0,00|0|0,00|0|0,00|0|0|120,00|0|120,00|0,00|0|'; // f13=120,00
+t('e116 +: E116 ausente com ICMS a recolher dispara', () => assert.ok(fires(H([E110ok]), 'INV-E116-01')));
+t('e116 +: Σ E116 ≠ f13 dispara', () => assert.ok(fires(H([E110ok, '|E116|000|99,99|09022022|0759|||||012022|']), 'INV-E116-01')));
+t('e116 -: Σ E116 == f13 não dispara', () => assert.ok(!fires(H([E110ok, '|E116|000|120,00|09022022|0759|||||012022|']), 'INV-E116-01')));
+t('recalcularE116: ajusta VL_OR do único E116 ao f13', () => { const { recalcularE116 } = require('../services/spedCostureiraService'); const l = [E110ok, '|E116|000|99,99|09022022|0759|||||012022|']; recalcularE116(l); assert.equal(l[1].split('|')[3], '120,00'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

@@ -20,6 +20,7 @@ module.exports = [
     require('./r_bloco1_equipamentos_lmc'), // COMB-1350-1360-01: bomba (1350) sem lacre (1360)
     require('./r_c100_extemporaneo'),  // DOC-C100-DTES-01: C100 com DT_E_S > data final do período
     require('./r_e110_apuracao'),      // INV-E110-01: E110 (totais de ajuste/saldo) ≠ Σ E111
+    require('./r_e116_apuracao'),      // INV-E116-01: Σ E116 (a recolher) ≠ ICMS a recolher do E110
     require('./r_cod_barra_0200'),     // DOC-0200-GTIN-01: COD_BARRA do 0200 não numérico (ex.: "SEM GTIN")
     require('./r_1360_data'),          // INV-1360-DATA-01: DAT_APLICACAO do lacre (1360) < 01/01/2000
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP

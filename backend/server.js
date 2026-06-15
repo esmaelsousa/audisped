@@ -8847,8 +8847,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // pela natureza (4ª pos do COD_AJ_APUR) e propaga p/ o saldo (f11/f13/f14). Só altera o
         // que muda; no-op byte-idêntico quando já coerente (379/400 da frota). Antes do recálculo X990.
         {
-            const { recalcularE110 } = require('./services/spedCostureiraService');
+            const { recalcularE110, recalcularE116 } = require('./services/spedCostureiraService');
             recalcularE110(outputLines); // muta in-place
+            recalcularE116(outputLines); // ajusta VL_OR do E116 ao total do E110 (depois do E110)
         }
 
         // ── Recalcular TODOS os totalizadores antes de escrever ────────────────
