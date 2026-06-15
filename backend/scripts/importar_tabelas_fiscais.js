@@ -11,7 +11,8 @@ const { Pool } = require('pg');
 const pool = new Pool({ user: process.env.DB_USER, host: process.env.DB_HOST, database: process.env.DB_DATABASE, password: process.env.DB_PASSWORD, port: process.env.DB_PORT });
 
 const NCM_URL = 'https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json';
-const CEST_URL = 'https://www.contabilizei.com.br/contabilidade-online/cest-ncm/';
+// Fonte OFICIAL do CEST: Convênio ICMS 142/2018 (CONFAZ), Anexos II–XXVI por segmento.
+const CEST_URL = 'https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18';
 const UA = { 'User-Agent': 'Mozilla/5.0' };
 const digits = (s) => String(s || '').replace(/\D/g, '');
 
@@ -68,18 +69,30 @@ async function importarCest(db) {
     if (!r.ok) throw new Error('CEST HTTP ' + r.status);
     const html = await r.text();
     await db.query('TRUNCATE cest');
-    // linhas: <tr> <td>NN.NNN.NN</td> <td>ITEM</td> <td>NCM/SH</td> <td>DESCRIÇÃO</td> </tr>
-    const re = /<tr[^>]*>\s*<td[^>]*>\s*(\d{2}\.\d{3}\.\d{2})\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<\/tr>/g;
-    const strip = (s) => String(s).replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#?\w+;/g, '').replace(/\s+/g, ' ').trim();
-    let m, n = 0, seen = new Set();
-    while ((m = re.exec(html)) !== null) {
-        const cestFmt = m[1]; const cest = digits(cestFmt);
-        const ncmPrefix = digits(m[3]); if (!ncmPrefix) continue;
-        const desc = strip(m[4]).slice(0, 400);
-        const key = cest + '|' + ncmPrefix; if (seen.has(key)) continue; seen.add(key);
-        await db.query(`INSERT INTO cest (cest,cest_fmt,ncm_prefix,descricao,segmento) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (cest,ncm_prefix) DO NOTHING`,
-            [cest, cestFmt, ncmPrefix, desc, cest.slice(0, 2)]);
-        n++;
+    // tag→ESPAÇO: NCMs múltiplos por célula vêm em <p> separados (3919</p><p>3920) — sem o espaço
+    // eles concatenariam ("39193920"). O espaço preserva cada NCM como token isolado.
+    const strip = (s) => String(s).replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#?\w+;/g, '').replace(/\s+/g, ' ').trim();
+    // Anexos do Conv. 142/2018: colunas ITEM | CEST | NCM/SH | DESCRIÇÃO. Acha o CEST (NN.NNN.NN)
+    // entre as células; NCM = célula seguinte (pode ter vários NCMs); DESC = a próxima. Pula linhas
+    // REVOGADAS (classe "verde"/A9 = "Redação original, efeitos até…"); mantém a vigente (A7).
+    const trs = html.match(/<tr[\s\S]*?<\/tr>/g) || [];
+    let n = 0; const seen = new Set();
+    for (const tr of trs) {
+        if (/verde/i.test(tr)) continue; // redação revogada
+        const tds = (tr.match(/<td[\s\S]*?<\/td>/g) || []).map(strip);
+        const ci = tds.findIndex(c => /^\d{2}\.\d{3}\.\d{2}$/.test(c));
+        if (ci < 0) continue;
+        const cestFmt = tds[ci]; const cest = digits(cestFmt);
+        const ncmTokens = (tds[ci + 1] || '').match(/\d[\d.]*\d|\d{2,}/g) || [];
+        const desc = (tds[ci + 2] || '').slice(0, 400);
+        for (const tok of ncmTokens) {
+            const ncmPrefix = digits(tok);
+            if (ncmPrefix.length < 2) continue;
+            const key = cest + '|' + ncmPrefix; if (seen.has(key)) continue; seen.add(key);
+            await db.query(`INSERT INTO cest (cest,cest_fmt,ncm_prefix,descricao,segmento) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (cest,ncm_prefix) DO NOTHING`,
+                [cest, cestFmt, ncmPrefix, desc, cest.slice(0, 2)]);
+            n++;
+        }
     }
     return n;
 }
