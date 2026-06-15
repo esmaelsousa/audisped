@@ -1021,10 +1021,11 @@ function recalcularE116(linhas) {
 // nenhum E116 mas há ICMS a recolher, o PVA acusa "soma E116 ≠ E110". recalcularE116 NÃO fabrica
 // (faltam COD_REC/DT_VCTO, que variam por empresa). Aqui, COM o COD_REC do cadastro (cad_apuracao_e116)
 // e a competência do 0000, injetamos o E116 no fim do sub-bloco do E110 (após E111/E115, antes do
-// próximo E110/E200/E990). VL_OR = total apurado; MES_REF = MMAAAA da competência; DT_VCTO = dia
-// <diaVcto> (default 9) do mês seguinte. Sem COD_REC → não injeta (no-op). Roda antes do recálculo X990.
+// próximo E110/E200/E990). VL_OR = total apurado; MES_REF = MMAAAA da competência; DT_VCTO = ÚLTIMO
+// DIA do mês de apuração (confirmado contra o PVA: competência 05/2026 → vencimento 31/05/2026).
+// Sem COD_REC → não injeta (no-op). Roda antes do recálculo X990.
 // Layout E116: |E116|COD_OR(000)|VL_OR|DT_VCTO(DDMMAAAA)|COD_REC|NUM_PROC|IND_PROC|PROC|TXT_COMPL|MES_REF(MMAAAA)|
-function injetarE116SeNecessario(linhas, codRec, diaVcto) {
+function injetarE116SeNecessario(linhas, codRec) {
     codRec = String(codRec || '').trim();
     if (!codRec) return 0; // sem cadastro → não injeta (degradação segura)
     const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
@@ -1035,10 +1036,9 @@ function injetarE116SeNecessario(linhas, codRec, diaVcto) {
     if (!/^\d{8}$/.test(dtFin)) return 0;
     const mm = dtFin.slice(2, 4), aaaa = dtFin.slice(4, 8);
     const mesRef = mm + aaaa;
-    let mV = parseInt(mm, 10) + 1, yV = parseInt(aaaa, 10);
-    if (mV > 12) { mV = 1; yV += 1; }
-    const dia = String(parseInt(diaVcto, 10) || 9).padStart(2, '0');
-    const dtVcto = dia + String(mV).padStart(2, '0') + String(yV);
+    // DT_VCTO = último dia do mês de apuração (Date(ano, mês 1-based, 0) = último dia do mês anterior)
+    const ultimoDia = new Date(parseInt(aaaa, 10), parseInt(mm, 10), 0).getDate();
+    const dtVcto = String(ultimoDia).padStart(2, '0') + mm + aaaa;
     const FILHOS = new Set(['E111', 'E112', 'E113', 'E115', 'E116']);
     let injetados = 0, i = 0;
     while (i < linhas.length) {
@@ -1063,6 +1063,43 @@ function injetarE116SeNecessario(linhas, codRec, diaVcto) {
     return injetados;
 }
 
+// ── Garante entrada 9900 para TODO registro presente (corrige "É necessário totalizar os ──
+// registros do tipo X no bloco 9"). O recálculo de totalizadores do export só ATUALIZA as linhas
+// 9900 existentes; quando injetamos um registro de um tipo que NÃO existia no original (ex.: E116
+// ausente, 1360 de lacre), não há |9900|TIPO|...| para atualizar → o PVA rejeita. Aqui inserimos a
+// linha 9900 que falta, na ordem do leiaute (logo após a 9900 do registro anterior que já existe).
+// A contagem entra como 0 e é corrigida pelo recálculo subsequente (que conta as linhas finais).
+// Roda ANTES do recálculo dos totalizadores. No-op (0) quando nada falta.
+function garantirRegistros9900(linhas) {
+    const ordemAparicao = [];
+    const vistos = new Set();
+    const tem9900 = new Set();
+    for (const l of linhas) {
+        const f = l.split('|');
+        const r = f[1];
+        if (!r) continue;
+        if (r === '9900') { tem9900.add(f[2]); continue; }
+        if (!vistos.has(r)) { vistos.add(r); ordemAparicao.push(r); }
+    }
+    const faltam = ordemAparicao.filter(r => !tem9900.has(r));
+    if (!faltam.length) return 0;
+    let inseridos = 0;
+    for (const reg of faltam) {
+        const pos = ordemAparicao.indexOf(reg);
+        let ancora = null;
+        for (let k = pos - 1; k >= 0; k--) { if (tem9900.has(ordemAparicao[k])) { ancora = ordemAparicao[k]; break; } }
+        let idx = -1;
+        if (ancora) { idx = linhas.findIndex(l => { const f = l.split('|'); return f[1] === '9900' && f[2] === ancora; }); if (idx !== -1) idx += 1; }
+        if (idx === -1) idx = linhas.findIndex(l => { const f = l.split('|'); return f[1] === '9900' && f[2] === '9900'; }); // antes da auto-contagem 9900
+        if (idx === -1) idx = linhas.findIndex(l => l.split('|')[1] === '9990');
+        if (idx === -1) idx = linhas.length;
+        linhas.splice(idx, 0, `|9900|${reg}|0|`);
+        tem9900.add(reg);
+        inseridos++;
+    }
+    return inseridos;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     gerarSpedFragmentado,
@@ -1075,5 +1112,6 @@ module.exports = {
     injetarLacres1360,
     recalcularE110,
     recalcularE116,
-    injetarE116SeNecessario
+    injetarE116SeNecessario,
+    garantirRegistros9900
 };

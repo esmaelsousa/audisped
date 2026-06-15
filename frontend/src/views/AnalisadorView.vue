@@ -34,7 +34,7 @@ const savingCred = ref(false);
 const dadosPosto = ref(null); // { cod_mun, endereco, num, bairro } do próprio posto (0000/0005)
 // Cadastro de apuração do ICMS (E116) — injeta o E116 ausente no export
 const showE116Modal = ref(false);
-const e116Cad = ref({ cod_rec: '0759', dia_vcto: 9 });
+const e116Cad = ref({ cod_rec: '0767' });
 const savingE116 = ref(false);
 
 // --- Estado de Upload e Progresso ---
@@ -734,7 +734,7 @@ async function openE116Modal() {
         const res = await axios.get(`${API_BASE_URL}/api/cad/apuracao-e116/${idArquivoSped.value}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
-        e116Cad.value = { cod_rec: res.data.cod_rec || '0759', dia_vcto: res.data.dia_vcto || 9, cnpj: res.data.cnpj };
+        e116Cad.value = { cod_rec: res.data.cod_rec || '0767', cnpj: res.data.cnpj };
         showE116Modal.value = true;
     } catch (e) {
         alert('Erro ao carregar apuração E116: ' + (e.response?.data?.message || e.message));
@@ -746,7 +746,7 @@ async function saveE116() {
     try {
         const token = localStorage.getItem('token');
         await axios.post(`${API_BASE_URL}/api/cad/apuracao-e116`, {
-            cnpj: e116Cad.value.cnpj, cod_rec: e116Cad.value.cod_rec, dia_vcto: e116Cad.value.dia_vcto
+            cnpj: e116Cad.value.cnpj, cod_rec: e116Cad.value.cod_rec
         }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         showE116Modal.value = false;
         alert('Apuração E116 salva. Re-exporte o SPED — o E116 será injetado com o valor do ICMS a recolher do E110.');
@@ -3068,20 +3068,15 @@ const statusAnpGeral = computed(() => {
             <div class="space-y-3">
                 <div>
                     <label class="text-[10px] font-black text-slate-500 uppercase tracking-wider">Código de receita (COD_REC)</label>
-                    <input v-model="e116Cad.cod_rec" placeholder="ex.: 0759" maxlength="10" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
-                    <p class="text-[10px] text-slate-400 mt-1 italic">BA costuma usar <b>0759</b> (ICMS regime normal). Confirme no seu DARE/ERP — pode ser 0783, 2036 etc.</p>
-                </div>
-                <div>
-                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-wider">Dia do vencimento (mês seguinte)</label>
-                    <input v-model.number="e116Cad.dia_vcto" type="number" min="1" max="28" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
-                    <p class="text-[10px] text-slate-400 mt-1 italic">Padrão BA: dia <b>09</b> do mês seguinte à competência.</p>
+                    <input v-model="e116Cad.cod_rec" placeholder="ex.: 0767" maxlength="10" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
+                    <p class="text-[10px] text-slate-400 mt-1 italic">Padrão <b>0767</b> (ICMS REGIME NORMAL). Confirme no seu DARE/ERP se usar outro.</p>
                 </div>
             </div>
 
             <div class="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-start gap-3">
                 <div class="text-xl">✅</div>
                 <p class="text-[10px] text-emerald-700 font-medium leading-relaxed italic">
-                    O <b>valor (VL_OR)</b> é calculado automaticamente do ICMS a recolher do E110 — você não precisa digitar. Ao re-exportar, o E116 é injetado com COD_OR=000, este COD_REC, o vencimento e a competência do arquivo.
+                    Automático ao re-exportar: <b>COD_OR=000</b>; <b>valor</b> = ICMS a recolher do E110; <b>vencimento</b> = último dia do mês de apuração; <b>mês de referência</b> = período do SPED. Você só confirma o COD_REC.
                 </p>
             </div>
 

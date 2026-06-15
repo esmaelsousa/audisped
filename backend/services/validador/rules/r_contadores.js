@@ -41,6 +41,17 @@ module.exports = {
             const cont = (porReg.get(reg) || []).length;
             if (cont !== decl) erros.push({ bloco: '9', registro: '9900', linha: l.n, campo: 'QTD_REG', valorAtual: `${reg}=${l.f[3]}`, valorSugerido: `${reg}=${cont}`, detalhe: `9900 declara ${decl} registro(s) ${reg}; o arquivo tem ${cont}.` });
         }
+
+        // 9900 COMPLETO — TODO tipo de registro presente precisa de uma entrada 9900 (PVA:
+        // "É necessário totalizar os registros do tipo X no bloco 9"). Ocorre quando se injeta
+        // um registro de tipo novo (ex.: E116/1360) sem a linha 9900 correspondente. O export
+        // (garantirRegistros9900) insere a entrada que falta → jaCorrigidoNoExport.
+        const tipos9900 = new Set((porReg.get('9900') || []).map(l => l.f[2]));
+        for (const reg of porReg.keys()) {
+            if (tipos9900.has(reg)) continue;
+            const cont = (porReg.get(reg) || []).length;
+            erros.push({ bloco: '9', registro: '9900', linha: null, campo: 'REG', valorAtual: '(ausente)', valorSugerido: `${reg}=${cont}`, detalhe: `É necessário totalizar os registros do tipo ${reg} no bloco 9 (não há |9900|${reg}|; o arquivo tem ${cont}).` });
+        }
         return erros;
     },
 };

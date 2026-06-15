@@ -11,9 +11,16 @@ const { validar } = require('../services/validador/engine');
 
 const pool = new Pool({ user: process.env.DB_USER, host: process.env.DB_HOST, database: process.env.DB_DATABASE, password: process.env.DB_PASSWORD, port: process.env.DB_PORT });
 const N = parseInt(process.env.FLEET_N || '30');
-// Regras que LEGITIMAMENTE disparam em arquivos reais (achados verdadeiros). Qualquer outra regra
-// disparando numa amostra real é "canário" de FALSO-POSITIVO (ou um achado novo a investigar).
-const PODE_DISPARAR = new Set(['CAD-0220-01', 'DOC-DUP', 'COMB-LMC', 'COMB-LMC-CONT']);
+// Regras que LEGITIMAMENTE disparam em arquivos reais (achados verdadeiros, já verificados). Qualquer
+// outra regra disparando numa amostra real é "canário" de FALSO-POSITIVO (ou um achado novo a investigar).
+const PODE_DISPARAR = new Set([
+    'CAD-0220-01', 'DOC-DUP', 'COMB-LMC', 'COMB-LMC-CONT',
+    // achados reais recorrentes em postos (corrigidos no export ou no ERP):
+    'INV-E116-01',        // E116 ausente com ICMS a recolher (injetado no export c/ cadastro)
+    'DOC-0200-GTIN-01',   // COD_BARRA não-numérico ("SEM GTIN")
+    'CAD-0150-08',        // COD_PART do 1601 sem 0150 (credenciadora)
+    'COMB-1350-1360-01',  // bomba (1350) sem lacre (1360) — corrigir no ERP
+]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };
 const ym = (p) => { const m = (p || '').match(/(\d{4})-(\d{2})/); return m ? `${m[1]}-${m[2]}` : (p || '').slice(0, 7); };

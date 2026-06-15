@@ -8983,7 +8983,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const rE116 = await dbClient.query(`SELECT cod_rec, dia_vcto FROM cad_apuracao_e116 WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [cnpjE116]);
                 if (rE116.rows.length && rE116.rows[0].cod_rec) {
                     const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
-                    const n = injetarE116SeNecessario(outputLines, rE116.rows[0].cod_rec, rE116.rows[0].dia_vcto);
+                    const n = injetarE116SeNecessario(outputLines, rE116.rows[0].cod_rec);
                     if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${rE116.rows[0].cod_rec}) no export do arquivo ${arquivoId}.`); }
                 }
             }
@@ -9010,6 +9010,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (!outputLines[i] || outputLines[i][0] !== '|') outputLines.splice(i, 1);
             }
             if (outputLines.length !== _antes) logger.info(`[Export] Removidas ${_antes - outputLines.length} linha(s) não-EFD (assinatura) — arquivo ${arquivoId}.`);
+        }
+        // Garante entrada 9900 para tipos de registro injetados que não existiam no original
+        // (ex.: E116, 1360) — senão o PVA acusa "É necessário totalizar os registros do tipo X".
+        {
+            const { garantirRegistros9900 } = require('./services/spedCostureiraService');
+            const nov9900 = garantirRegistros9900(outputLines);
+            if (nov9900) logger.info(`[Export] ${nov9900} entrada(s) 9900 inserida(s) p/ registro(s) injetado(s) — arquivo ${arquivoId}.`);
         }
         const regCountMap = new Map();
         const blockLineCount = {}; // 1º caractere do registro → nº de linhas do bloco
