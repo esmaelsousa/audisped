@@ -5583,7 +5583,7 @@ app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, 
         const lista = faltantes.map(c => {
             const doc = String(c).replace(/\D/g, '');
             const r = cadMap[doc] || {};
-            return { cnpj: c, nome: r.nome || '', ie: r.ie || 'ISENTO', cod_mun: r.cod_mun || '', endereco: r.endereco || '', num: r.num || '', bairro: r.bairro || '' };
+            return { cnpj: c, nome: r.nome || '', ie: r.ie || '', cod_mun: r.cod_mun || '', endereco: r.endereco || '', num: r.num || '', bairro: r.bairro || '' };
         });
         res.json({ credenciadoras: lista, dadosPosto });
     } catch (e) {
@@ -5609,7 +5609,7 @@ app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
                  VALUES ($1,$2,$3,$4,$5,$6,$7)
                  ON CONFLICT (cnpj) DO UPDATE SET nome=EXCLUDED.nome, ie=EXCLUDED.ie, cod_mun=EXCLUDED.cod_mun,
                    endereco=EXCLUDED.endereco, num=EXCLUDED.num, bairro=EXCLUDED.bairro`,
-                [cnpj, String(c.nome || '').trim().toUpperCase().slice(0, 60), String(c.ie || 'ISENTO').trim(),
+                [cnpj, String(c.nome || '').trim().toUpperCase().slice(0, 60), String(c.ie || '').trim(),
                  String(c.cod_mun || '').replace(/\D/g, '').slice(0, 7), String(c.endereco || '').trim().slice(0, 60),
                  String(c.num || '').trim().slice(0, 10), String(c.bairro || '').trim().slice(0, 60)]);
         }
@@ -8846,7 +8846,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 // Formato 0150: |0150|COD_PART|NOME|COD_PAIS|CNPJ|CPF|IE|COD_MUN|SUFRAMA|END|NUM|COMPL|BAIRRO|
                 const campoCnpj = isCnpj ? docCodPart : '';
                 const campoCpf  = isCpf  ? docCodPart : '';
-                const ie = String(cad?.ie || 'ISENTO').trim();
+                const ie = String(cad?.ie || '').trim(); // credenciadora não tem IE → 0150 com IE em branco (PVA aceita)
                 const num = String(cad?.num || '').trim();
                 const bairro = String(cad?.bairro || '').trim();
                 const nova0150 = `|0150|${codPart}|${nomePart}|1058|${campoCnpj}|${campoCpf}|${ie}|${codMun}||${endereco}|${num}||${bairro}|`;

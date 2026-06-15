@@ -3017,7 +3017,7 @@ const statusAnpGeral = computed(() => {
                     <input v-model="c.nome" placeholder="Razão social" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-bold outline-none" />
                     <div class="grid grid-cols-2 gap-2">
                         <input v-model="c.cod_mun" placeholder="Cód. município IBGE (7 díg) *" maxlength="7" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-mono outline-none" />
-                        <input v-model="c.ie" placeholder="IE (ou ISENTO)" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                        <input v-model="c.ie" placeholder="IE (deixe vazio p/ credenciadora)" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
                     </div>
                     <input v-model="c.endereco" placeholder="Endereço (logradouro) *" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
                     <div class="grid grid-cols-2 gap-2">
