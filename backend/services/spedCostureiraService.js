@@ -785,7 +785,7 @@ function realocar0221(linhas) {
  * Se nenhum C170/C190 de uso/consumo precisa mudar, retorna o array original (byte-idêntico).
  * Não altera contagens diretamente — os totalizadores são recalculados no fim do export.
  */
-function normalizarUsoConsumoCst90(linhas) {
+function normalizarUsoConsumoCst90(linhas, log) {
     const USO = new Set(['1407', '1556', '2407', '2556']);
     const cst90 = (cst) => { const s = String(cst || '').padStart(3, '0'); return s.slice(0, 1) + '90'; };
 
@@ -795,10 +795,10 @@ function normalizarUsoConsumoCst90(linhas) {
         const f = linhas[i].split('|');
         if (f[1] === 'C170' && f.length > 11 && USO.has(f[11])) {
             const novo = cst90(f[10]);
-            if (f[10] !== novo) { f[10] = novo; linhas[i] = f.join('|'); mudou = true; }
+            if (f[10] !== novo) { const antes = f[10]; f[10] = novo; linhas[i] = f.join('|'); mudou = true; if (log) log.add({ registro: 'C170', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[11]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
         } else if (f[1] === 'C190' && f.length > 4 && USO.has(f[3])) {
             const novo = cst90(f[2]);
-            if (f[2] !== novo) { f[2] = novo; linhas[i] = f.join('|'); mudou = true; }
+            if (f[2] !== novo) { const antes = f[2]; f[2] = novo; linhas[i] = f.join('|'); mudou = true; if (log) log.add({ registro: 'C190', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[3]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
         }
     }
     if (!mudou) return linhas; // nada de uso/consumo a normalizar → byte-idêntico
@@ -855,7 +855,7 @@ function normalizarUsoConsumoCst90(linhas) {
  *
  * Campos: 1300 → ESCR[8] PERDA[9] GANHO[10] FECH[11]; 1310 → ESCR[7] PERDA[8] GANHO[9] FECH[10].
  */
-function enforcarCoerencia1300(linhas) {
+function enforcarCoerencia1300(linhas, log) {
     const num = (s) => parseFloat(String(s == null ? '0' : s).replace(',', '.')) || 0;
     const fmt = (v) => v.toFixed(3).replace('.', ',');
     for (let i = 0; i < linhas.length; i++) {
@@ -869,9 +869,11 @@ function enforcarCoerencia1300(linhas) {
         const alvo = Number((escr - perda + ganho).toFixed(3));
         if (Math.abs(alvo - fech) <= 0.0005) continue; // já coerente → byte-idêntico
         const diff = Number((escr - fech).toFixed(3)); // ESCR - FECH = PERDA líquida
+        const aPerda = f[iPerda], aGanho = f[iGanho];
         f[iPerda] = fmt(diff > 0 ? diff : 0);
         f[iGanho] = fmt(diff < 0 ? -diff : 0);
         linhas[i] = f.join('|');
+        if (log) log.add({ registro: f[1], regraId: 'COMB-LMC', motivo: 'coerência LMC: FECH = ESCR − PERDA + GANHO (recalcula perda/ganho)', escopo: 'linha', linha: i, campo: 'PERDA/GANHO', antes: `${aPerda}/${aGanho}`, depois: `${f[iPerda]}/${f[iGanho]}`, origem: 'auto', classe: 'estrutural-seguro' });
     }
     return linhas;
 }
@@ -885,15 +887,17 @@ function enforcarCoerencia1300(linhas) {
 // split por IND_PROP somam todos). Só mexe quando o H005 tem ≥1 H010 (não zera total de
 // inventário sem itens — completude é outro check). No-op byte-idêntico quando não há Bloco
 // H ou o total já bate. Layout: H005 |H005|DT_INV|VL_INV|MOT_INV| (f[3]); H010 ...VL_ITEM=f[6].
-function recalcularVlInvH005(linhas) {
+function recalcularVlInvH005(linhas, log) {
     const num = (s) => parseFloat(String(s == null ? '0' : s).replace(',', '.')) || 0;
     let h005Idx = -1, somaCents = 0, nItens = 0;
     const fechar = () => {
         if (h005Idx < 0 || nItens === 0) return;
         const f = linhas[h005Idx].split('|');
         if (f.length > 3 && Math.round(num(f[3]) * 100) !== somaCents) {
+            const antes = f[3];
             f[3] = (somaCents / 100).toFixed(2).replace('.', ',');
             linhas[h005Idx] = f.join('|');
+            if (log) log.add({ registro: 'H005', regraId: 'INV-H010-01', motivo: 'VL_INV do H005 = Σ VL_ITEM dos H010', escopo: 'campo', linha: h005Idx, campo: 'VL_INV', antes, depois: f[3], origem: 'auto', classe: 'estrutural-seguro' });
         }
     };
     for (let i = 0; i < linhas.length; i++) {
@@ -915,7 +919,7 @@ function recalcularVlInvH005(linhas) {
 // NÃO duplica: se o 1350 já tem ao menos um 1360, pula. Layout: 1350 |1350|SERIE|FABR|MODELO|TIPO|
 // (série = f[2]); 1360 |1360|NUM_LACRE|DT_APLICACAO| (data DDMMYYYY). mapLacres: Map<serie,[{num,dt}]>.
 // Muta in-place; retorna nº de 1360 injetados (0 = byte-idêntico).
-function injetarLacres1360(linhas, mapLacres) {
+function injetarLacres1360(linhas, mapLacres, log) {
     if (!mapLacres || mapLacres.size === 0) return 0;
     let injetados = 0;
     for (let i = 0; i < linhas.length; i++) {
@@ -933,6 +937,7 @@ function injetarLacres1360(linhas, mapLacres) {
         if (temLacre) continue;
         const novos = lacres.map(l => `|1360|${String(l.num || '').trim()}|${String(l.dt || '').trim()}|`);
         linhas.splice(i + 1, 0, ...novos);
+        if (log) for (const nv of novos) log.add({ registro: '1360', regraId: 'COMB-1350-1360-01', motivo: `lacre injetado p/ bomba série ${serie}`, escopo: 'registro', antes: '(ausente)', depois: nv, origem: 'injecao', classe: 'manual' });
         injetados += novos.length;
         i += novos.length; // pula os recém-inseridos
     }
@@ -952,17 +957,18 @@ function injetarLacres1360(linhas, mapLacres) {
 // Layout E110 (1-idx): 2 TOT_DEB,3 AJ_DEB,4 TOT_AJ_DEB,5 ESTORNOS_CRED,6 TOT_CRED,7 AJ_CRED,
 // 8 TOT_AJ_CRED,9 ESTORNOS_DEB,10 SLD_CREDOR_ANT,11 SLD_APURADO,12 TOT_DED,13 ICMS_RECOLHER,
 // 14 SLD_CREDOR_TRANSPORTAR,15 DEB_ESP. E111: 2 COD_AJ_APUR, 4 VL_AJ_APUR.
-function recalcularE110(linhas) {
+function recalcularE110(linhas, log) {
     const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
     const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
     const NAT = { '0': 4, '1': 5, '2': 8, '3': 9 };
+    const NOME110 = { 4: 'VL_TOT_AJ_DEBITOS', 5: 'VL_ESTORNOS_CRED', 8: 'VL_TOT_AJ_CREDITOS', 9: 'VL_ESTORNOS_DEB', 11: 'VL_SLD_APURADO', 13: 'VL_ICMS_RECOLHER', 14: 'VL_SLD_CREDOR_TRANSPORTAR' };
     let i110 = -1, soma = null;
     const fechar = () => {
         if (i110 < 0 || !soma) return;
         const f = linhas[i110].split('|');
         if (f.length <= 14) return; // E110 truncado/atípico: não mexe
         let mudou = false;
-        const setF = (k, val) => { if (c(f[k]) !== val) { f[k] = fmt(val); mudou = true; } };
+        const setF = (k, val) => { if (c(f[k]) !== val) { const antes = f[k]; f[k] = fmt(val); mudou = true; if (log) log.add({ registro: 'E110', regraId: 'INV-E110-01', motivo: 'recálculo da apuração (E110 ⇐ Σ E111 + cascata do saldo)', escopo: 'campo', linha: i110, campo: NOME110[k] || ('campo ' + (k - 1)), antes, depois: f[k], origem: 'auto', classe: 'estrutural-seguro' }); } };
         if (soma.tem) { setF(4, soma[4]); setF(5, soma[5]); setF(8, soma[8]); setF(9, soma[9]); }
         const totDeb = c(f[2]) + c(f[3]) + c(f[4]) + c(f[5]);
         const totCred = c(f[6]) + c(f[7]) + c(f[8]) + c(f[9]);
@@ -992,7 +998,7 @@ function recalcularE110(linhas) {
 // temos) nem mexe quando há VÁRIOS E116 (ambíguo) — esses casos são detectados pela regra INV-E116-01.
 // Roda DEPOIS de recalcularE110. Só altera valor que muda → no-op byte-idêntico quando já coerente.
 // Layout E116: f2 COD_OR, f3 VL_OR, f4 DT_VCTO, f5 COD_REC, ...
-function recalcularE116(linhas) {
+function recalcularE116(linhas, log) {
     const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
     const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
     let i = 0;
@@ -1009,7 +1015,7 @@ function recalcularE116(linhas) {
         }
         if (e116idx.length === 1) { // único E116 → ajusta o VL_OR ao total apurado
             const f = linhas[e116idx[0]].split('|');
-            if (f.length > 3 && c(f[3]) !== target) { f[3] = fmt(target); linhas[e116idx[0]] = f.join('|'); }
+            if (f.length > 3 && c(f[3]) !== target) { const antes = f[3]; f[3] = fmt(target); linhas[e116idx[0]] = f.join('|'); if (log) log.add({ registro: 'E116', regraId: 'INV-E116-01', motivo: 'VL_OR do E116 ajustado ao ICMS a recolher do E110', escopo: 'campo', linha: e116idx[0], campo: 'VL_OR', antes, depois: f[3], origem: 'auto', classe: 'estrutural-seguro' }); }
         }
         i = j;
     }
@@ -1025,7 +1031,7 @@ function recalcularE116(linhas) {
 // DIA do mês de apuração (confirmado contra o PVA: competência 05/2026 → vencimento 31/05/2026).
 // Sem COD_REC → não injeta (no-op). Roda antes do recálculo X990.
 // Layout E116: |E116|COD_OR(000)|VL_OR|DT_VCTO(DDMMAAAA)|COD_REC|NUM_PROC|IND_PROC|PROC|TXT_COMPL|MES_REF(MMAAAA)|
-function injetarE116SeNecessario(linhas, codRec) {
+function injetarE116SeNecessario(linhas, codRec, log) {
     codRec = String(codRec || '').trim();
     if (!codRec) return 0; // sem cadastro → não injeta (degradação segura)
     const c = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
@@ -1053,7 +1059,9 @@ function injetarE116SeNecessario(linhas, codRec) {
             break; // 1º registro que não é filho do E110 → fim do sub-bloco do E110
         }
         if (!temE116 && target > 0) {
-            linhas.splice(j, 0, `|E116|000|${fmt(target)}|${dtVcto}|${codRec}|||||${mesRef}|`);
+            const nova = `|E116|000|${fmt(target)}|${dtVcto}|${codRec}|||||${mesRef}|`;
+            linhas.splice(j, 0, nova);
+            if (log) log.add({ registro: 'E116', regraId: 'INV-E116-01', motivo: `E116 ausente injetado (ICMS a recolher ${fmt(target)}, venc. ${dtVcto}, COD_REC ${codRec})`, escopo: 'registro', antes: '(ausente)', depois: nova, origem: 'injecao', classe: 'manual' });
             injetados++;
             i = j + 1;
         } else {
@@ -1070,7 +1078,7 @@ function injetarE116SeNecessario(linhas, codRec) {
 // linha 9900 que falta, na ordem do leiaute (logo após a 9900 do registro anterior que já existe).
 // A contagem entra como 0 e é corrigida pelo recálculo subsequente (que conta as linhas finais).
 // Roda ANTES do recálculo dos totalizadores. No-op (0) quando nada falta.
-function garantirRegistros9900(linhas) {
+function garantirRegistros9900(linhas, log) {
     const ordemAparicao = [];
     const vistos = new Set();
     const tem9900 = new Set();
@@ -1094,6 +1102,7 @@ function garantirRegistros9900(linhas) {
         if (idx === -1) idx = linhas.findIndex(l => l.split('|')[1] === '9990');
         if (idx === -1) idx = linhas.length;
         linhas.splice(idx, 0, `|9900|${reg}|0|`);
+        if (log) log.add({ bloco: '9', registro: '9900', regraId: 'EST-9XXX-CONT', motivo: `entrada 9900 criada p/ registro ${reg} injetado (totalização do bloco 9)`, escopo: 'registro', antes: '(ausente)', depois: `|9900|${reg}|…|`, origem: 'auto', classe: 'estrutural-seguro' });
         tem9900.add(reg);
         inseridos++;
     }

@@ -196,6 +196,18 @@ async function setupDatabase() {
             );
         `);
 
+        // Changelog do export ("o que foi corrigido", por bloco/registro, antes→depois).
+        // Gravado pelo /api/exportar-sped a cada exportação (substitui o anterior do mesmo arquivo).
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS val_alteracoes (
+                id SERIAL PRIMARY KEY,
+                id_sped_arquivo INTEGER,
+                criado_em TIMESTAMP DEFAULT NOW(),
+                total INTEGER,
+                dados JSONB
+            );
+        `);
+
         // Semeia a biblioteca das principais credenciadoras (Stone/Cielo/Rede/Getnet/PagSeguro/
         // Mercado Pago) — ON CONFLICT DO NOTHING (não sobrescreve ajustes do usuário).
         try {

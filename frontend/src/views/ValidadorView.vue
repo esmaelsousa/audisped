@@ -201,6 +201,23 @@ function baixarCorrigido() {
   window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
 }
 
+// Relatório "o que foi corrigido": re-exporta (revalidar grava o changelog e o devolve em .alteracoes)
+const alteracoes = ref(null);
+const loadingAlt = ref(false);
+async function verAlteracoes() {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
+  loadingAlt.value = true; erro.value = '';
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+    resultado.value = res.data; // atualiza os erros residuais também
+    alteracoes.value = res.data.alteracoes || { total: 0, agrupado: [], totais: {} };
+  } catch (e) {
+    // fallback: lê o último changelog persistido
+    try { const r = await axios.get(`${API_BASE_URL}/api/validador/alteracoes/${resultadoId.value}`, { headers: authHeader() }); alteracoes.value = r.data; }
+    catch (_) { erro.value = e.response?.data?.message || ('Erro ao carregar o relatório: ' + e.message); }
+  } finally { loadingAlt.value = false; }
+}
+
 onMounted(async () => {
   await carregarEmpresas();
   const storeArq = idArquivoSped.value ? Number(idArquivoSped.value) : null;
@@ -335,6 +352,9 @@ onMounted(async () => {
           <button @click="baixarCorrigido" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 flex items-center gap-2">
             <UploadCloud class="w-4 h-4 rotate-180" /> Baixar SPED corrigido
           </button>
+          <button @click="verAlteracoes" :disabled="loadingAlt" class="px-4 py-2 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 flex items-center gap-2">
+            <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" /><span v-else>📋</span> O que foi corrigido
+          </button>
           <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
         </div>
         <div v-if="correcoes.length" class="border border-slate-100 rounded-xl overflow-hidden">
@@ -351,6 +371,39 @@ onMounted(async () => {
           </table>
         </div>
         <p class="text-[10px] text-slate-400">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
+      </div>
+
+      <!-- O QUE FOI CORRIGIDO (changelog antes→depois, por bloco/registro) -->
+      <div v-if="alteracoes" class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+          <span class="text-sm font-bold text-slate-700">📋 O que foi corrigido</span>
+          <span class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">{{ alteracoes.total }} alteração(ões)</span>
+          <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ k }}: {{ n }}</span>
+          <button @click="alteracoes = null" class="ml-auto text-[11px] text-slate-400 hover:text-slate-600 font-bold">fechar ✕</button>
+        </div>
+        <div v-if="!alteracoes.total" class="px-5 py-6 text-xs text-slate-400 italic text-center">Nenhuma correção aplicada neste arquivo (o SPED já estava coerente nos pontos que tratamos).</div>
+        <div v-else class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+          <div v-for="b in alteracoes.agrupado" :key="b.bloco" class="p-4">
+            <p class="text-xs font-black text-slate-600 mb-2">BLOCO {{ b.bloco }} <span class="text-slate-400 font-bold">· {{ b.total }}</span></p>
+            <div v-for="reg in b.registros" :key="reg.registro" class="mb-3">
+              <p class="text-[11px] font-bold text-indigo-600 font-mono mb-1">{{ reg.registro }} <span class="text-slate-400">({{ reg.total }})</span></p>
+              <div class="space-y-1">
+                <div v-for="(it, i) in reg.itens" :key="i" class="text-[11px] flex items-start gap-2 bg-slate-50/60 rounded-lg px-2 py-1.5">
+                  <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded"
+                    :class="{ 'bg-violet-100 text-violet-700': it.origem==='injecao', 'bg-amber-100 text-amber-700': it.origem==='fiscal', 'bg-sky-100 text-sky-700': it.origem==='manual', 'bg-slate-200 text-slate-600': it.origem==='auto', 'bg-rose-100 text-rose-700': it.origem==='remocao' }">{{ it.origem }}</span>
+                  <span class="min-w-0">
+                    <b class="text-slate-600">{{ it.campo || it.escopo }}</b>:
+                    <span class="text-slate-400 line-through break-all">{{ it.antes || '—' }}</span>
+                    <span class="text-slate-300 mx-1">→</span>
+                    <span class="font-mono text-emerald-700 break-all">{{ it.depois }}</span>
+                    <span class="block text-[10px] text-slate-400 italic">{{ it.motivo }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="px-5 py-2 text-[10px] text-slate-400 border-t border-slate-50">Reflete o ÚLTIMO "Baixar/Re-validar". Itens estruturais (totalizadores, recontagens) são sempre aplicados; injeções e ajustes fiscais são o que o sistema acrescentou para passar no PVA.</p>
       </div>
 
       <!-- Filtros + lista de erros -->

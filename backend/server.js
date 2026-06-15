@@ -5978,6 +5978,11 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         const resultado = validar(model);
         resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
         resultado.validadoSobre = 'exportado'; // o front mostra "validado sobre o SPED corrigido"
+        // O export interno acima gravou o changelog ("o que foi corrigido") em val_alteracoes.
+        try {
+            const al = await dbClient.query(`SELECT total, dados FROM val_alteracoes WHERE id_sped_arquivo=$1 ORDER BY id DESC LIMIT 1`, [idArq]);
+            resultado.alteracoes = al.rows.length ? Object.assign({ total: al.rows[0].total }, al.rows[0].dados) : { total: 0, agrupado: [], totais: {} };
+        } catch (_) { resultado.alteracoes = { total: 0, agrupado: [], totais: {} }; }
         res.json(resultado);
     } catch (e) {
         logger.error('Erro na revalidação:', e);
@@ -5985,6 +5990,25 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
     } finally {
         dbClient.release();
     }
+});
+
+// Relatório "o que foi corrigido" — lê o changelog do ÚLTIMO export deste arquivo (gravado em
+// val_alteracoes pelo /api/exportar-sped). Read-only. Se ainda não houve export, total=0 (dica:
+// baixar/re-validar primeiro). O /revalidar já devolve `alteracoes` junto; este é o acesso direto.
+app.get('/api/validador/alteracoes/:id', authMiddleware, async (req, res) => {
+    const idArq = parseInt(req.params.id);
+    if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query(`CREATE TABLE IF NOT EXISTS val_alteracoes (id SERIAL PRIMARY KEY, id_sped_arquivo INT, criado_em TIMESTAMP DEFAULT NOW(), total INT, dados JSONB)`);
+        const r = await dbClient.query(`SELECT total, dados, criado_em FROM val_alteracoes WHERE id_sped_arquivo=$1 ORDER BY id DESC LIMIT 1`, [idArq]);
+        if (!r.rows.length) return res.json({ total: 0, agrupado: [], totais: {}, geradoEm: null, semExport: true });
+        res.json(Object.assign({ total: r.rows[0].total, geradoEm: r.rows[0].criado_em }, r.rows[0].dados));
+    } catch (e) {
+        logger.error('Erro ao ler alterações:', e);
+        res.status(500).json({ message: 'Erro ao ler o relatório de correções.' });
+    } finally { dbClient.release(); }
 });
 
 
@@ -7336,6 +7360,10 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 
         // Buffer de output: acumula todas as linhas para recalcular 9900/0990/9999 ao final
         const outputLines = [];
+        // Changelog (side-channel): registra o que cada correção muda, p/ o relatório "o que foi
+        // corrigido". NÃO altera outputLines → .txt byte-idêntico. Persistido em val_alteracoes ao fim.
+        const { Changelog } = require('./services/validador/changelog');
+        const changelog = new Changelog();
         // CFOPs de uso/consumo (entrada): quando o C170 do .txt já está nesses CFOPs, o
         // "forçar uso/consumo" foi aplicado na injeção e é AUTORITATIVO — o export não pode
         // deixá-lo ser revertido pelos valores CRUS de documentos_itens_c170 (que guarda
@@ -8874,6 +8902,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 set0150CnpjsPresentes.add(codPart);
                 if (docCodPart) set0150CnpjsPresentes.add(docCodPart);
                 changesApplied++;
+                changelog.add({ bloco: '0', registro: '0150', regraId: 'CAD-0150-08', motivo: `0150 da credenciadora do 1601 (${nomePart}) injetado`, escopo: 'registro', chave: codPart, antes: '(ausente)', depois: nova0150, origem: 'injecao', classe: 'manual' });
                 logger.info(`[Fix C] 0150 injetado para COD_PART do 1601: ${codPart} (${isCnpj ? 'CNPJ' : 'CPF'}) / nome: ${nomePart}`);
             }
         }
@@ -8884,7 +8913,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // evitando o erro PVA de combinação CST/CFOP/ALIQ. Decisão fiscal do contribuinte.
         {
             const { normalizarUsoConsumoCst90 } = require('./services/spedCostureiraService');
-            const _normUso = normalizarUsoConsumoCst90(outputLines);
+            const _normUso = normalizarUsoConsumoCst90(outputLines, changelog);
             if (_normUso !== outputLines) {
                 outputLines.length = 0;
                 for (const _l of _normUso) outputLines.push(_l);
@@ -8910,7 +8939,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // mantendo o FECH (cascata intacta). Só toca registros incoerentes.
         {
             const { enforcarCoerencia1300 } = require('./services/spedCostureiraService');
-            enforcarCoerencia1300(outputLines); // muta in-place
+            enforcarCoerencia1300(outputLines, changelog); // muta in-place
         }
 
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
@@ -8937,7 +8966,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // dos totalizadores (não muda nº de linhas). No-op se não há Bloco H ou já bate.
         {
             const { recalcularVlInvH005 } = require('./services/spedCostureiraService');
-            recalcularVlInvH005(outputLines); // muta in-place
+            recalcularVlInvH005(outputLines, changelog); // muta in-place
         }
 
         // ── Injeção do registro 1360 (Lacres das bombas) ───────────────────────
@@ -8957,7 +8986,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     mapLacres.get(s).push({ num: r.num_lacre, dt: r.dt_aplicacao });
                 }
                 const { injetarLacres1360 } = require('./services/spedCostureiraService');
-                const n = injetarLacres1360(outputLines, mapLacres);
+                const n = injetarLacres1360(outputLines, mapLacres, changelog);
                 if (n) { changesApplied += n; logger.info(`[Lacres] ${n} registro(s) 1360 injetado(s) no export do arquivo ${arquivoId}.`); }
             }
         } catch (eLac) {
@@ -8971,8 +9000,8 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // que muda; no-op byte-idêntico quando já coerente (379/400 da frota). Antes do recálculo X990.
         {
             const { recalcularE110, recalcularE116 } = require('./services/spedCostureiraService');
-            recalcularE110(outputLines); // muta in-place
-            recalcularE116(outputLines); // ajusta VL_OR do E116 ao total do E110 (depois do E110)
+            recalcularE110(outputLines, changelog); // muta in-place
+            recalcularE116(outputLines, changelog); // ajusta VL_OR do E116 ao total do E110 (depois do E110)
         }
 
         // ── Injeta E116 AUSENTE quando há ICMS a recolher e há cadastro de receita ──
@@ -8992,7 +9021,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 if (rE116.rows.length && String(rE116.rows[0].cod_rec || '').trim()) codRecE116 = String(rE116.rows[0].cod_rec).trim();
             }
             const { injetarE116SeNecessario } = require('./services/spedCostureiraService');
-            const n = injetarE116SeNecessario(outputLines, codRecE116);
+            const n = injetarE116SeNecessario(outputLines, codRecE116, changelog);
             if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${codRecE116}) no export do arquivo ${arquivoId}.`); }
         } catch (eE116) {
             logger.warn('[E116] injeção de E116 não aplicada (não bloqueia o export): ' + eE116.message);
@@ -9022,7 +9051,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // (ex.: E116, 1360) — senão o PVA acusa "É necessário totalizar os registros do tipo X".
         {
             const { garantirRegistros9900 } = require('./services/spedCostureiraService');
-            const nov9900 = garantirRegistros9900(outputLines);
+            const nov9900 = garantirRegistros9900(outputLines, changelog);
             if (nov9900) logger.info(`[Export] ${nov9900} entrada(s) 9900 inserida(s) p/ registro(s) injetado(s) — arquivo ${arquivoId}.`);
         }
         const regCountMap = new Map();
@@ -9048,15 +9077,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const reg = parts[1];
             if (parts.length >= 4 && reg === '9900') {
                 // |9900|REGISTRO|QTD| — atualiza QTD com a contagem real do registro
+                const antes = parts[3];
                 parts[3] = String(regCountMap.get(parts[2]) || 0);
+                if (antes !== parts[3]) changelog.add({ bloco: '9', registro: '9900', regraId: 'EST-9XXX-CONT', motivo: `recontagem de registros ${parts[2]}`, escopo: 'registro', campo: 'QTD_REG', antes, depois: parts[3], origem: 'auto', classe: 'estrutural-seguro' });
                 res.write(parts.join('|') + '\r\n');
             } else if (parts.length >= 3 && fechamentoBloco[reg] !== undefined) {
                 // |X990|QTD_LIN_X| — total de linhas do bloco X (inclui o próprio X990)
+                const antes = parts[2];
                 parts[2] = String(blockLineCount[fechamentoBloco[reg]] || 0);
+                if (antes !== parts[2]) changelog.add({ bloco: fechamentoBloco[reg], registro: reg, regraId: 'EST-9XXX-CONT', motivo: `recontagem de linhas do bloco ${fechamentoBloco[reg]}`, escopo: 'bloco', campo: 'QTD_LIN', antes, depois: parts[2], origem: 'auto', classe: 'estrutural-seguro' });
                 res.write(parts.join('|') + '\r\n');
             } else if (parts.length >= 3 && reg === '9999') {
                 // |9999|QTD_LIN| — total de linhas do arquivo
+                const antes = parts[2];
                 parts[2] = String(totalLines);
+                if (antes !== parts[2]) changelog.add({ bloco: '9', registro: '9999', regraId: 'EST-9XXX-CONT', motivo: 'recontagem do total de linhas do arquivo', escopo: 'arquivo', campo: 'QTD_LIN', antes, depois: parts[2], origem: 'auto', classe: 'estrutural-seguro' });
                 res.write(parts.join('|') + '\r\n');
             } else {
                 res.write(l + '\r\n');
@@ -9064,7 +9099,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         }
         // ──────────────────────────────────────────────────────────────────────
 
-        logger.info(`Exportação concluída: ${linesProcessed} linhas lidas, ${changesApplied} ajustes aplicados, ${outputLines.length} linhas escritas.`);
+        // Persiste o changelog (substitui o do export anterior deste arquivo) p/ o relatório "o que
+        // foi corrigido". Falha NÃO quebra o download (a resposta já foi transmitida).
+        try {
+            await dbClient.query(`CREATE TABLE IF NOT EXISTS val_alteracoes (id SERIAL PRIMARY KEY, id_sped_arquivo INT, criado_em TIMESTAMP DEFAULT NOW(), total INT, dados JSONB)`);
+            await dbClient.query(`DELETE FROM val_alteracoes WHERE id_sped_arquivo = $1`, [arquivoId]);
+            await dbClient.query(`INSERT INTO val_alteracoes (id_sped_arquivo, total, dados) VALUES ($1,$2,$3)`,
+                [arquivoId, changelog.total, JSON.stringify({ agrupado: changelog.agrupar(), totais: changelog.totais() })]);
+        } catch (eCl) { logger.warn('[Changelog] não persistido (não bloqueia o download): ' + eCl.message); }
+
+        logger.info(`Exportação concluída: ${linesProcessed} linhas lidas, ${changesApplied} ajustes aplicados, ${outputLines.length} linhas escritas, ${changelog.total} alteração(ões) registrada(s).`);
         res.end();
 
     } catch (error) {
