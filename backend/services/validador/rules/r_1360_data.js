@@ -1,5 +1,5 @@
 // INV-1360-DATA-01 — DAT_APLICACAO (campo 3 do 1360 — Lacres da bomba) deve ser uma data válida
-// ≥ 01/01/2000. PVA: "A data deverá ser maior ou igual a 01/01/2000." Caso ITATIAIA 05/2026:
+// ≥ 01/01/2000. PVA: "A data deverá ser maior ou igual a 01/01/2000." Caso de exemplo 05/2026:
 // |1360|I7651130-7|03120205| → ano "0205" (provável erro de digitação de 03/12/2005 ou similar).
 // EDITÁVEL: o usuário informa a data correta (DDMMAAAA) em "Corrigir no sistema". corrigível
 // campoIdx=3, chaveNatural=NUM_LACRE (f[2]). Não auto-corrige (não dá p/ adivinhar a data certa).

@@ -1,6 +1,6 @@
 // DOC-C100-DTES-01 — C100 com DT_E_S (data de entrada/saída) posterior à data final do período.
 // PVA: "Data inválida. Informar data menor ou igual à data final do Registro 0000." (e o erro
-// irmão "documento fora do período → usar COD_SIT extemporânea 01/03/07"). Caso RAQUEL 08/2025:
+// irmão "documento fora do período → usar COD_SIT extemporânea 01/03/07"). Caso de exemplo 08/2025:
 // |C100|...|30082025|03092025|... — DT_E_S 03/09/2025 num arquivo de Ago/2025.
 // Posições C100: f[6]=COD_SIT, f[10]=DT_DOC, f[11]=DT_E_S. DT_FIN = model.dtFin (DDMMYYYY).
 // NÃO auto-corrigível: a data certa é decisão fiscal (lançar no mês correto, ou ajustar a DT_E_S

@@ -12,8 +12,8 @@ Campo: 9 - CHV_NFE
 
 | Item | Valor |
 |------|-------|
-| Contribuinte | GUIMARAES XLVI COMERCIO DE PETROLEO LTDA |
-| CNPJ Informante (0000) | 29922751000147 |
+| Contribuinte | posto de exemplo |
+| CNPJ Informante (0000) | «CNPJ» |
 | Periodo | 01/2022 |
 | Perfil | A |
 | ID no sistema | 1448 |
@@ -25,18 +25,18 @@ Campo: 9 - CHV_NFE
 
 | Tipo | Total | Com CNPJ errado | CNPJ encontrado |
 |------|-------|-----------------|-----------------|
-| NFC-e (mod 65) saida/propria | 3.838 | 3.838 (100%) | 08944198000173 |
-| NF-e (mod 55) saida/propria | 18 | 18 (100%) | 08944198000173 |
+| NFC-e (mod 65) saida/propria | 3.838 | 3.838 (100%) | «CNPJ» |
+| NF-e (mod 55) saida/propria | 18 | 18 (100%) | «CNPJ» |
 | NF-e (mod 55) entrada/terceiros | 12 | 0 (OK) | Diversos fornecedores |
 | **Total C100** | **3.868** | **3.856** | |
 
 ### O que acontece
 
 TODOS os documentos de emissao propria (IND_EMIT = '0') tem o CNPJ
-**08944198000173** nas posicoes 6-19 da chave de acesso (CHV_NFE), mas o
-registro 0000 declara o informante como **29922751000147**.
+**«CNPJ»** nas posicoes 6-19 da chave de acesso (CHV_NFE), mas o
+registro 0000 declara o informante como **«CNPJ»**.
 
-As raizes sao diferentes (08944198 vs 29922751) — nao e filial/matriz.
+As raizes sao diferentes — nao e filial/matriz.
 
 ### Causa provavel
 
@@ -62,7 +62,7 @@ Posicao:  0-1   2-5    6-19           20-21  22-24   25-33       34-34  35-43
 Campo:    cUF   AAMM   CNPJ           mod    serie   nNF         tpEmis cNF
 Tamanho:   2     4      14             2      3       9           1      8+1(DV)
 
-Exemplo: 29 2201 08944198000173 65 002 000103587 1 000164985
+Exemplo: 29 2201 «CNPJ» 65 002 000103587 1 000164985
 ```
 
 | Posicao | Campo | Tamanho | Descricao |
@@ -185,7 +185,7 @@ O frontend (AnalisadorView ou similar) deve exibir um alerta destacado:
 |  CNPJ divergente na chave NF-e/NFC-e                              |
 |                                                                    |
 |  3.838 NFC-e e 18 NF-e de emissao propria tem CNPJ                |
-|  08944198000173 na chave, mas o informante e 29922751000147.       |
+|  «CNPJ» na chave, mas o informante e «CNPJ».                       |
 |                                                                    |
 |  O sistema corrigira automaticamente ao exportar o SPED.           |
 +-------------------------------------------------------------------+
@@ -287,7 +287,7 @@ Para cada C100 com IND_EMIT = '0':
 
 | Posicao | Campo | Antes | Depois |
 |---------|-------|-------|--------|
-| 6-19 | CNPJ | 08944198000173 | 29922751000147 |
+| 6-19 | CNPJ | «CNPJ» | «CNPJ» |
 | 43 | DV | (original) | (recalculado) |
 | 0-5, 20-42 | Demais | Inalterados | Inalterados |
 
@@ -326,7 +326,7 @@ Para cada C100 com IND_EMIT = '0':
 
 ### Apos implementar
 
-- [ ] Exportar arquivo 1448 (GUIMARAES jan/2022)
+- [ ] Exportar arquivo 1448 (posto de exemplo jan/2022)
 - [ ] Contar C100 com CNPJ divergente: deve ser 0
 - [ ] Validar DV de todas as chaves alteradas
 - [ ] Verificar que entradas de terceiros NAO foram alteradas
@@ -340,7 +340,7 @@ Para cada C100 com IND_EMIT = '0':
 
 Esta correcao se aplica a **qualquer arquivo SPED** de qualquer empresa onde
 documentos de emissao propria tenham CNPJ divergente na chave. Nao e especifica
-para a GUIMARAES XLVI — funciona genericamente comparando o CNPJ da chave com
+para o posto de exemplo — funciona genericamente comparando o CNPJ da chave com
 o CNPJ do registro 0000.
 
 ---

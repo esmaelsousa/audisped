@@ -37,6 +37,13 @@ SEGURANCA_AUDITORIA_VALIDADA.md
 # Docs derivados do datadir de terceiro (leiaute forense) — NÃO versionar (procedência/sigilo).
 # O leiaute para o produto deve ser semeado do Guia Prático / Ato COTEPE (fonte pública).
 REGRAS_PVA.md
+# Relatórios/auditorias específicos de CLIENTE (sigilo fiscal/LGPD) — não versionar.
+RELATORIO_AUDITORIA_PRECO_BOM_II.md
+RELATORIO_DE_PARA_PVA_vs_BD.md
+# Plano que cita datadir de terceiro — manter local (já anonimizado, mas fora do repo).
+PLANO_CATALOGO_REGRAS_SPED.md
+# Backup antigo commitado por engano (contém código + dados de cliente).
+backup_20260328_205837/
 *.txt
 *.pdf
 !package.json

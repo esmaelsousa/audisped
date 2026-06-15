@@ -231,8 +231,8 @@ Sprint 7+ — IA só para erros ambíguos (núcleo permanece determinístico).
 
 ### 14.1 Por que este sprint (dor real)
 Dois erros de apuração **recorrentes do PVA** já documentados no projeto, hoje **não detectados nem fechados** pelo validador:
-- **E110 × E116:** SPED original de vários postos (APACHE/LUBRIGEGEU…) vem com `E110.VL_ICMS_RECOLHER > 0` e **0 registros E116** → PVA acusa "soma E116 ≠ E110". Decisão registrada: **ADIADO** (Esmael, 2026-06-01) por exigir `COD_REC`/DARE + regra de vencimento do ICMS-BA. O Sprint 5 retoma isso de forma estruturada.
-- **E210 (ICMS-ST):** apuração ST **não soma o ICMS_ST das entradas** (C190 com CFOP 1xxx/2xxx) em alguns casos → `VL_OUT_CRED_ST=0` / `VL_SLD_CRED_ST_TRANSPORTAR` divergente (erros E210 citados nos arquivos POSTO FREITAS Abr/2021 e Mai/2023). Hoje o export já tenta somar (ver 14.2), mas **ninguém verifica** o resultado.
+- **E110 × E116:** SPED original de vários postos (posto de exemplo A/posto de exemplo B…) vem com `E110.VL_ICMS_RECOLHER > 0` e **0 registros E116** → PVA acusa "soma E116 ≠ E110". Decisão registrada: **ADIADO** (Esmael, 2026-06-01) por exigir `COD_REC`/DARE + regra de vencimento do ICMS-BA. O Sprint 5 retoma isso de forma estruturada.
+- **E210 (ICMS-ST):** apuração ST **não soma o ICMS_ST das entradas** (C190 com CFOP 1xxx/2xxx) em alguns casos → `VL_OUT_CRED_ST=0` / `VL_SLD_CRED_ST_TRANSPORTAR` divergente (erros E210 citados nos arquivos do posto de exemplo Abr/2021 e Mai/2023). Hoje o export já tenta somar (ver 14.2), mas **ninguém verifica** o resultado.
 
 ### 14.2 O que o EXPORT já faz vs. o que FALTA (mapa factual)
 Pipeline de apuração no export: `spedCostureiraService.js:393-398` → `recalcularE110` → `recalcularE210` → `injetarE200E210SeNecessario`.
@@ -310,7 +310,7 @@ Validações de **coerência econômica** além da sintaxe do PVA, todas como **
 
 ### 14.10 Critérios de aceite
 - Rodando sobre os **arquivos golden exportados**: **0 divergência** E110-DEB/CRED/ARIT e E210-OUTCRED/ARIT (prova de que validador e export concordam).
-- Rodando sobre os **originais legados** (APACHE/LUBRIGEGEU/POSTO FREITAS): a regra `APUR-E116-AUSENTE` reproduz exatamente os erros que o **PVA** apontou nesses arquivos (validação contra realidade conhecida).
+- Rodando sobre os **originais legados** (postos de exemplo): a regra `APUR-E116-AUSENTE` reproduz exatamente os erros que o **PVA** apontou nesses arquivos (validação contra realidade conhecida).
 - `APUR-E116-AUSENTE` **silenciável** por competência (respeita o adiamento de 2026-06-01) sem afetar as demais regras.
 - Nenhuma alteração em função existente; tudo em `rules/bloco_e/*` + registro no `rules/index.js` (aditivo).
 
@@ -464,3 +464,207 @@ Arquivos de 28k+ linhas. **Nunca** materializar a árvore inteira no DOM: árvor
 4. **Camada 3** (edição gated) — só se/quando o Esmael priorizar; aceite inclui teste de endereçamento no arnês golden e re-validação obrigatória.
 
 > **Decisão recomendada:** congelar o escopo imediato em **Camadas 1 + 2** (visualização read-only + diff do auto-corrigido). A edição livre (Camada 3) fica planejada, mas **não** é o próximo passo — o ganho dela é menor e o risco é o maior do módulo.
+
+### 17.7 Revisão adversarial (workflow multi-agente, 2026-06-14) — correções ao design
+Uma revisão crítica independente encontrou uma **falha-raiz** que invalida o endereçamento "ingênuo" da Camada 3 e refina as três camadas:
+
+- **FALHA-RAIZ — populações de linhas diferentes.** `engine.validar()` roda sobre `parseSped(.txt ORIGINAL)`; o export aplica `correcoesSvc.aplicar()` sobre `outputLines` = o array **pós-reconstrução** (dedup C100/D100 `server.js:6808+`; C170 reconstruído do banco; **C190 relabelado x90 + FUNDIDO por chave CST|CFOP|ALIQ** `server.js:8560-8606` / `spedCostureiraService.js:788-840`; 0221 realocado; leiaute 019→020). Logo, qualquer chave **ordinal** (C190) ou por **índice de campo** (leiaute) calculada sobre o original **diverge** do que o `aplicar` vê → o override pode **casar na linha ERRADA** (edit-fantasma que não some — é pior: cola no item errado e o cliente transmite). O padrão `ordinalH005` "funciona" só porque H005 **não é tocado** entre parse e export; C190 é.
+- **MITIGAÇÃO ESTRUTURAL (obrigatória p/ Camada 3):** a árvore, o cálculo de `chaveNatural`+ordinal e o `editTier` devem ser computados sobre os **BYTES EXPORTADOS** (espelhar `/revalidar`: exporta internamente, reparseia), **nunca** sobre o `.txt` original. Assim engine-chave e aplicar-chave varrem a **mesma população** e o ordinal casa por construção. Custo: abrir a árvore (no modo edição) dispara um export interno (alguns segundos).
+- **`editTier` é POR CÉLULA com contexto de valor, nunca por `(registro,campoIdx)` estático.** Ex.: C170 campo 10 (CST) é **VERMELHO read-only** quando o CFOP da linha ∈ {1407,1556,2407,2556} (x90 é autoritativo, `spedCostureiraService.js:789`) e **AMARELO** caso contrário. Uma tabela estática não expressa "vermelho só nesta linha".
+- **C170 ↔ C190 atômico já no MVP de edição** (não no Full): editar CST/CFOP do C170 sem ajustar o C190 da mesma chave = rejeição garantida no PVA (o export **não recalcula** C190 a partir do C170). Ou edita o par junto, ou **bloqueia** o save com aviso.
+- **Cache LRU do `model` + do resultado de `validar()`** por `(id_arquivo, mtime/hash)` é **pré-requisito do MVP**, não otimização: sem ele, cada expand-on-demand re-lê e re-parseia ~3 MB e re-roda 16 regras (posto de exemplo = 31.226 linhas; 14.829 C100 + 15.518 C190). Invalida ao salvar/deletar correção.
+- **Whitelist explícita de `(registro,campoIdx)` editável** validada no `/corrigir` (hoje aceita `campo_idx` arbitrário, `server.js:5605`) — fora da whitelist, **rejeita**.
+- **1320 permanece read-only enquanto `correcoes1320` existir** (`server.js:6850`, tabela `sped_1320`, aplicada **dentro** do motor LMC, antes do `aplicar`): dois canais de override do mesmo bico = o do `val_correcoes` (depois) **reverte silenciosamente** a correção feita pela tela dedicada. Unificar = migrar **e desligar** `correcoes1320` no mesmo passo.
+- **`/revalidar` é cego ao ordinal-desync** — valida invariantes (somas, combinação CST/CFOP), não "meu valor foi para onde eu quis" (trocar VL_OPR entre dois C190 mantém a soma e passa). Adicionar **check de integridade de aplicação**: `aplicar` retorna nº de campos alterados; comparar com nº de correções ativas; se divergir, **acusar**.
+- **Teste de aplicação cirúrgica** (além do golden-vazio): 1 override → diff do export = **exatamente** aquele campo, em **1** linha; caso adversarial obrigatório = NF com **duas C190 de mesma chave** CST|CFOP|ALIQ.
+- **Edição em painel lateral/modal, não inline:** o virtual-scroll caseiro depende de **altura uniforme**; edição inline com diff é altura-variável e quebra a virtualização.
+
+### 17.8 Impacto na decisão (e nas perguntas em aberto)
+A revisão **reforça** a escolha de **Camadas 1 + 2 (read-only) primeiro** — o risco real da edição é maior e mais sutil do que parecia. Para a Camada 1, fica uma decisão de design: a árvore mostra o **`.txt` original** (o "meu arquivo" que o cliente reconhece — recomendado para visualização) ou os **bytes exportados** (o que vai ao Fisco). Recomendo: **Camada 1 sobre o original**; **Camada 2 (diff)** já traz o "depois"; **Camada 3 (edição) obrigatoriamente sobre o exportado**.
+
+Perguntas que decidem a Camada 3, quando/se for priorizada:
+1. O MVP de edição precisa **mesmo** de C190 editável (fonte nº 1 de risco: ordinal/fusão), ou corrigir CST/CFOP no C170 com o C190 ajustado junto já cobre o caso real?
+2. Aceita que abrir a árvore-de-edição dispare um **export interno** (segundos) para endereçar sobre os bytes exportados?
+3. Edição em **painel lateral** (não inline) — ok?
+4. 1320 **read-only** até migrar e desligar `correcoes1320` — ok?
+5. Multiusuário? Se outros auditores editam, a **trilha de auditoria** (quem/quando/o-quê) sobe para o MVP (um override mal-endereçado é responsabilidade fiscal de quem clicou).
+
+---
+
+## 18. Plano executável — CAMADA 1 (visualizador read-only de árvore + totalizadores)
+
+> **Escopo:** clicar no bloco → expandir a árvore pai→filho de **todos os registros**, ver **campos nomeados** e os **totalizadores**, **sem editar**. Renderiza sobre o **`.txt` ORIGINAL** (o "meu arquivo" que o cliente reconhece — idêntico ao que `/analisar/:id` já lê). Detalhado por workflow multi-agente em 2026-06-15; ancorado no inventário real de registros do projeto.
+
+### 18.1 Componentes (2 módulos + 2 rotas novos; edições em código existente são mínimas e aditivas)
+| Arquivo | Novo/Alterado | Papel |
+|---|---|---|
+| `backend/services/validador/arvore.js` | **NOVO** | `montarArvore(model,resultado)` — 1 passada O(n) com pilha de ancestrais; `cascaColapsada`, `paginarFilhos`, rollup de erros por subárvore |
+| `backend/services/validador/cache.js` | **NOVO** | LRU de `{model, resultado, arvore}` por `(id, mtime)`; `getModelo(id,cam)`, `invalidar(id)` |
+| `backend/services/validador/layout/index.js` + `registros.js` | **NOVO** | dicionário de leiaute REG→campos **versionado** (fonte única de nomes de campo) |
+| `backend/server.js` | **alterado (aditivo)** | 2 rotas GET novas (`~5591`) + **3 chamadas** `cache.invalidar(idArq)` em `/corrigir`, `DELETE /correcoes`, `/revalidar` |
+| `backend/services/validador/rules/r_hierarquia.js` | **alterado (1 linha)** | `module.exports.PAIS` — expõe o mapa filho→[pais] (regra inalterada) |
+| `frontend/src/components/ArvoreSped.vue` | **NOVO** | árvore achatada + virtual-scroll caseiro + painel lateral de campos + busca + totalizadores |
+| `frontend/src/views/ValidadorView.vue` | **alterado (aditivo)** | nova **aba** "Estrutura/Árvore" (`const aba=ref('erros')`) ao lado da lista de erros |
+
+`parser.js` e `engine.js` são **reusados sem alteração**.
+
+### 18.2 Rota 1 — casca colapsada: `GET /api/validador/arvore/:id`
+Só o esqueleto navegável: blocos → **pais de 1º nível** (filhos diretos do `X001`) com **contagens** e **erros agregados por subárvore**. **Nunca** serializa `model.linhas`; netos (C170/C190 — 14k+ no posto de exemplo) entram **só como contagem**.
+```json
+{ "arquivo": {"id":1833,"versao":"020","periodo":"01052026-31052026","totalLinhas":31402},
+  "resumo": {"total":47,"bloqueantes":12,"blocosPresentes":["0","1","9","C","D","E","H"]},
+  "totalizadores": { "x990":[{"bloco":"C","reg990":"C990","declarado":28078,"contado":28077,"ok":false}],
+                     "r9900":[{"reg":"C170","declarado":14500,"contado":14500,"ok":true}],
+                     "r9999":{"declarado":31402,"contado":31402,"ok":true}, "todosOk":false },
+  "blocos": [ { "bloco":"C","noAbertura":{"n":500,"reg":"C001"},"totalLinhas":28078,
+     "errosSubarvore":31,"bloqueantesSubarvore":8,"filhosPorReg":{"C100":1420,"C500":12},
+     "pais":[ {"n":501,"reg":"C100","descricao":"NF-e nº 12345 mod55 sit00","chaveNatural":"29220…001",
+        "campos":[{"idx":8,"nome":"NUM_DOC","valor":"12345"},{"idx":9,"nome":"CHV_NFE","valor":"29220…"}],
+        "filhosCount":45,"filhosPorReg":{"C170":42,"C190":3},"errosSubarvore":2,"bloqueantesSubarvore":1} ],
+     "paisTotal":1420,"paisOffset":0,"paisLimit":200,"paisTemMais":true } ],
+  "orfaos":[{"n":8801,"reg":"C170","regraId":"EST-HIER-01"}],
+  "errosSemLinha":[{"regraId":"EST-9XXX-CONT","detalhe":"C990 difere"}] }
+```
+Pais de blocos com milhares de filhos (1420 C100) são **paginados já na casca** (`paisLimit` default 200, `paisTemMais`).
+
+### 18.3 Rota 2 — expand-on-demand: `GET /api/validador/arvore/:id/filhos?registro=&chave=&offset=&limit=`
+Carrega os filhos de **um** pai sob demanda (default `limit=200`, max 1000). Identificação do pai por `chaveNatural` quando existe; **fallback `?linha=NNN`** quando `chaveNatural==null`. Reusa a mesma rota para paginar pais de bloco (`?bloco=C&offset=200`). Cada filho traz `{n, reg, descricao, chaveNatural?, campos:[{idx,nome,valor}], filhosCount, errosNaLinha, erros:[…]}`.
+
+### 18.4 Cache LRU (`cache.js`) — PRÉ-REQUISITO, não otimização
+posto de exemplo = 31.226 linhas / 3 MB (14.829 C100 + 15.518 C190). Sem cache, cada clique re-leria 3 MB + re-rodaria as 16 regras → derrete. Solução: LRU `id → {mtimeMs, model, resultado, arvore}` (parse + `validar` + `montarArvore` **uma vez**), evict por `lastHit`, `MAX≈8`.
+- **Invalidação é EXPLÍCITA**, não por mtime: a Camada 1 lê o `.txt` original (mtime imutável), mas correções vivem em `val_correcoes` → é obrigatório `cache.invalidar(idArq)` em `/corrigir`, `DELETE /correcoes`, `/revalidar`.
+
+### 18.5 Montagem da árvore (`arvore.js`) — 1 passada O(n) com pilha de ancestrais
+Reusa `PAIS` de `r_hierarquia.js` (fonte única do grafo). Para cada linha: `0000`/`X001` (≠0000, termina em `001`) abre nova subárvore (zera a pilha); senão **desempilha até o PRIMEIRO ancestral ACEITO** de `PAIS[reg]` (não assume o topo imediato — pode pular níveis); se nenhum aceito → **órfão** (= reproduz `EST-HIER-01`). Rollup bottom-up de `errosSubarvore`/`bloqueantesSubarvore` usando `erros[].linha` (já existe no engine). Cadeias reais: `C001→C100→C170/C190`; `0001→0150/0200→0205/0206/0221`; `1001→1300→1310→1320→1321`; `E001→E100→E110→E111/E116`.
+- **Erros sem linha** (`linha:null`: X990 ausente, falha interna de regra) vão para `errosSemLinha` (balde de bloco/arquivo) para não sumirem da UI.
+
+### 18.6 Dicionário de leiaute (`validador/layout/`) — fonte única de nomes, versionada
+Para mostrar `CST_ICMS` em vez de `campo 9`. API estável consumida por árvore **e** (incrementalmente) pelas regras:
+```
+layout.nome(reg, idx, ctx) -> 'CAP_TANQUE'     // idx = índice f[] do parser; campos[0] === f[2]
+layout.campos(reg, ctx) / layout.def(reg, ctx) / layout.parents(reg) / layout.label(reg,f,ctx)
+```
+- **Versionado por `(REG, faixa de COD_VER/competência)`** — obrigatório: `0220` (3↔4 campos no corte 018/019), `1310` (+`CAP_TANQUE` em 020/2026), o próprio `0000`, e indício no `E210`. Resolução: escolhe a versão cujo `[verMin,verMax]` contém `ctx.versao` (compare com pad `'019'`); fallback = versão mais recente.
+- **Fallback determinístico:** REG desconhecido ou idx fora do range → `campo ${idx-1}` (nunca inventar nome).
+- **Seed de ALTA confiança (~18 registros, extraídos do código com `arquivo:linha`):** 0000, 0150, 0200, 0220, 1300, 1310, 1320, 1350, 1360, 1601, C100, C170, C190, D100, H005, H010, E110, E210, 9900/X990/9999. **Lacuna (~40 registros, sem nomes no código → caem no fallback até completar com o leiaute oficial):** bloco K, G, C5xx/C6xx, D170/D190/D200, E111–E116, B990 etc.
+- **Metadado `autoCorrigivel` por campo** (derivado da flag `jaCorrigidoNoExport`: 0220, X990/9900/9999, CST61, CFOP C170, CAP_TANQUE) → a árvore mostra "corrigido automaticamente" (prepara a Camada 2).
+- **Migração das regras é incremental e de baixo risco:** trocam o literal `'CAP_TANQUE'` por `layout.nome(reg,idx,ctx)` arquivo a arquivo, **sem mudar `detectar()`** (passa a receber `ctx={versao,periodoYM}`).
+
+### 18.7 Componente `ArvoreSped.vue` (virtual-scroll caseiro)
+- **Lista ACHATADA**: cada pai/filho expandido = **1 linha de altura fixa** (`ROW_H`); janela calculada por `scrollTop`. Usar `<div>` com height fixo, **não** `<table>/<tr>/colspan`.
+- **Campos abrem em PAINEL LATERAL/modal**, nunca inline (linha-expand de altura variável quebraria a virtualização).
+- **`Set` O(1) de expandidos**, **reatribuído** (`new Set([...])`) a cada toggle para disparar o recompute do flat (padrão já usado em `AnalisadorView.vue:299-301`).
+- **Fetch lazy** dos filhos (cache local por pai); badges de erro por nó; **busca** por REG/valor (busca server-side ou no cache — nó não-renderizado não aparece num filtro puramente client-side da lista virtual). **Painel de totalizadores** (X990/9900/9999) com ✓/✗.
+
+### 18.8 Riscos herdados da revisão adversarial (§17.7) aplicáveis à Camada 1
+- **Off-by-one `f[2]=campos[0]`** (lembrar `f[1]=REG` e o `''` final do parser) → teste unitário casando `layout.nome` com as posições já provadas nas regras.
+- **Render sobre o ORIGINAL** é a decisão certa para *visualizar*; a Camada 3 (edição) **exigirá** os bytes exportados (registrado).
+- **Dívida do dicionário:** os nomes da lacuna (~40 regs) precisam do leiaute oficial; até lá, fallback seguro. Documentar proveniência em `layout/seed_from_rules.md`.
+
+### 18.9 Critérios de aceite e esforço
+- Abrir um SPED de 31k linhas, navegar por bloco **sem travar** (casca + lazy + cache); ver **campos nomeados** nos ~18 registros do seed e fallback nos demais; **totalizadores** conferem (✓/✗ batem com `r_contadores`); badges de erro por nó batem com a lista de erros atual; **órfãos** aparecem (= `EST-HIER-01`).
+- **Isolamento:** 2 módulos + 2 rotas GET novos; únicas edições aditivas = expor `PAIS` (1 linha), 3 `cache.invalidar()`, e a aba na `ValidadorView`. A aba nova **não** altera o fluxo de erros/correção que já existe.
+- **Esforço:** seed (~18 regs) + API layout = baixo-médio; árvore O(n) + endpoints paginados + cache = médio; `ArvoreSped.vue` = médio.
+
+---
+
+## 19. Dashboard / Resumo do SPED carregado (DOCUMENTOS, apurações, blocos)
+
+> **Pedido (2026-06-15):** uma tela de resumo do SPED com detalhamento máximo — notas de **entrada** e **saída** (nº, fornecedor, data, valor, produtos, quantidade, impostos) sob o nome **DOCUMENTOS** (Bloco C, separado entrada/saída), **apuração de ICMS** detalhada, **apuração de IPI**, **CIAP** (Bloco G), **Bloco H** (inventário) e cartões-resumo dos demais blocos.
+
+### 19.0 O que JÁ existe (NÃO duplicar) — verificado no código
+Boa parte do "detalhamento de notas" **já está pronta no Analisador** (lê o BANCO):
+- **AnalisadorView** abas `dashboard` (`AnalisadorView.vue:2253` — Entradas/Saídas/Consumo, "DETALHAR CRÉDITOS"), `notas` (entradas: fornecedor, NUM_DOC, DT_DOC, VL_DOC + itens com CFOP/CST/produto), `saidas` (Notas de Saída + **Resumo por CFOP**: CST_ICMS / VL_OPR / VL_BC_ICMS / VL_ICMS).
+- Endpoints: `/api/documentos/entradas/:id` (`server.js:4396`), `/api/documentos/saidas/:id` (`:4444`), `/api/documentos/nfe-completa/:chave` (`:4566`), `/api/resumo/:id` (`:4828`, agrega `documentos_c190` por CFOP p/ entradas `ind_oper=0` e saídas `=1`), `/api/resumo/participante/:id` (`:5802`), `/api/estoque-resumo/:id` (`:4996`).
+- Dados no banco: `documentos_c100`, `documentos_itens_c170`, `documentos_c190`, `sped_produtos` (descr/NCM), `sped_participantes` (fornecedor), `lmc_movimentacao`.
+
+**Lacunas reais (NÃO existem hoje como tela):** apuração **ICMS (E110)** como demonstrativo (débitos/créditos/ajustes E111/saldo/recolher); apuração **ST (E210)** detalhada; apuração **IPI** (E520/E530); **CIAP (G)**; **Inventário H** como demonstrativo (há `estoque-resumo`, mas não o H005/H010 do arquivo). Esses blocos **nem são parseados com nomes** hoje (§18.6, lacuna do dicionário).
+
+### 19.1 Questionando o seu pensamento (3 pontos)
+1. **Duplicação com o Analisador.** "Detalhar entradas/saídas com fornecedor/data/valor/produtos/qtd/impostos" **já existe** nas abas `notas`/`saidas`/`dashboard`. Reconstruir no Validador é retrabalho e cria **duas verdades**. → A novidade do Validador não deve ser *re-listar notas*, e sim **resumir fielmente o `.txt` carregado** (ver ponto 2) e **cobrir as lacunas** (apurações/CIAP/H).
+2. **Banco × `.txt` — camadas distintas (lição registrada na memória).** O Analisador lê o **banco** (`documentos_c100`…); o Validador parseia o **`.txt`**. Eles **divergem** (injeção, dedup, reconstrução do export). Um "dashboard do SPED" no Validador só tem valor se refletir **exatamente o arquivo carregado** (o que vai ao Fisco) — então deve agregar a partir do **modelo já parseado da Camada 1**, não do banco. Esse é o diferencial: o Analisador resume *o banco*; o Validador resume *o arquivo*.
+3. **"Máximo de detalhamento" × performance/usabilidade.** Despejar 15 mil C190 + 14 mil C170 numa página trava (posto de exemplo, §18). Dashboard bom = **KPIs/agregados no topo + drill-down** (reusando a árvore/lazy da Camada 1), não um dump plano. "Máximo detalhe" mora no **drill-down**, não na primeira tela.
+
+### 19.2 Proposta (melhor que a original): "Resumo do Arquivo" derivado do `.txt` (reusa Camada 1)
+Uma aba **"Resumo"** na ValidadorView, alimentada por **um** endpoint `GET /api/validador/resumo/:id` que agrega o **mesmo `model` cacheado** (`cache.js`, §18.4) em **uma passada** — fiel ao `.txt`, sem reconstruir pipeline nem tocar o banco.
+
+**A) DOCUMENTOS (Bloco C) — entradas × saídas: LINKAR ao Analisador (decisão do Esmael, 2026-06-15).**
+O detalhamento de notas **já existe e é rico no Analisador** — então **não reconstruir**. O Validador entrega só o que é dele e **deep-linka** o resto:
+- **No Validador:** uma **faixa de KPIs fiel ao `.txt`** (derivada do `model` cacheado): nº de documentos entrada/saída, Σ VL_DOC, Σ VL_ICMS, Σ VL_ICMS_ST, Σ VL_IPI, Σ VL_PIS/COFINS, distribuição por CFOP/CST. Serve para **conferir o arquivo × banco** (se o KPI do `.txt` diverge do Analisador, há sinal de injeção/dedup — valor de auditoria).
+- **Botões de deep-link** "Ver notas de **entrada** / **saída** / **resumo** no Analisador" → navegam para `/analisador/<id>?tab=notas|saidas|dashboard` (mesmo arquivo), abrindo as abas que já fazem fornecedor/data/valor/produtos/qtd/impostos e o Resumo por CFOP.
+- **Ajuste mínimo necessário** (aditivo): hoje a `AnalisadorView` cai sempre na aba `dashboard`; passar a honrar `route.query.tab` (1 linha no `onMounted`, lendo `route.query.tab` antes do default). A rota já é `/analisador/:id?` e já lê `route.params.id`.
+- Resultado: zero duplicação de pipeline; o Validador acrescenta a **conferência `.txt`×banco** e manda o usuário ao detalhamento que já existe.
+
+**B) Apuração ICMS (E110) — demonstrativo (LACUNA):** débitos (f2) / ajustes (E111) / estornos / créditos (f6) / saldo apurado (f11) / deduções / **a recolher (f13)** / saldo credor a transportar (f14), com o **cross-check** Σ C190 (a mesma conta do **Sprint 5 / §14**) → o dashboard e a validação compartilham o cálculo. Mostra também a relação **E110 × E116** (a recolher × obrigações).
+
+**C) Apuração ST (E210), IPI (E520/E530), CIAP (Bloco G/G110), Inventário (Bloco H — H005/H010):** demonstrativos genéricos, **"vazio quando não há"** (postos de combustível normalmente **não** têm IPI nem CIAP; o layout precisa existir, mas a tela mostra "sem movimento"). Inventário H: lista H010 (COD_ITEM→`0200`, QTD, VL_UNIT, VL_ITEM) + total, e o `MOT_INV`/`DT_INV` do H005.
+
+**D) Demais blocos (0/1/9/D/K/B):** **cartão-resumo** — contagem de registros, totalizador (X990) e ✓/✗ de conferência; **sem** detalhamento (você já indicou que não precisa).
+
+**E) Relatório "Registros Fiscais" modelo PVA — Entradas e Saídas (o Esmael gosta deste; 2026-06-15).**
+Reproduzir o relatório do Visualizador PVA *"Registros Fiscais dos Documentos de Entradas de Mercadorias e Aquisição de Serviços"* (e o simétrico de **Saídas**). É **100% derivável do `.txt`** (C100 + C190 + 0150 + 0000) → entregável ideal do dashboard fiel ao arquivo. É **mais completo** que o "Resumo por CFOP" atual do Analisador (acrescenta detalhe por documento, ICMS-ST, IPI, redução de BC e o layout/impressão do PVA), logo **não é duplicação** — complementa o link da letra (A).
+- **Cabeçalho:** Contribuinte/CNPJ/IE/Período/UF/Município ← `0000` (+ `0005` p/ município/IE quando houver).
+- **Nível 1 — por documento (C100 entrada `IND_OPER=0` / saída `=1`):** Data Entrada=`DT_E_S`(f11), Data Emissão=`DT_DOC`(f10), Nr.Doc=`NUM_DOC`(f8), Modelo=`COD_MOD`(f5), Série=`SER`(f7), Situação=`COD_SIT`(f6); CNPJ/IE/UF/Município/Razão Social ← participante `0150` (via `COD_PART` f4).
+- **Nível 2 — linhas fiscais do documento (C190):** CST_ICMS(f2) · CFOP(f3) · Alíquota(f4) · Valor Operação=`VL_OPR`(f5) · BC ICMS=`VL_BC_ICMS`(f6) · Valor ICMS=`VL_ICMS`(f7) · BC ICMS ST=`VL_BC_ICMS_ST`(f8) · Valor ICMS ST=`VL_ICMS_ST`(f9) · Redução BC=`VL_RED_BC`(f10) · Valor IPI=`VL_IPI`(f11). Subtotal por documento agrupado por (CST,CFOP).
+- **RESUMO — TOTAIS:** agrupado por **(CST, CFOP, Alíquota)** somando VL_OPR, BC_ICMS, VL_ICMS, BC_ST, VL_ST, IPI, RedBC + **linha TOTAL geral**. (Confere com o exemplo real do posto de exemplo 08/2025: TOTAL Operação «valor» / BC ICMS «valor» / Valor ICMS «valor».)
+- **Diferenças do relatório de SAÍDAS** (modelo PVA *"Registros Fiscais dos Documentos de Saídas de Mercadorias e Prestação de Serviços"*, validado contra o exemplo real do posto de exemplo 08/2025 — TOTAL Operação «valor» / BC ICMS «valor» / Valor ICMS «valor»):
+  - **RESUMO-TOTAIS agrupa por (Situação, CST, CFOP, Alíquota)** — a **Situação** (`COD_SIT` do C100, ex.: `00`=regular, `08`=regime especial/norma específica) é **dimensão extra** que não aparece no de entradas. Canceladas/denegadas (`COD_SIT` 02–05) **fora** dos totais (espelha o export).
+  - **Campos de equipamento/numeração** (saídas de NFC-e/cupom — postos têm muito mod 65/2D): `Nº caixa` / `ECF/SAT`, `Série`/`Subsérie`, numeração `Inicial→Final` (COO). Vêm do C100 (`SER` f7, `NUM_DOC` f8, `COD_MOD` f5) e, quando houver ECF, dos registros C400/C405 (equipamento) — **renderizar quando presentes**, ocultar quando não (NF-e mod 55 não tem caixa/COO).
+- **Saída em tela + impressão/PDF** no layout do PVA (casa com o Sprint 6 / relatório PDF) — o cliente reconhece o formato. Os **dois** relatórios (Entradas e Saídas) compartilham o mesmo motor de agregação, mudando só (lado `IND_OPER`, dimensões do resumo, colunas de equipamento).
+- **Tudo do `model` cacheado** (uma passada): join intra-`.txt` C190→C100→0150 (+C400/C405 p/ ECF nas saídas). Sinaliza divergência `.txt`×banco quando o KPI não bate com o Analisador (auditoria).
+
+---
+
+## 20. Ordem segura de implementação (por onde começar)
+
+> Princípio: cada passo é **read-only e isolado** primeiro; só toca o export muito depois, sempre atrás do **golden-file**. Cada passo entrega valor sozinho e pode parar sem quebrar nada.
+
+| Passo | Entrega | Risco | Depende de |
+|---|---|---|---|
+| **0. Pré-flight** | Branch `feat/validador-sped`; rodar `golden-export.js baseline` em ~5 arquivos reais representativos (rede de segurança do export) | nenhum | — |
+| **1. Relatório "Registros Fiscais" (Entradas+Saídas)** (§19E) | Endpoint read-only `GET /api/validador/registros-fiscais/:id?tipo=` + componente + impressão PVA. **1º entregável** (100% do `.txt`, reconhecido) | **nenhum** (read-only) | parser (pronto) |
+| **2. Dicionário de leiaute** `validador/layout/` (§18.6) | Fonte única REG→campos versionada (seed ~18 regs) | nenhum | — |
+| **3. Cache LRU + árvore (Camada 1)** (§18) | `cache.js`, `arvore.js`, 2 rotas, `ArvoreSped.vue` virtualizado | nenhum (read-only) | 2 |
+| **4. Dashboard: apurações + cartões** (§19 B–D) | Demonstrativos E110/E210/IPI/CIAP/H + cartões; deep-link Analisador (§19A) | nenhum (read-only) | 1,2 |
+| **5. Diff "antes→depois" (Camada 2)** (§17.2) | Diff original×exportado + selos "auto-corrigido" | baixo (usa `/revalidar`) | 3 |
+| **6. Sprint 5 — detecção apuração** (§14) | Regras `APUR-E110/E116/E210/E250` (read-only) | nenhum | 2 |
+| **7. Gate Sprint 3** (§15) | Modal de consentimento pré-download | baixo (UI) | — |
+| **8. Edição (Camada 3) / obrigações 5.1** (§17.3,§16) | Edição gated + `val_obrigacoes` — **só com golden + endereçamento sobre bytes exportados** | **médio/alto** | golden, 3 |
+
+**Regra de ouro entre passos:** nada que mude o `.txt` exportado entra sem o golden-file passar (passo 0). Passos 1–6 não tocam o export. Reiniciar o servidor (`node server.js` puro) após mudanças no backend.
+
+> **Passo 1.5 — Catálogo de Regras visível (§21):** logo após o Passo 1; read-only, mínimo, alta transparência.
+
+---
+
+## 21. Catálogo de Regras visível (transparência: "validado contra o quê")
+
+> **Objetivo:** a tela mostra o **catálogo de regras** com que o SPED está sendo validado — o cliente vê exatamente *contra o quê* o arquivo foi conferido, por bloco, com severidade e instrução. Materializa a "honestidade" do §1/§3 (cobertura conhecida + versão do catálogo; o PVA pode ter validações ainda não mapeadas).
+
+### 21.1 Fonte (já existe, é só expor)
+O registry `backend/services/validador/rules/index.js` já carrega cada regra com metadados: `id`, `bloco`, `registro`, `titulo`, `severidade` (BLOQ/ADV), `classeCorrecao` (estrutural-seguro/fiscal-determinístico/manual), `jaCorrigidoNoExport`, `instrucaoERP`. O `CATALOGO_ERROS_SPED.md` (~80 regras) é a **referência completa** — inclui regras ainda **planejadas** (não implementadas).
+
+### 21.2 Backend (read-only, isolado)
+- `GET /api/validador/catalogo` → lista `[{ id, bloco, registro, titulo, severidade, classeCorrecao, jaCorrigidoNoExport, instrucaoERP, status }]`, onde `status` = `'ativa'` (está no registry, realmente roda) ou `'planejada'` (consta no catálogo `.md` mas ainda não implementada). Inclui `versaoCatalogo` e contagens por bloco/severidade.
+- A lista de `'ativa'` vem do próprio registry (uma volta no array); as `'planejada'` de um índice mínimo derivado do `CATALOGO_ERROS_SPED.md` (ou uma constante versionada) — **honestidade**: mostrar o que ainda **não** cobrimos.
+
+### 21.3 Frontend
+- Aba/painel **"Catálogo de Regras"** na `ValidadorView`: tabela **filtrável** por bloco · severidade · classe · status (ativa/planejada); cada linha expande para detalhe (o que detecta, instrução ERP, se é **auto-corrigida no export**).
+- No relatório de validação, o selo já existente *"Validado contra N regra(s) do catálogo"* passa a **linkar** para esta aba e a mostrar **N ativas de M no catálogo (vX)** — deixa explícito o que roda vs o que falta.
+- Marcar visualmente: `BLOQ`/`ADV`, classe de correção, e badge "auto no export" para `jaCorrigidoNoExport`.
+
+### 21.4 Isolamento e aceite
+- Rota nova read-only + aba nova; nada existente alterado; reusa o registry (sem importar nada que mute estado).
+- **Aceite:** a aba lista todas as regras ativas com bloco/severidade/instrução; o contador "N ativas de M" bate com o registry; filtros funcionam; nenhuma escrita.
+
+### 19.3 Arquitetura e isolamento
+- **Fonte única:** `GET /api/validador/resumo/:id` agrega o `model` do **cache da Camada 1** (parse 1×). Reusa `layout/` (§18.6) para nomes e `r_hierarquia` para o grafo. Para blocos cujos nomes ainda estão na lacuna do dicionário, o demonstrativo correspondente fica em "esqueleto" até o leiaute ser semeado.
+- **Quando o banco bastar** (ex.: visão idêntica à do Analisador), **linkar** para a aba existente em vez de reimplementar — evita a 2ª verdade.
+- **Isolamento:** rota nova read-only + aba nova; nada existente alterado; reusa cache/parser/engine. Compõe com §18 (mesmo `model`, mesmo cache).
+
+### 19.4 Critérios de aceite
+- Abrir um SPED e ver, **fiel ao `.txt`**: KPIs de entradas/saídas, demonstrativo E110 com cross-check Σ C190 batendo (ou divergência sinalizada = erro do Sprint 5), inventário H, e cartões dos demais blocos — **sem travar** em 31k linhas (KPIs imediatos, detalhe sob drill-down).
+- **Não** duplica o Analisador: as notas detalhadas reusam componentes/dados onde couber; o que é novo é o **resumo fiel ao arquivo** + as **apurações/CIAP/H** que hoje não têm tela.
+- IPI/CIAP aparecem como "sem movimento" quando ausentes, sem erro.
+
+> **Decisão (confirmada pelo Esmael, 2026-06-15):** **DOCUMENTOS = LINKAR ao Analisador** (deep-link `/analisador/<id>?tab=notas|saidas|dashboard`), pois lá já há detalhamento rico de notas; o Validador só acrescenta a **faixa de KPIs fiel ao `.txt`** (conferência arquivo×banco). O **trabalho novo** do dashboard concentra-se em: (1) o **relatório "Registros Fiscais" modelo PVA** de Entradas e Saídas (letra E — fiel ao `.txt`, mais completo que o resumo do Analisador, com impressão/PDF — **bom candidato a 1º entregável**, pois é 100% derivável do `.txt` e reconhecido pelo cliente); e (2) as **lacunas que não existem em lugar nenhum**: apuração **ICMS (E110)**, **ST (E210)**, **IPI (E520/E530)**, **CIAP (G)** e **Inventário (H)**, mais os cartões-resumo dos demais blocos. Único ajuste em código existente: `AnalisadorView` honrar `route.query.tab` (1 linha, aditivo).

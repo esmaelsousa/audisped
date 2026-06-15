@@ -92,7 +92,7 @@ WHERE (ABS(escr - fech) / fech) > 0.006
 
 ## 2. DIAGNÓSTICO DO PROBLEMA
 
-### 2.1 Cenário Real (Auto Posto Apache, ETANOL, Dez/2024)
+### 2.1 Cenário Real (posto de exemplo, ETANOL, Dez/2024)
 
 ```
 Dia 20: tempStock = 309L, saída = 1.226L → maxPermitida = 308.7 → CORTOU para 308.7
@@ -306,18 +306,18 @@ res.json({
 | 5 | Escudo ANP Export | MÉDIA | Média (10 linhas) | Baixo |
 | 6 | Log/Relatório | BAIXA | Baixa | Nenhum |
 
-**Recomendação:** Implementar Fase 1 + Fase 4 primeiro (solução imediata com 8 linhas), testar com Apache Dez/2024, depois implementar Fases 2 e 3.
+**Recomendação:** Implementar Fase 1 + Fase 4 primeiro (solução imediata com 8 linhas), testar com posto de exemplo Dez/2024, depois implementar Fases 2 e 3.
 
 ---
 
 ## 5. TESTES DE VALIDAÇÃO
 
-### 5.1 Caso de teste: Auto Posto Apache, Dez/2024, ETANOL (7085)
+### 5.1 Caso de teste: posto de exemplo, Dez/2024, ETANOL (7085)
 - **Antes:** dias 22-26 com `vol_saidas_ajustado = 0`
 - **Depois:** dias 22-26 com `vol_saidas_ajustado > 0` (mesmo que mínimo)
 - **Verificar:** ANP ≤ 0,60% em todos os dias do mês
 
-### 5.2 Caso de teste: PRECO BOM II, Gas. Aditivada, Dez/2022
+### 5.2 Caso de teste: posto de exemplo, Gas. Aditivada, Dez/2022
 - **Antes:** dia 31 com ANP 99,99%
 - **Depois:** dia 31 com ANP ≤ 0,60%
 
@@ -356,4 +356,4 @@ res.json({
 
 ---
 
-*Plano elaborado com base em leitura completa do server.js (7200 linhas), frontend (LmcView.vue + AnalisadorView.vue), e simulação com dados reais de Auto Posto Apache e PRECO BOM II.*
+*Plano elaborado com base em leitura completa do server.js (7200 linhas), frontend (LmcView.vue + AnalisadorView.vue), e simulação com dados reais de postos de exemplo.*

@@ -4064,7 +4064,7 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
         let aberturaInicialConsolidada = parseFloat(dailyItemsNormalized[0].estq_abert_ajustado ?? dailyItemsNormalized[0].estq_abert ?? 0);
 
         // NOVA TRAVA: Blindagem contra Lixo do PDV (Ex: SPED com Estoque Negativo já no dia 01)
-        // O caso "CHAPADA_02_2026" começa com o dia 1 registrando -17L de estoque de fechamento.
+        // O caso "posto exemplo 02/2026" começa com o dia 1 registrando -17L de estoque de fechamento.
         // O algoritmo matemático quebra por não aceitar estoques impossíveis.
         if (aberturaInicialConsolidada < 0) {
             logger.warn(`[MOTOR MATEMATICO] ATENÇÃO: Identificado Estoque Inicial Consolidado Negativo (${aberturaInicialConsolidada}L). Resetando sumariamente para 0.5L para viabilizar as cascatas.`);
@@ -8623,7 +8623,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                     // recebeu o CST_ICMS real (ex.: '061','060','090'). Assinatura inequívoca: cst_icms de
                     // 1 dígito 0/1 E cfop que NÃO é CFOP válido (/^[1-7]\d{3}$/). Nesse caso o BANCO é lixo →
                     // confiar no .txt (parser atual lê os campos certos). Sem o guard, o export emitiria
-                    // CFOP '0061' inválido + C170≠C190 (caso CABECEIRINHA 388). Não afeta linhas íntegras
+                    // CFOP '0061' inválido + C170≠C190 (caso de exemplo arq 388). Não afeta linhas íntegras
                     // (cst real tem 3 díg OU cfop é válido), então é byte-seguro p/ a frota.
                     const _cstDb = String(row.cst_icms || '').trim();
                     const _cfopDb = String(row.cfop || '').trim();
@@ -8858,7 +8858,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 // Insere a nova 0150 logo APÓS o último 0150 existente (mantém o sub-bloco 0150
                 // CONTÍGUO). Inserir no fim do bloco 0 (antes do 0990) colocaria o 0150 depois de
                 // 0200/0460/etc. → PVA "Organização hierárquica fora dos padrões: esperado 0460" +
-                // totalizadores furados (regressão observada no CABECEIRINHA). Ordem do bloco 0:
+                // totalizadores furados (regressão observada num posto de exemplo). Ordem do bloco 0:
                 // ...|0100|0150|0190|0200|...|0460|...|0990 — 0150 vem cedo.
                 let idxIns = -1;
                 for (let i = outputLines.length - 1; i >= 0; i--) {
@@ -9645,7 +9645,7 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
         }
         const { caminho_arquivo: spedPath, cnpj_empresa, periodo_apuracao } = arqRes.rows[0];
 
-        // Monta nome: CNPJ_DDMMAAAA_DDMMAAAA.txt  (ex: 23294731000192_01122020_31122020.txt)
+        // Monta nome: CNPJ_DDMMAAAA_DDMMAAAA.txt  (ex: 00000000000000_01122020_31122020.txt)
         // periodo_apuracao está no formato "01/12/2020 a 31/12/2020"
         const cnpjLimpo = String(cnpj_empresa || '').replace(/\D/g, '');
         const partes    = String(periodo_apuracao || '').split(' a ');

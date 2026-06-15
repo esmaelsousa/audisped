@@ -10,8 +10,8 @@ const pool = new Pool({
     port: process.env.DB_PORT || 5432
 });
 
-const EXPORT_DIR = '/Users/esmael/meus_sistemas/audisped/speds/APACHE';
-const CNPJ = '09153856000171';
+const EXPORT_DIR = '/Users/esmael/meus_sistemas/audisped/speds/lote';
+const CNPJ = '00000000000000';
 
 function parseSped(content) {
     const lines = content.split(/\r?\n/).filter(l => l.trim());
@@ -51,7 +51,7 @@ async function run() {
 
         const exportFiles = fs.readdirSync(EXPORT_DIR).filter(f => f.endsWith('.txt')).sort();
 
-        console.log('VALIDAÇÃO: SPED ORIGINAL vs EXPORTADO — AUTO POSTO APACHE');
+        console.log('VALIDAÇÃO: SPED ORIGINAL vs EXPORTADO — POSTO DE EXEMPLO');
         console.log('='.repeat(80));
 
         let totalOk = 0, totalErros = 0;

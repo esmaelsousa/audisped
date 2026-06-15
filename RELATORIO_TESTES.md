@@ -41,7 +41,7 @@
 
 | # | Endpoint | Método | Resultado | Detalhe |
 |---|---|---|---|---|
-| 12 | `/api/arquivos` | GET | ✅ OK | Retornou 673+ arquivos. Último: `POSTO DE GASOLINA BRAVO LTDA` 07/2021 |
+| 12 | `/api/arquivos` | GET | ✅ OK | Retornou 673+ arquivos. Último: `posto de exemplo` 07/2021 |
 | 13 | `/api/arquivo/info/673` | GET | ✅ OK | `{id, nome, periodo, cnpj, empresa, uf, id_empresa}` |
 | 14 | `/api/arquivos/empresa/301` | GET | ✅ OK | Retornou arquivos da empresa 301 |
 | 15 | `/api/upload` (sem arquivo) | POST | ✅ OK | `"Nenhum arquivo foi enviado."` |
@@ -57,7 +57,7 @@
 
 | # | Endpoint | Método | Resultado | Detalhe |
 |---|---|---|---|---|
-| 19 | `/api/empresas` | GET | ✅ OK | Retornou lista de empresas (AUTO POSTO 01, CABECEIRINHA, GASAUTO...) |
+| 19 | `/api/empresas` | GET | ✅ OK | Retornou lista de empresas (posto de exemplo A, posto de exemplo B, posto de exemplo C...) |
 | 20 | `/api/empresas` | POST | ✅ (não testado com payload) | Rota existe |
 | 21 | `/api/empresas/:id` | DELETE | ✅ (não testado destrutivo) | Rota existe |
 
@@ -68,7 +68,7 @@
 | # | Endpoint | Método | Resultado | Detalhe |
 |---|---|---|---|---|
 | 22 | `/api/resumo/673` | GET | ✅ OK | Entradas R$313.822,47 / Saídas R$491.039,21 com breakdown por CFOP |
-| 23 | `/api/resumo/participante/673` | GET | ✅ OK | Compras por fornecedor (Petrobahia, Total Distribuidora...) |
+| 23 | `/api/resumo/participante/673` | GET | ✅ OK | Compras por fornecedor (fornecedor de exemplo A, fornecedor de exemplo B...) |
 | 24 | `/api/estoque-resumo/673` | GET | ✅ OK | Estoques finais com flag de anomalia (Etanol ⚠️, Gasolina ⚠️) |
 | 25 | `/api/dashboard/resumo` | GET | ❌ FALHA | Rota **não existe**. Frontend chama rota errada |
 | 26 | `/api/dashboard/mensal` | GET | ❌ FALHA | Rota **não existe**. Frontend chama rota errada |
@@ -100,7 +100,7 @@
 |---|---|---|---|---|
 | 35 | `/api/lmc/673` | GET | ✅ OK | Retornou movimentações diárias por combustível (Gasolina, Etanol, Diesel) |
 | 36 | `/api/lmc/continuidade/673` | GET | ✅ OK | `{tem_mes_anterior: true, divergencias: []}` — encadeamento OK |
-| 37 | `/api/lmc/tanques-config/23294731000192` | GET | ✅ OK | Array vazio (sem config de tanques para esse CNPJ) |
+| 37 | `/api/lmc/tanques-config/«CNPJ»` | GET | ✅ OK | Array vazio (sem config de tanques para esse CNPJ) |
 | 38 | `/api/lmc/tanques-sugeridos/673` | GET | ✅ OK | Array vazio |
 | 39 | `/api/lmc/optimize` (sem body) | POST | ✅ OK | `"Parâmetros obrigatórios ausentes: arquivoId, codItem, targetVolume"` |
 | 40 | `/api/lmc/optimize` | POST | ✅ (rota existe, validação OK) | Requer payload completo |

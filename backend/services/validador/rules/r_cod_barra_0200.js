@@ -1,6 +1,6 @@
 // DOC-0200-GTIN-01 — COD_BARRA (campo 4 do 0200) deve ser NUMÉRICO (GTIN) ou VAZIO.
 // PVA: "Código de barras inválido" quando o campo contém texto (ex.: "SEM GTIN", o próprio nome
-// do produto). Caso RAQUEL 01/2023: |0200|CANETA BIC CRISTAL|...|SEM GTIN|...
+// do produto). Caso de exemplo 01/2023: |0200|CANETA BIC CRISTAL|...|SEM GTIN|...
 // É EDITÁVEL pelo usuário: apagar o texto (deixa vazio = produto sem GTIN, válido) OU digitar um
 // GTIN. corrigível por campo (campoIdx=4, chaveNatural=COD_ITEM); permiteVazio (apagar é a correção
 // comum). NÃO auto-corrige (jaCorrigidoNoExport=false) — o usuário decide apagar ou informar o GTIN.

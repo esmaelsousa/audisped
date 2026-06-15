@@ -7,16 +7,16 @@ Status: AGUARDANDO APROVACAO — Nenhuma alteracao sera aplicada sem autorizacao
 
 ## DIAGNOSTICO
 
-Empresa de referencia: LUBRINESSA XVI COMERCIO DE PETROLEO LTDA
-CNPJ: 29.922.765/0001-60
+Empresa de referencia: posto de exemplo
+CNPJ: «CNPJ»
 Periodo: 01/05/2025 a 31/05/2025
-Arquivo: 29922765000160_20250501_20250531.txt
+Arquivo: «CNPJ»_20250501_20250531.txt
 
 ### Erros encontrados (confirmados no SPED e no PDF do PVA)
 
 | Erro | Qtd | Descricao |
 |---|---:|---|
-| D100 duplicados | 22 | 11 CT-es do participante JG TRANSPORTES (35273019000196), cada um aparece 2x com linhas identicas |
+| D100 duplicados | 22 | 11 CT-es do participante fornecedor de exemplo («CNPJ»), cada um aparece 2x com linhas identicas |
 | E110 vs E116 | 1 | Somatorio E116 nao bate com E110 |
 | Total | 23 | |
 
@@ -86,7 +86,7 @@ if (fields.length >= 2 && ['D100','D001','D500','D990','C001','E001','1001'].inc
 ```
 
 **Risco:** Medio — precisa garantir que os filhos (D190) do duplicado
-sejam ignorados junto. Testar com o arquivo da LUBRINESSA.
+sejam ignorados junto. Testar com o arquivo do posto de exemplo.
 **Reversibilidade:** git revert do commit.
 
 ---
@@ -172,7 +172,7 @@ module.exports = { validators, runAll };
 
 ```
 Passo 1: Implementar FASE 1 (exportacao) — resolve o problema imediato
-Passo 2: Testar com arquivo LUBRINESSA — verificar que duplicatas somem
+Passo 2: Testar com arquivo do posto de exemplo — verificar que duplicatas somem
 Passo 3: Testar com 1+ outro posto — garantir que nao quebrou nada
 Passo 4: Implementar FASE 2 (importacao) — deteccao e alerta
 Passo 5: Implementar FASE 3 (extensibilidade) — quando houver mais erros
@@ -183,7 +183,7 @@ Passo 5: Implementar FASE 3 (extensibilidade) — quando houver mais erros
 ## TESTES OBRIGATORIOS
 
 ### Apos FASE 1
-- [ ] Exportar SPED da LUBRINESSA (mai/2025)
+- [ ] Exportar SPED do posto de exemplo (mai/2025)
 - [ ] Verificar que D100 duplicados foram removidos (24 → 13 registros)
 - [ ] Verificar que filhos D190 dos duplicados foram removidos junto
 - [ ] Verificar que contadores 9900/D990/9999 estao corretos
@@ -191,7 +191,7 @@ Passo 5: Implementar FASE 3 (extensibilidade) — quando houver mais erros
 - [ ] Exportar SPED de outro posto (regressao): nao deve perder D100 legitimos
 
 ### Apos FASE 2
-- [ ] Importar o SPED da LUBRINESSA
+- [ ] Importar o SPED do posto de exemplo
 - [ ] Verificar que erros_analise tem 11 registros DUP-D100-01
 - [ ] Verificar que documentos_d100 tem 13 registros (sem duplicatas)
 - [ ] Verificar que o Analisador mostra o alerta

@@ -111,7 +111,7 @@ const extractNfeData = (nfeNode) => {
     };
 };
 
-const xmlPath = '/Users/esmael/Library/CloudStorage/GoogleDrive-esmaelsousa@gmail.com/Meu Drive/audisped/speds/29200204382181000380550010000147051820568621.xml';
+const xmlPath = '/Users/esmael/Library/CloudStorage/GoogleDrive-esmaelsousa@gmail.com/Meu Drive/audisped/speds/exemplo.xml';
 const xmlData = fs.readFileSync(xmlPath, 'utf-8');
 const parser = new xml2js.Parser({ explicitArray: false });
 

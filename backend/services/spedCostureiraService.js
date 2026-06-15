@@ -910,7 +910,7 @@ function recalcularVlInvH005(linhas) {
 
 // ── Injeção do registro 1360 (Lacres das bombas) ───────────────────────────────────
 // O PVA exige ≥1 registro 1360 (Lacres) como filho de cada 1350 (bomba/medidor). Muitos
-// ERPs omitem (caso CABECEIRINHA). A partir do cadastro lmc_lacres (CNPJ + série da bomba),
+// ERPs omitem (caso de exemplo). A partir do cadastro lmc_lacres (CNPJ + série da bomba),
 // injetamos o 1360 logo APÓS o 1350 e ANTES dos 1370 (bicos) — a hierarquia é 1350→1360→1370.
 // NÃO duplica: se o 1350 já tem ao menos um 1360, pula. Layout: 1350 |1350|SERIE|FABR|MODELO|TIPO|
 // (série = f[2]); 1360 |1360|NUM_LACRE|DT_APLICACAO| (data DDMMYYYY). mapLacres: Map<serie,[{num,dt}]>.

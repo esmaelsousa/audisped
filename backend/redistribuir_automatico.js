@@ -8,9 +8,9 @@
  *   3) Os valores _ajustado ficam prontos para exportacao
  *
  * Uso:
- *   node redistribuir_automatico.js --cnpj 09153856000171
- *   node redistribuir_automatico.js --cnpj 09153856000171 --dry-run
- *   node redistribuir_automatico.js --cnpj 09153856000171 --ids 1326,1327,1328
+ *   node redistribuir_automatico.js --cnpj 00000000000000
+ *   node redistribuir_automatico.js --cnpj 00000000000000 --dry-run
+ *   node redistribuir_automatico.js --cnpj 00000000000000 --ids 1326,1327,1328
  *
  * --cnpj OBRIGATORIO: CNPJ da empresa (com ou sem mascara)
  * --ids  OPCIONAL:    limitar a IDs especificos
@@ -37,7 +37,7 @@ const DRY_RUN = args.includes('--dry-run');
 
 if (!CNPJ_FILTRO) {
     console.error('ERRO: --cnpj e obrigatorio.\n');
-    console.error('Uso: node redistribuir_automatico.js --cnpj 09153856000171 [--dry-run] [--ids 1,2,3]');
+    console.error('Uso: node redistribuir_automatico.js --cnpj 00000000000000 [--dry-run] [--ids 1,2,3]');
     process.exit(1);
 }
 

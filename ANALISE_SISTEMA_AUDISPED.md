@@ -1148,7 +1148,7 @@ Ao final de cada bico, atualiza `encerrantesBombasMap[bico] = encFinal` (continu
 > **GOTCHAS do PASS 3:**
 > - A deteccao de multiproduto usa `Math.abs(encAbertOrig - encOrigAnterior) < 0.01`. Dois produtos diferentes com encerrantes coincidentemente proximos seriam tratados como multiproduto, zerando vendas indevidamente (padrao conhecido "troca de produto no bico → falso positivo de continuidade por produto").
 > - O caso `todosFantasma && nSaida>0` faz o primeiro bico fantasma absorver TODA a `nSaida`; com multiplos fantasmas convertidos ha risco de dupla contagem (o ramo intermediario multiplica por `fator` calculado sobre `somaBicosOriginal=0`).
-> - Bicos compartilhados entre tanques (ex. Apache bico 02 nos tanques 691/692) dependem do Caso B; se AMBOS os tanques tiverem registro real do mesmo bico no mesmo dia, ou se ambos omitirem, ha risco de dupla contagem ou de o bico sumir do export.
+> - Bicos compartilhados entre tanques (ex. posto de exemplo bico 02 nos tanques 691/692) dependem do Caso B; se AMBOS os tanques tiverem registro real do mesmo bico no mesmo dia, ou se ambos omitirem, ha risco de dupla contagem ou de o bico sumir do export.
 > - O bump de +1ml so corrige `-0.000`; se o erro de float for maior (`-0.001`) pode nao bastar para o validador aceitar.
 
 #### 4.8.7 PASS 3.5 — ajustar 1310.SAIDA = Σ(1320)

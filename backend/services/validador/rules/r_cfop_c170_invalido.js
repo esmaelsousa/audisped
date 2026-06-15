@@ -1,5 +1,5 @@
 // DOC-C170-CFOP-01 — CFOP do C170 (campo 11) inválido. CFOP válido = 4 dígitos começando em
-// 1/2/3 (entrada) ou 5/6/7 (saída). Caso real (CABECEIRINHA 388): importação legada off-by-one
+// 1/2/3 (entrada) ou 5/6/7 (saída). Caso real (posto de exemplo, arq 388): importação legada off-by-one
 // gravou '0061' (o CST escrito no campo CFOP) em documentos_itens_c170, e o export reaplicava
 // isso por cima do .txt correto → PVA "CFOP inválido" + "combinação CST/CFOP/ALIQ do C190 sem item".
 // O export já corrige (guard anti-off-by-one ignora o banco corrompido e confia no .txt) →

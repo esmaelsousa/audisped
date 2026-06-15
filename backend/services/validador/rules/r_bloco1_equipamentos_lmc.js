@@ -1,7 +1,7 @@
 // COMB-1350-1360-01 — Bloco 1 (LMC): toda BOMBA (1350) deve ter ao menos um registro 1360
 // (Lacres da bomba) como filho. PVA: "Registro filho obrigatório não foi informado. Registro 1360".
 // Hierarquia: 1350 (pai) → 1360 (lacres) + 1370 (bicos), ambos filhos do 1350. Alguns ERPs emitem
-// 1350 + 1370 SEM os 1360 (caso CABECEIRINHA 388: 2×1350, 0×1360, 4×1370 → 2 erros).
+// 1350 + 1370 SEM os 1360 (caso de exemplo (arq 388): 2×1350, 0×1360, 4×1370 → 2 erros).
 // NÃO é auto-corrigível: o 1360 exige NUM_LACRE + DT_APLICACAO (nº físico do lacre/selo), dado que
 // não existe no arquivo nem no banco — fabricar seria inventar dado fiscal. Correção manual no ERP/LMC.
 module.exports = {

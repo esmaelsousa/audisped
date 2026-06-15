@@ -2,7 +2,7 @@ co
 # PLANO DE CORREÇÃO: Continuidade LMC e Encerrantes na Exportação SPED
 
 **Data:** 21/05/2026
-**Baseado em:** Auditoria PRECO BOM II + Auto Posto Apache (Amaral)
+**Baseado em:** Auditoria «POSTO A» + «POSTO B»
 **Objetivo:** Corrigir o sistema para que os SPEDs exportados mantenham continuidade perfeita de estoque e encerrantes entre meses.
 
 ---
@@ -16,7 +16,7 @@ O sistema possui dois conjuntos de campos no `lmc_movimentacao`:
 
 Na exportação do SPED, o sistema usa valores ajustados para ALGUNS produtos e originais para outros, quebrando a continuidade.
 
-**Exemplo real (PRECO BOM II):**
+**Exemplo real («POSTO A»):**
 - GAS. COMUM original fech=26.267 vs ajustado=14.840 (diferença de 11.427 L)
 - GAS. ADITIVADA original fech=14.401 vs ajustado=7.421 (diferença de 6.980 L)
 - ETANOL: original = ajustado (sem problema)
@@ -25,7 +25,7 @@ Na exportação do SPED, o sistema usa valores ajustados para ALGUNS produtos e 
 O sistema verifica a continuidade comparando o fechamento de Jan/2024 com a abertura de Dez/2023, ao invés de comparar o fechamento de Nov/2023 com a abertura de Dez/2023.
 
 ### Problema 3: Encerrantes (1320) recalculados
-Conforme auditoria do PRECO BOM II, os encerrantes exportados nos registros 1320 são diferentes dos originais importados. O sistema aplica um "offset" que varia por bico e por período, causando:
+Conforme auditoria do «POSTO A», os encerrantes exportados nos registros 1320 são diferentes dos originais importados. O sistema aplica um "offset" que varia por bico e por período, causando:
 - 1.229 de 1.230 registros divergentes (99,9%)
 - Diferença total de vendas: -3.419.052 L
 
@@ -150,4 +150,4 @@ Ao exportar o mês N, verificar automaticamente:
 
 ---
 
-*Plano gerado com base na auditoria DE-PARA de PRECO BOM II e Auto Posto Apache.*
+*Plano gerado com base na auditoria DE-PARA de «POSTO A» e «POSTO B».*

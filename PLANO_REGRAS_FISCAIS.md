@@ -259,7 +259,7 @@ Novos endpoints, espelhando `/api/de-para` (`server.js:8317+`):
 2. **Agrupamento:** `SELECT novo_cst, novo_cfop, COUNT(*) ... GROUP BY` no `de_para_xml WHERE novo_cst IS NOT NULL`. Combinações repetidas entre fornecedores já são cobertas por regra global → confirmam o seed.
 3. **Exceções genuínas por fornecedor** (poucas) que não casam em regra global viram **regra de exceção** com `id_empresa`/`cnpj_emissor` preenchidos (mais específica vence).
 4. **Coexistência (dual-read):** o motor, sob flag de transição, ainda lê `de_para_xml.novo_cst/novo_cfop` se nenhuma regra casar; loga *"regra ausente, usando legado de_para"* para mapear gaps.
-5. **Validação de regressão:** rodar `validar_todas_empresas.js` antes/depois e exigir **byte-equivalência** do `.txt` para LUBRINESSA, APACHE, ESPLANADA, JG SOUZA. Se o motor produz o mesmo arquivo dos 3 hacks, a migração é segura.
+5. **Validação de regressão:** rodar `validar_todas_empresas.js` antes/depois e exigir **byte-equivalência** do `.txt` para postos de exemplo. Se o motor produz o mesmo arquivo dos 3 hacks, a migração é segura.
 6. **Limpeza:** quando o log de "regra ausente" zerar, parar de ler `novo_cst/novo_cfop` (mantê-los NULL); o `de_para_xml` fica só identidade. UNIQUE permanece.
 
 Script novo: `backend/migrar_depara_para_regras.js` (espelha `export_lote.js`).
@@ -344,7 +344,7 @@ As 54 regras recebidas continham **muitas duplicatas** (gasolina/diesel monofás
 
 **Fase 1 — MVP (cutover de 1 ponto).** Trocar `normalizarLinha` (export, `server.js:6628`) pelo motor. É o ponto mais isolado e o que valida regressão direto no `.txt`. Manter os hacks de injeção/sync ligados. Validar com `validar_todas_empresas.js`.
 
-**Fase 2 — Injeção + Sync.** Plugar o motor em `xmlInjectorService.js:354` e `server.js:1234`, **removendo** os hacks. Dual-read do `de_para_xml.novo_cst/novo_cfop` ativo. Validar reinjeção idempotente (LUBRINESSA) e fornecedor "Desconhecido" (sped_participantes).
+**Fase 2 — Injeção + Sync.** Plugar o motor em `xmlInjectorService.js:354` e `server.js:1234`, **removendo** os hacks. Dual-read do `de_para_xml.novo_cst/novo_cfop` ativo. Validar reinjeção idempotente (posto de exemplo) e fornecedor "Desconhecido" (sped_participantes).
 
 **Fase 3 — UI.** Menu "Cadastros Fiscais", tela lista (drag-and-drop de prioridade), formulário com pré-visualização viva, simulador e CRUD `/api/regras-fiscais`. Limpar a tela De-Para de tributação.
 

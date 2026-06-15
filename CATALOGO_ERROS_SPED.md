@@ -80,7 +80,7 @@
 |----|-----|------|----------|-----|--------|-----|
 | AP-E110-03 | E110 | VL_TOT_DEBITOS ≠ Σ VL_ICMS C190/C590 saída | somar CFOP 5/6 | BLOQ | 🟡 | `recalcularE110` existe; export **não** recalcula E110 (decisão atual) |
 | AP-E110-05 | E110 | Crédito ICMS indevido sobre combustível CST 60/61 | f[6]>0 com NCM 2710/2711/2207 ST | BLOQ(fiscal) | 🟡 | `flag_bloqueia_credito_st` na injeção; falta validar no analisador |
-| AP-E110-10 / E116-01 | E110/E116 | **E116 ausente havendo ICMS a recolher** | f[13]>0 e 0 E116 | BLOQ | 🔴 | recorrente (APACHE/LUBRIGEGEU); **adiado** — exige COD_REC/DARE BA + vencimento |
+| AP-E110-10 / E116-01 | E110/E116 | **E116 ausente havendo ICMS a recolher** | f[13]>0 e 0 E116 | BLOQ | 🔴 | recorrente (postos de exemplo); **adiado** — exige COD_REC/DARE BA + vencimento |
 | AP-E116-02 | E116 | Σ VL_OR dos E116 ≠ E110 (f13+f15) | somar f[3] dos E116 | BLOQ | 🔴 | |
 | AP-E111-01/02 | E111 | COD_AJ_APUR inválido / 3º char ≠ 0 (próprio) | tabela 5.1.1 da UF | BLOQ | 🔴 | |
 | AP-E210-02 | E210 | VL_RETENCAO_ST ≠ Σ VL_ICMS_ST dos C190 saída | somar com filtro COD_SIT | BLOQ | ✅ | recalculado no export (~server.js 8259) |
