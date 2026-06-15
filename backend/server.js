@@ -5733,6 +5733,39 @@ app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => 
 });
 
 
+// === CATÁLOGO DE REGRAS / LEIAUTE (admin, read-only) =================================
+// Expõe o que o Validador conhece: as regras (do registry) + o leiaute dos registros
+// (catalogo/leiaute.json). Transparência: o que cobrimos vs o que falta. NÃO grava nada.
+app.get('/api/validador/catalogo', authMiddleware, (req, res) => {
+    try {
+        // require limpo (sem cache) — reflete edições nas regras/leiaute sem reiniciar o processo
+        const limpaCache = (p) => { try { delete require.cache[require.resolve(p)]; } catch (_) {} };
+        ['./services/validador/rules', './services/validador/catalogo/leiaute.json'].forEach(limpaCache);
+        const regras = require('./services/validador/rules').map(r => ({
+            id: r.id, bloco: r.bloco || '?', registro: r.registro || '',
+            titulo: r.titulo || '', severidade: r.severidade || 'ADV',
+            classeCorrecao: r.classeCorrecao || 'manual',
+            jaCorrigidoNoExport: !!r.jaCorrigidoNoExport,
+            instrucaoERP: (typeof r.instrucaoERP === 'string' ? r.instrucaoERP : ''),
+        }));
+        let leiaute = {};
+        try { leiaute = require('./services/validador/catalogo/leiaute.json').registros || {}; } catch (_) {}
+        const resumo = {
+            totalRegras: regras.length,
+            bloqueantes: regras.filter(r => r.severidade === 'BLOQ').length,
+            advertencias: regras.filter(r => r.severidade !== 'BLOQ').length,
+            autoCorrigidas: regras.filter(r => r.jaCorrigidoNoExport).length,
+            registrosNoLeiaute: Object.keys(leiaute).length,
+            porBloco: regras.reduce((a, r) => { a[r.bloco] = (a[r.bloco] || 0) + 1; return a; }, {}),
+        };
+        res.json({ resumo, regras, leiaute });
+    } catch (e) {
+        logger.error('Erro ao montar catálogo:', e);
+        res.status(500).json({ message: 'Erro ao montar o catálogo.' });
+    }
+});
+
+
 // === MÓDULO VALIDADOR DE SPED (read-only) ============================================
 // Lê o .txt (de um arquivo importado ou upload avulso), roda o motor de regras isolado
 // (backend/services/validador) e devolve o relatório por bloco. NÃO grava nada; não toca

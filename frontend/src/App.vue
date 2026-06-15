@@ -17,7 +17,8 @@ import {
   Truck,
   Printer,
   Scale,
-  ShieldCheck
+  ShieldCheck,
+  BookOpen
 } from 'lucide-vue-next'
 
 const router = useRouter();
@@ -150,6 +151,14 @@ const handleLogout = () => {
         >
           <ShieldCheck class="w-3.5 h-3.5 shrink-0" />
           Validador SPED
+        </RouterLink>
+
+        <RouterLink to="/catalogo-regras"
+          class="flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs font-medium transition-all text-slate-400 hover:bg-white/5 hover:text-white"
+          active-class="bg-brand-accent/10 text-brand-accent"
+        >
+          <BookOpen class="w-3.5 h-3.5 shrink-0" />
+          Catálogo de Regras
         </RouterLink>
 
         <RouterLink v-if="arquivoInfo" :to="`/lmc/${arquivoInfo.id}`"

@@ -76,6 +76,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/catalogo-regras',
+      name: 'catalogo-regras',
+      component: () => import('../views/CatalogoView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/de-para',
       name: 'de-para-xml',
       component: () => import('../views/DeParaXmlView.vue'),
