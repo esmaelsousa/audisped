@@ -196,6 +196,19 @@ async function setupDatabase() {
             );
         `);
 
+        // Semeia a biblioteca das principais credenciadoras (Stone/Cielo/Rede/Getnet/PagSeguro/
+        // Mercado Pago) — ON CONFLICT DO NOTHING (não sobrescreve ajustes do usuário).
+        try {
+            const seedCred = require('./data/credenciadoras_seed');
+            for (const c of seedCred) {
+                await client.query(
+                    `INSERT INTO cad_credenciadoras (cnpj, nome, ie, cod_mun, endereco, num, bairro)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (cnpj) DO NOTHING`,
+                    [c.cnpj, c.nome, c.ie, c.cod_mun, c.endereco, c.num, c.bairro]);
+            }
+            console.log(`Credenciadoras semeadas (${seedCred.length}).`);
+        } catch (e) { console.warn('Seed de credenciadoras não aplicado:', e.message); }
+
         // Tabelas fiscais de referência (popular via scripts/importar_tabelas_fiscais.js):
         // ncm = NCM oficial vigente (Receita/Siscomex); cest = CEST↔NCM (Conv. 142/2018).
         await client.query(`

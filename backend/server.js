@@ -5526,8 +5526,22 @@ app.post('/api/lmc/lacres', authMiddleware, async (req, res) => {
 // O 1601 (instrumentos de pagamento) cita CNPJ de credenciadora que o PVA exige ter um 0150 COMPLETO
 // (com COD_MUN + ENDEREÇO, obrigatórios p/ COD_PAIS 1058). Como não temos esses dados, o usuário
 // cadastra aqui (CNPJ → nome/IE/município/endereço) e o export injeta o 0150 completo.
+let _credSeeded = false;
 async function ensureCredTable(db) {
     await db.query(`CREATE TABLE IF NOT EXISTS cad_credenciadoras (id SERIAL PRIMARY KEY, cnpj TEXT UNIQUE NOT NULL, nome TEXT, ie TEXT, cod_mun TEXT, endereco TEXT, num TEXT, bairro TEXT)`);
+    if (_credSeeded) return;
+    // Semeia a biblioteca das principais credenciadoras (Stone/Cielo/Rede/Getnet/PagSeguro/Mercado
+    // Pago) — ON CONFLICT DO NOTHING (não sobrescreve ajustes do usuário). Uma vez por processo.
+    try {
+        const seed = require('./data/credenciadoras_seed');
+        for (const c of seed) {
+            await db.query(
+                `INSERT INTO cad_credenciadoras (cnpj, nome, ie, cod_mun, endereco, num, bairro)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (cnpj) DO NOTHING`,
+                [c.cnpj, c.nome, c.ie, c.cod_mun, c.endereco, c.num, c.bairro]);
+        }
+        _credSeeded = true;
+    } catch (e) { logger.warn('[Credenciadoras] seed não aplicado: ' + e.message); }
 }
 
 // Lista as credenciadoras do 1601 de um arquivo + seu cadastro (p/ a UI).
