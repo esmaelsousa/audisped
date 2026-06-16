@@ -37,6 +37,9 @@ async function buscarCorrecoes(db, idArquivo) {
 function chaveNatural(reg, f, curChaveC100) {
     switch (reg) {
         case '0000': return 'unico';
+        // 0100 (contabilista): chaveado por CNPJ do escritório (f5) → NOME (f2) → único. Passa verbatim
+        // no export (não reconstruído) → chave estável p/ editar CPF (f3)/CRC (f4) via val_correcoes.
+        case '0100': return String(f[5] || '').replace(/\D/g, '') || String(f[2] || '').trim() || 'unico';
         case '0150':
         case '0200': return String(f[2] || '').trim();
         case 'C100': return String(f[9] || '').replace(/\D/g, '');

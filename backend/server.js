@@ -5929,6 +5929,27 @@ app.get('/api/validador/catalogo', authMiddleware, (req, res) => {
 // Lê o .txt (de um arquivo importado ou upload avulso), roda o motor de regras isolado
 // (backend/services/validador) e devolve o relatório por bloco. NÃO grava nada; não toca
 // no fluxo de export/injeção/LMC. Correção (val_correcoes) virá em sprint posterior.
+
+// Extrai os campos de cadastro editáveis (IE do 0000; contabilista do 0100) p/ o card de
+// correção direta da ValidadorView (edita → val_correcoes → aplicado no export). 0000 f9=UF
+// f10=IE; 0100 f2=NOME f3=CPF f4=CRC f5=CNPJ. chave do 0100 = chaveNatural (CNPJ→NOME→único).
+function extrairCadastro(model) {
+    const { chaveNatural } = require('./services/validador/correcoes');
+    const l0 = (model.linhas || []).find(x => x.reg === '0000');
+    const lc = (model.linhas || []).find(x => x.reg === '0100');
+    return {
+        ie: l0 ? String(l0.f[10] || '').trim() : '',
+        uf: l0 ? String(l0.f[9] || '').trim() : '',
+        contador: lc ? {
+            chave: chaveNatural('0100', lc.f),
+            nome: String(lc.f[2] || '').trim(),
+            cpf: String(lc.f[3] || '').trim(),
+            crc: String(lc.f[4] || '').trim(),
+            cnpj: String(lc.f[5] || '').trim(),
+        } : null,
+    };
+}
+
 app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
@@ -5970,6 +5991,7 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
             if (resultado.resumo) resultado.resumo.corrigidosPeloUsuario = nCorr;
         } catch (_) { /* sem correções → segue normal */ }
         resultado.arquivo = { id: arquivoId, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
+        resultado.arquivo.cadastro = extrairCadastro(model);
         res.json(resultado);
     } catch (e) {
         logger.error('Erro no validador (id):', e);
@@ -6083,6 +6105,7 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         await marcarCadApuracaoE116(model, dbClient); // E116 ausente vira jaCorrigidoNoExport se há COD_REC
         const resultado = validar(model);
         resultado.arquivo = { id: idArq, nome: r.rows[0].nome_arquivo, versao: model.versao, periodo: `${model.dtIni}-${model.dtFin}`, cnpj: model.cnpj, totalLinhas: model.totalLinhas };
+        resultado.arquivo.cadastro = extrairCadastro(model);
         resultado.validadoSobre = 'exportado'; // o front mostra "validado sobre o SPED corrigido"
         // O export interno acima gravou o changelog ("o que foi corrigido") em val_alteracoes.
         try {

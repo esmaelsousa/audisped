@@ -271,6 +271,10 @@ t('E116 COD_REC: preenche f5 vazio com o COD_REC informado', () => { const { pre
 t('E116 COD_REC: no-op quando f5 já preenchido', () => { const { preencherE116CodRecVazio } = require('../services/spedCostureiraService'); const orig = '|E116|000|91,50|01062026|0767| | | | |052026|'; const l = [orig]; assert.equal(preencherE116CodRecVazio(l, '0759'), 0); assert.equal(l[0], orig); });
 t('E116 COD_REC: no-op sem codRec', () => { const { preencherE116CodRecVazio } = require('../services/spedCostureiraService'); const orig = '|E116|000|91,50|01062026| | | | | |052026|'; const l = [orig]; assert.equal(preencherE116CodRecVazio(l, ''), 0); assert.equal(l[0], orig); });
 
+// chaveNatural 0100 (contabilista) — editável por CNPJ do escritório (p/ corrigir CPF/CRC)
+t('chaveNatural: 0100 resolve por CNPJ do escritório', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|CONTABILIDADE| | |13937073000156|44695000|'.split('|')), '13937073000156'); });
+t('chaveNatural: 0100 cai p/ NOME quando sem CNPJ', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|JOAO CONTADOR| | | |'.split('|')), 'JOAO CONTADOR'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

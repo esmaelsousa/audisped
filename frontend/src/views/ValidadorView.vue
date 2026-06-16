@@ -184,6 +184,32 @@ async function removerCorrecao(c) {
   } catch (err) { msgCorr.value = err.response?.data?.message || ('Erro ao remover: ' + err.message); }
 }
 
+// --- Correção direta de cadastro (IE do 0000, contabilista do 0100) ---
+// O PVA rejeita IE por divergência de cadastro/SEFAZ (não dá p/ detectar por dígito) e exige CPF/CRC
+// do contador. Aqui o usuário digita o valor correto → grava em val_correcoes → o export já aplica.
+const cadastro = computed(() => resultado.value?.arquivo?.cadastro || null);
+const cadVal = ref({});            // chave do campo -> valor digitado
+const salvandoCad = ref(null);
+async function salvarCadastro(campo, registro, chave, campoIdx, valorOriginal) {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um SPED do banco primeiro (upload avulso não salva correção).'; return; }
+  const valor = (cadVal.value[campo] ?? '').toString().trim();
+  if (valor === '') { msgCorr.value = 'Informe o valor para ' + campo + '.'; return; }
+  if (chave == null) { msgCorr.value = 'Registro sem chave estável — não editável.'; return; }
+  salvandoCad.value = campo; msgCorr.value = '';
+  try {
+    await axios.post(`${API_BASE_URL}/api/validador/corrigir`, {
+      id_sped_arquivo: resultadoId.value, regra_id: 'CADASTRO', registro,
+      chave_natural: chave, campo_idx: campoIdx,
+      valor_original: valorOriginal || '', valor_corrigido: valor,
+    }, { headers: authHeader() });
+    msgCorr.value = 'Cadastro salvo. Clique em "Re-validar" para conferir; o SPED exportado já sai com o valor corrigido.';
+    cadVal.value[campo] = '';
+    await carregarCorrecoes();
+  } catch (err) {
+    msgCorr.value = err.response?.data?.message || ('Erro ao salvar: ' + err.message);
+  } finally { salvandoCad.value = null; }
+}
+
 async function revalidar() {
   if (!resultadoId.value) return;
   erro.value = ''; loading.value = true; expandido.value = null;
@@ -422,6 +448,37 @@ onMounted(async () => {
           </table>
         </div>
         <p class="text-[10px] text-slate-400">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
+      </div>
+
+      <!-- Corrigir cadastro: IE (0000) e contabilista (0100) — edita direto → aplicado no export -->
+      <div v-if="resultadoId && cadastro" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+        <div>
+          <h3 class="text-sm font-bold text-slate-700">Corrigir cadastro (IE / contabilista)</h3>
+          <p class="text-[11px] text-slate-400">Digite o valor correto e salve — vai para as correções e o SPED exportado já sai corrigido. Use para a IE rejeitada pela SEFAZ e para os dados do contador.</p>
+        </div>
+        <!-- Inscrição Estadual (0000) -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-bold text-slate-500 w-40 shrink-0">Inscrição Estadual <span class="text-slate-400">(UF {{ cadastro.uf || '—' }})</span></span>
+          <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.ie || '(vazio)' }}</b></span>
+          <input v-model="cadVal.ie" type="text" placeholder="IE correta" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
+          <button @click="salvarCadastro('ie','0000','unico',10,cadastro.ie)" :disabled="salvandoCad==='ie'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+        </div>
+        <!-- Contabilista (0100) -->
+        <template v-if="cadastro.contador">
+          <div class="text-[11px] text-slate-400 border-t border-slate-100 pt-3">Contabilista (0100): <b class="text-slate-600">{{ cadastro.contador.nome || '—' }}</b> · CNPJ {{ cadastro.contador.cnpj || '—' }}</div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-bold text-slate-500 w-40 shrink-0">CPF do responsável</span>
+            <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.contador.cpf || '(vazio)' }}</b></span>
+            <input v-model="cadVal.cpf" type="text" placeholder="CPF (só números)" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
+            <button @click="salvarCadastro('cpf','0100',cadastro.contador.chave,3,cadastro.contador.cpf)" :disabled="salvandoCad==='cpf'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-bold text-slate-500 w-40 shrink-0">CRC</span>
+            <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.contador.crc || '(vazio)' }}</b></span>
+            <input v-model="cadVal.crc" type="text" placeholder="nº do CRC" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
+            <button @click="salvarCadastro('crc','0100',cadastro.contador.chave,4,cadastro.contador.crc)" :disabled="salvandoCad==='crc'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+          </div>
+        </template>
       </div>
 
       <!-- O QUE FOI CORRIGIDO (changelog antes→depois, por bloco/registro) -->
