@@ -1156,10 +1156,34 @@ function corrigirD100IndEmitOper(linhas, log) {
     return n;
 }
 
+// ── D100 cancelado/denegado: limpa os campos além do permitido ──────────────────────────
+// PVA: "Para documento cancelado (COD_SIT 02/03) ou denegado (04), somente informar COD_SIT,
+// IND_OPER, COD_MOD e a chave." O ERP deixa COD_MUN_ORIG/DEST (e às vezes valores/datas) preenchidos.
+// Limpa TUDO depois da chave (f10) — mantém f2..f10 (IND_OPER, IND_EMIT, COD_PART, COD_MOD, COD_SIT,
+// SER, SUB, NUM_DOC, CHV_CTE). COD_SIT = f6. No-op byte-idêntico quando já limpo. Antes do recálculo X990.
+function corrigirD100Cancelado(linhas, log) {
+    const CANC = new Set(['02', '03', '04']);
+    let n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] !== 'D100' || !CANC.has(String(f[6] || '').trim())) continue;
+        let mudou = false;
+        for (let k = 11; k <= f.length - 2; k++) {  // f11..última data; mantém a chave (f10) e anteriores
+            if (String(f[k] || '').trim() !== '') { f[k] = ''; mudou = true; }
+        }
+        if (mudou) {
+            linhas[i] = f.join('|'); n++;
+            if (log) log.add({ registro: 'D100', regraId: 'DOC-D100-CANC-01', motivo: `documento CANCELADO/DENEGADO (COD_SIT ${String(f[6]).trim()}) → limpa campos após a chave (COD_MUN/valores/datas)`, escopo: 'linha', linha: i, campo: '(campos após a chave)', antes: '(preenchido)', depois: '(vazio)', origem: 'fiscal', classe: 'fiscal-deterministico' });
+        }
+    }
+    return n;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
     corrigirD100IndEmitOper,
+    corrigirD100Cancelado,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,

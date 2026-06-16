@@ -9231,6 +9231,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (n) { changesApplied += n; logger.info(`[D100] ${n} IND_EMIT/IND_OPER ajustado(s) (coerência terceiros/CFOP) no arquivo ${arquivoId}.`); }
         }
 
+        // ── D100 cancelado/denegado: limpa campos além de COD_SIT/IND_OPER/COD_MOD/chave ──
+        {
+            const { corrigirD100Cancelado } = require('./services/spedCostureiraService');
+            const n = corrigirD100Cancelado(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[D100] ${n} D100 cancelado(s)/denegado(s) limpo(s) no arquivo ${arquivoId}.`); }
+        }
+
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
         // Aplica overrides de campo que o cliente confirmou no Validador, ANTES do
         // recálculo de totalizadores (assim contagens permanecem corretas). Com a

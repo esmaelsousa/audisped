@@ -22,6 +22,7 @@ const PODE_DISPARAR = new Set([
     'COMB-1350-1360-01',  // bomba (1350) sem lacre (1360) — corrigir no ERP
     'DOC-C191-FCP-01',    // VL_FCP_RET do C191 sem CST x60/500 no C190 pai (zerado no export)
     'DOC-D100-EMIT-01',   // D100 emitido por terceiros (IND_EMIT=1) com IND_OPER de saída (CFOP-aware)
+    'DOC-D100-CANC-01',   // D100 cancelado/denegado com campos além de COD_SIT/IND_OPER/COD_MOD/chave
 ]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };

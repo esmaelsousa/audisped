@@ -246,6 +246,13 @@ t('d100emit -: IND_EMIT=0 não dispara', () => assert.ok(!fires(H([D100e('1', '0
 t('corrigirD100: CFOP saída → IND_EMIT=0 (IND_OPER intacto)', () => { const { corrigirD100IndEmitOper } = require('../services/spedCostureiraService'); const l = [D100e('1', '1'), '|D190|060|5353|0,00|30|0|0|0|0||']; corrigirD100IndEmitOper(l); const f = l[0].split('|'); assert.equal(f[3], '0'); assert.equal(f[2], '1'); });
 t('corrigirD100: CFOP entrada → IND_OPER=0 (IND_EMIT intacto)', () => { const { corrigirD100IndEmitOper } = require('../services/spedCostureiraService'); const l = [D100e('1', '1'), '|D190|060|1353|0,00|30|0|0|0|0||']; corrigirD100IndEmitOper(l); const f = l[0].split('|'); assert.equal(f[2], '0'); assert.equal(f[3], '1'); });
 
+// DOC-D100-CANC-01 (cancelado/denegado com campos além da chave)
+const D100canc = '|D100|1|0| |57|02|001| |2061|CHAVE| | | | | | | | | | | | | |2917508|2906873|';
+t('d100canc +: cancelado (02) com COD_MUN dispara', () => assert.ok(fires(H([D100canc]), 'DOC-D100-CANC-01')));
+t('d100canc -: cancelado (02) só com chave não dispara', () => assert.ok(!fires(H(['|D100|1|0| |57|02|001| |2061|CHAVE|']), 'DOC-D100-CANC-01')));
+t('d100canc -: não-cancelado (00) com COD_MUN não dispara', () => assert.ok(!fires(H(['|D100|1|0| |57|00|001| |2061|CHAVE| | | | | | | | | | | | | |2917508|2906873|']), 'DOC-D100-CANC-01')));
+t('corrigirD100Cancelado: limpa campos após a chave, mantém chave/COD_SIT', () => { const { corrigirD100Cancelado } = require('../services/spedCostureiraService'); const l = [D100canc]; corrigirD100Cancelado(l); const f = l[0].split('|'); assert.equal(f[24], ''); assert.equal(f[25], ''); assert.equal(f[10], 'CHAVE'); assert.equal(f[6], '02'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }
