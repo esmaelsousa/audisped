@@ -9017,11 +9017,16 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             // E110 não é recalculado aqui — arquivo já correto pós-injeção.
             if (fields.length >= 2 && fields[1] === 'E210') {
                 const f = fields;
-                f[2]  = somaRetST > 0 ? '1' : '0'; // IND_MOV_ST: 1 só se há ST retido em saídas
                 f[8]  = fmtSp(somaRetST); // VL_RETENCAO_ST = soma C190/C590/etc CFOP 5xx/6xx VL_ICMS_ST
-                const vlTotalCredST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
-                f[14] = fmtSp(parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]) + parseSp(f[12]) + parseSp(f[13]));
-                f[15] = fmtSp(Math.max(0, parseSp(f[14]) - vlTotalCredST));
+                // Apuração ST (layout PVA): créditos = f3..f7; débitos = f8..f11; f12 = deduções.
+                //   f13 VL_ICMS_RECOL_ST            = max(0, débitos − créditos − deduções)
+                //   f14 VL_SLD_CRED_ST_TRANSPORTAR  = max(0, créditos − débitos)  ← era somado errado (PVA: saldo credor ST a transportar)
+                //   f15 DEB_ESP_ST                  = preservado (débito especial informado, não derivado)
+                const credST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
+                const debST  = parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]);
+                f[2]  = (credST > 0 || debST > 0) ? '1' : '0'; // IND_MOV_ST: 1 se houve QUALQUER movimento ST (crédito ou débito)
+                f[13] = fmtSp(Math.max(0, debST - credST - parseSp(f[12])));
+                f[14] = fmtSp(Math.max(0, credST - debST));
                 pushLine(f.join('|'));
                 continue;
             }
@@ -9243,6 +9248,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const { dedupar0200 } = require('./services/spedCostureiraService');
             const n = dedupar0200(outputLines, changelog);
             if (n) { changesApplied += n; logger.info(`[0200] ${n} produto(s) 0200 duplicado(s) removido(s) no arquivo ${arquivoId}.`); }
+        }
+
+        // ── CST monofásico em entrada: zera VL_BC_ICMS/VL_BC_ICMS_ST (e ALIQ p/ CST 61) ──
+        {
+            const { zerarBaseMonofasicoEntrada } = require('./services/spedCostureiraService');
+            const n = zerarBaseMonofasicoEntrada(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[monofásico] ${n} C170/C190 com base de ICMS/ST zerada (CST 02/15/53/61 entrada) no arquivo ${arquivoId}.`); }
         }
 
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────

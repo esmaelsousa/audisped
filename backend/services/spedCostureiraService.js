@@ -1208,12 +1208,53 @@ function dedupar0200(linhas, log) {
     return nDup;
 }
 
+// ── CST monofásico em ENTRADA: zerar base de ICMS/ICMS-ST ────────────────────────────────
+// PVA (Conv. ICMS 199/2022): combustível monofásico não tem base de ICMS regular nem de ST.
+// Para ENTRADA (C100 IND_OPER=0 / CFOP 1,2,3) com CST_ICMS de final 02/15/53/61:
+//   VL_BC_ICMS = 0 e VL_BC_ICMS_ST = 0 (C170 e C190); ALIQ_ICMS = 0 quando o CST termina em 61.
+// VL_ICMS e VL_ICMS_ST são PRESERVADOS (o PVA não os zera — o VL_ICMS_ST alimenta o crédito do E210).
+// C170: f10=CST, f11=CFOP, f13=VL_BC_ICMS, f14=ALIQ_ICMS, f16=VL_BC_ICMS_ST.
+// C190: f2=CST, f3=CFOP, f6=VL_BC_ICMS, f8=VL_BC_ICMS_ST.
+// No-op byte-idêntico quando já zerado. Roda antes do recálculo X990. Caso: RAQUEL 09/2025 (ETANOL CST 061 entrada).
+function zerarBaseMonofasicoEntrada(linhas, log) {
+    const FINAIS = new Set(['02', '15', '53', '61']);
+    const numS = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;
+    const ehMonof = (cst) => { const s = String(cst || '').trim(); return s.length === 3 && FINAIS.has(s.slice(-2)); };
+    const ehEntrada = (cfop) => '123'.includes(String(cfop || '').trim().charAt(0));
+    const zerar = (v) => { const s = String(v || '').trim(); const i = s.indexOf(','); return i === -1 ? '0' : '0,' + '0'.repeat(s.length - i - 1); };
+    let n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const reg = linhas[i].split('|')[1];
+        if (reg !== 'C170' && reg !== 'C190') continue;
+        const f = linhas[i].split('|');
+        const cst = reg === 'C170' ? f[10] : f[2];
+        const cfop = reg === 'C170' ? f[11] : f[3];
+        if (!ehMonof(cst) || !ehEntrada(cfop)) continue;
+        const final61 = String(cst).trim().slice(-2) === '61';
+        // [campoIdx, nomeDoCampo, soSeCst61?]
+        const alvos = reg === 'C170'
+            ? [[13, 'VL_BC_ICMS', false], [14, 'ALIQ_ICMS', true], [16, 'VL_BC_ICMS_ST', false]]
+            : [[6, 'VL_BC_ICMS', false], [8, 'VL_BC_ICMS_ST', false]];
+        let mudou = false;
+        for (const [idx, nome, so61] of alvos) {
+            if (so61 && !final61) continue;
+            if (f.length > idx && numS(f[idx]) !== 0) {
+                const a = f[idx]; f[idx] = zerar(f[idx]); mudou = true;
+                if (log) log.add({ bloco: 'C', registro: reg, regraId: 'DOC-MONOF-BC-01', motivo: `CST monofásico ${String(cst).trim()} em entrada (CFOP ${String(cfop).trim()}): ${nome} deve ser 0`, escopo: 'campo', linha: i, campo: nome, antes: a, depois: f[idx], origem: 'fiscal', classe: 'fiscal-deterministico' });
+            }
+        }
+        if (mudou) { linhas[i] = f.join('|'); n++; }
+    }
+    return n;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
     corrigirD100IndEmitOper,
     corrigirD100Cancelado,
     dedupar0200,
+    zerarBaseMonofasicoEntrada,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,

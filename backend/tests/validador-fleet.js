@@ -24,6 +24,8 @@ const PODE_DISPARAR = new Set([
     'DOC-D100-EMIT-01',   // D100 emitido por terceiros (IND_EMIT=1) com IND_OPER de saída (CFOP-aware)
     'DOC-D100-CANC-01',   // D100 cancelado/denegado com campos além de COD_SIT/IND_OPER/COD_MOD/chave
     'DOC-0200-DUP-01',    // COD_ITEM duplicado no 0200 (deduplicado no export)
+    'DOC-MONOF-BC-01',    // CST monofásico (02/15/53/61) em entrada com base de ICMS/ST (zerado no export)
+    'APUR-E210-SALDO-01', // saldo do E210 incoerente com créditos/débitos ST (recalculado no export)
 ]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };

@@ -34,4 +34,6 @@ module.exports = [
     require('./r_d100_indemit'),       // DOC-D100-EMIT-01: D100 emitido por terceiros (IND_EMIT=1) com IND_OPER de saída
     require('./r_d100_cancelado'),     // DOC-D100-CANC-01: D100 cancelado/denegado com campos além de COD_SIT/IND_OPER/COD_MOD/chave
     require('./r_0200_dup'),           // DOC-0200-DUP-01: COD_ITEM duplicado no 0200
+    require('./r_monofasico_bc'),      // DOC-MONOF-BC-01: CST monofásico (02/15/53/61) em entrada com base de ICMS/ST
+    require('./r_e210_saldo'),         // APUR-E210-SALDO-01: saldo do E210 (recolher/credor a transportar) incoerente
 ];
