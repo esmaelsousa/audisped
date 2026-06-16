@@ -9238,6 +9238,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (n) { changesApplied += n; logger.info(`[D100] ${n} D100 cancelado(s)/denegado(s) limpo(s) no arquivo ${arquivoId}.`); }
         }
 
+        // ── Dedup de 0200 por COD_ITEM (produto duplicado) ──────────────────────
+        {
+            const { dedupar0200 } = require('./services/spedCostureiraService');
+            const n = dedupar0200(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[0200] ${n} produto(s) 0200 duplicado(s) removido(s) no arquivo ${arquivoId}.`); }
+        }
+
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
         // Aplica overrides de campo que o cliente confirmou no Validador, ANTES do
         // recálculo de totalizadores (assim contagens permanecem corretas). Com a

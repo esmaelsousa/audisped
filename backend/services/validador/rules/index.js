@@ -33,4 +33,5 @@ module.exports = [
     require('./r_c191_fcp'),           // DOC-C191-FCP-01: VL_FCP_RET do C191 sem CST x60/500 no C190 pai
     require('./r_d100_indemit'),       // DOC-D100-EMIT-01: D100 emitido por terceiros (IND_EMIT=1) com IND_OPER de saída
     require('./r_d100_cancelado'),     // DOC-D100-CANC-01: D100 cancelado/denegado com campos além de COD_SIT/IND_OPER/COD_MOD/chave
+    require('./r_0200_dup'),           // DOC-0200-DUP-01: COD_ITEM duplicado no 0200
 ];

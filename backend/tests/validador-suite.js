@@ -253,6 +253,14 @@ t('d100canc -: cancelado (02) só com chave não dispara', () => assert.ok(!fire
 t('d100canc -: não-cancelado (00) com COD_MUN não dispara', () => assert.ok(!fires(H(['|D100|1|0| |57|00|001| |2061|CHAVE| | | | | | | | | | | | | |2917508|2906873|']), 'DOC-D100-CANC-01')));
 t('corrigirD100Cancelado: limpa campos após a chave, mantém chave/COD_SIT', () => { const { corrigirD100Cancelado } = require('../services/spedCostureiraService'); const l = [D100canc]; corrigirD100Cancelado(l); const f = l[0].split('|'); assert.equal(f[24], ''); assert.equal(f[25], ''); assert.equal(f[10], 'CHAVE'); assert.equal(f[6], '02'); });
 
+// DOC-0200-DUP-01 (COD_ITEM duplicado no 0200)
+t('0200dup +: COD_ITEM repetido dispara', () => assert.ok(fires(H(['|0200|TBG|TBG| | |PC|07|73069090| |73| |0,00| |', '|0200|TBG|TBG| | |PC|07|73069090| |73| |0,00| |']), 'DOC-0200-DUP-01')));
+t('0200dup -: COD_ITEM único não dispara', () => assert.ok(!fires(H(['|0200|A|A| | |PC|07|73069090| |73| |0,00| |', '|0200|B|B| | |PC|07|73069090| |73| |0,00| |']), 'DOC-0200-DUP-01')));
+t('dedupar0200: remove repetido, mantém o 1º', () => { const { dedupar0200 } = require('../services/spedCostureiraService'); const l = ['|0200|TBG|TBG|x|', '|0220|UN|1||', '|0200|TBG|TBG|x|', '|0220|UN|1||']; const n = dedupar0200(l); assert.equal(n, 1); assert.equal(l.filter(x => x.startsWith('|0200|')).length, 1); });
+
+// recalcularE110: VL_ICMS_RECOLHER = SLD_APURADO - TOT_DED (NÃO soma DEB_ESP)
+t('e110 f13: não soma DEB_ESP (f15) ao ICMS a recolher', () => { const { recalcularE110 } = require('../services/spedCostureiraService'); const l = ['|E110|840,78|0,00|0,00|0,00|28,46|0,00|0,00|2,11|176,65|0|0,00|0|0,00|2,11|']; recalcularE110(l); const f = l[0].split('|'); assert.equal(f[11], '633,56'); assert.equal(f[13], '633,56'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

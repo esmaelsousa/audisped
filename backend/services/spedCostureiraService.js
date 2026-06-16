@@ -950,7 +950,9 @@ function injetarLacres1360(linhas, mapLacres, log) {
 // do ajuste é a 4ª posição do COD_AJ_APUR (validado em 4/4 arquivos BA reais via charAt(3); a 3ª
 // posição falhou 0/4): '0'→f4, '1'→f5, '2'→f8, '3'→f9. Recalcula esses 4 e, EM CASCATA, o saldo:
 //   base = (f2+f3+f4+f5) - (f6+f7+f8+f9) - f10(saldo credor anterior).
-//   base>=0 (devedor): f11(SLD_APURADO)=base, f13(ICMS_RECOLHER)=max(0,base-f12+f15), f14=0.
+//   base>=0 (devedor): f11(SLD_APURADO)=base, f13(ICMS_RECOLHER)=max(0,base-f12), f14=0.
+//   (PVA: VL_ICMS_RECOLHER = SLD_APURADO − TOT_DED, se >0; senão 0. NÃO soma DEB_ESP/f15 — esse é
+//    recolhido à parte; o E116/obrigação é que = f13 + f15. Bug anterior somava f15 ao f13.)
 //   base<0  (credor):  f11=0, f13=0, f14(SLD_CREDOR_TRANSPORTAR)=-base.
 // Só altera o campo cujo VALOR (em centavos) muda → no-op byte-idêntico quando já coerente
 // (validado: 379/400 arquivos da frota INALTERADOS; corrige os 21 que esqueceram de totalizar o E111).
@@ -973,7 +975,7 @@ function recalcularE110(linhas, log) {
         const totDeb = c(f[2]) + c(f[3]) + c(f[4]) + c(f[5]);
         const totCred = c(f[6]) + c(f[7]) + c(f[8]) + c(f[9]);
         const base = totDeb - totCred - c(f[10]);
-        if (base >= 0) { setF(11, base); setF(13, Math.max(0, base - c(f[12]) + c(f[15]))); setF(14, 0); }
+        if (base >= 0) { setF(11, base); setF(13, Math.max(0, base - c(f[12]))); setF(14, 0); }
         else { setF(11, 0); setF(13, 0); setF(14, -base); }
         if (mudou) linhas[i110] = f.join('|');
     };
@@ -1179,11 +1181,39 @@ function corrigirD100Cancelado(linhas, log) {
     return n;
 }
 
+// ── Dedup de 0200 por COD_ITEM ──────────────────────────────────────────────────────────
+// PVA: "Duplicidade de ocorrência da chave COD_ITEM." Cada produto deve ter um único 0200. Alguns
+// ERPs repetem o 0200 (mesmo COD_ITEM). Mantém a 1ª ocorrência e remove as repetidas + seus filhos
+// contíguos (0205/0206/0210/0220/0221). Os C170 que referenciam o COD_ITEM continuam casando com o
+// 0200 mantido. 0200 f2=COD_ITEM. No-op byte-idêntico quando não há duplicata. Antes do recálculo X990.
+function dedupar0200(linhas, log) {
+    const FILHOS = new Set(['0205', '0206', '0210', '0220', '0221']);
+    const vistos = new Set();
+    const remover = new Set();
+    let nDup = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        if (linhas[i].split('|')[1] !== '0200') continue;
+        const cod = String(linhas[i].split('|')[2] || '').trim();
+        if (!cod) continue;
+        if (vistos.has(cod)) {
+            remover.add(i); nDup++;
+            let j = i + 1;
+            while (j < linhas.length && FILHOS.has(linhas[j].split('|')[1])) { remover.add(j); j++; }
+        } else vistos.add(cod);
+    }
+    if (!remover.size) return 0;
+    const novas = linhas.filter((_, i) => !remover.has(i));
+    linhas.length = 0; for (const l of novas) linhas.push(l);
+    if (log) log.add({ bloco: '0', registro: '0200', regraId: 'DOC-0200-DUP-01', motivo: `${nDup} registro(s) 0200 duplicado(s) (COD_ITEM repetido) removido(s)`, escopo: 'registro', antes: `${nDup} duplicado(s)`, depois: '(removidos)', origem: 'remocao', classe: 'estrutural-seguro' });
+    return nDup;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
     corrigirD100IndEmitOper,
     corrigirD100Cancelado,
+    dedupar0200,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,
