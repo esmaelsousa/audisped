@@ -9224,6 +9224,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (n) { changesApplied += n; logger.info(`[C191] ${n} VL_FCP_RET zerado(s) (pai não ST) no arquivo ${arquivoId}.`); }
         }
 
+        // ── D100: IND_EMIT × IND_OPER coerentes (CT-e de terceiros = entrada; CFOP-aware) ──
+        {
+            const { corrigirD100IndEmitOper } = require('./services/spedCostureiraService');
+            const n = corrigirD100IndEmitOper(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[D100] ${n} IND_EMIT/IND_OPER ajustado(s) (coerência terceiros/CFOP) no arquivo ${arquivoId}.`); }
+        }
+
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
         // Aplica overrides de campo que o cliente confirmou no Validador, ANTES do
         // recálculo de totalizadores (assim contagens permanecem corretas). Com a

@@ -238,6 +238,14 @@ t('c191 -: VL_FCP_RET zero não dispara', () => assert.ok(!fires(H(['|C190|040|1
 t('corrigirC191FcpRet: zera quando pai não é x60/500', () => { const { corrigirC191FcpRet } = require('../services/spedCostureiraService'); const l = ['|C190|040|1949|0,00|8,00|0|0|0|0||', '|C191|0,00|0,00|0,15|']; corrigirC191FcpRet(l); assert.equal(l[1], '|C191|0,00|0,00|0,00|'); });
 t('corrigirC191FcpRet: preserva quando pai é x60', () => { const { corrigirC191FcpRet } = require('../services/spedCostureiraService'); const l = ['|C190|060|1403|0,00|385|0|0|0|0||', '|C191|0,00|0,00|8,61|']; corrigirC191FcpRet(l); assert.equal(l[1], '|C191|0,00|0,00|8,61|'); });
 
+// DOC-D100-EMIT-01 (IND_EMIT=1 terceiros + IND_OPER de saída)
+const D100e = (oper, emit) => `|D100|${oper}|${emit}|CNPJ|57|00|001||1|chave|05052022|05052022|0||30,00|0|9|0|0|0|0||0|x|`;
+t('d100emit +: IND_EMIT=1 + IND_OPER=1 dispara', () => assert.ok(fires(H([D100e('1', '1')]), 'DOC-D100-EMIT-01')));
+t('d100emit -: IND_EMIT=1 + IND_OPER=0 não dispara', () => assert.ok(!fires(H([D100e('0', '1')]), 'DOC-D100-EMIT-01')));
+t('d100emit -: IND_EMIT=0 não dispara', () => assert.ok(!fires(H([D100e('1', '0')]), 'DOC-D100-EMIT-01')));
+t('corrigirD100: CFOP saída → IND_EMIT=0 (IND_OPER intacto)', () => { const { corrigirD100IndEmitOper } = require('../services/spedCostureiraService'); const l = [D100e('1', '1'), '|D190|060|5353|0,00|30|0|0|0|0||']; corrigirD100IndEmitOper(l); const f = l[0].split('|'); assert.equal(f[3], '0'); assert.equal(f[2], '1'); });
+t('corrigirD100: CFOP entrada → IND_OPER=0 (IND_EMIT intacto)', () => { const { corrigirD100IndEmitOper } = require('../services/spedCostureiraService'); const l = [D100e('1', '1'), '|D190|060|1353|0,00|30|0|0|0|0||']; corrigirD100IndEmitOper(l); const f = l[0].split('|'); assert.equal(f[2], '0'); assert.equal(f[3], '1'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

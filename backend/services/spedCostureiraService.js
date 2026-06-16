@@ -1132,9 +1132,34 @@ function corrigirC191FcpRet(linhas, log) {
     return n;
 }
 
+// ── D100: IND_EMIT × IND_OPER coerentes (doc de terceiros = entrada) ────────────────────
+// PVA (ADV): "Documento emitido por terceiros (IND_EMIT=1) deverá ter IND_OPER=0 (entrada)."
+// Mas seguir isso ao pé da letra pode criar CFOP de saída em doc de entrada. O CFOP do D190 filho
+// é a verdade: CFOP saída (5/6/7) → o doc É saída → emissão PRÓPRIA → IND_EMIT=0; CFOP entrada
+// (1/2/3) → o doc É entrada → IND_OPER=0. D100: f2=IND_OPER, f3=IND_EMIT. D190: f3=CFOP. Só toca
+// quando IND_EMIT=1 e IND_OPER≠0 (a incoerência que o PVA acusa). No-op byte-idêntico se já coerente.
+function corrigirD100IndEmitOper(linhas, log) {
+    let n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] !== 'D100') continue;
+        if (String(f[3] || '').trim() !== '1' || String(f[2] || '').trim() === '0') continue;
+        let dir = '';
+        for (let j = i + 1; j < linhas.length; j++) {
+            const r = linhas[j].split('|')[1];
+            if (!r || r[0] !== 'D' || r === 'D100' || r === 'D500' || r === 'D990') break;
+            if (r === 'D190') { const d = String(linhas[j].split('|')[3] || '').charAt(0); if ('123'.includes(d)) dir = 'entrada'; else if ('567'.includes(d)) dir = 'saida'; break; }
+        }
+        if (dir === 'saida') { const a = f[3]; f[3] = '0'; linhas[i] = f.join('|'); n++; if (log) log.add({ registro: 'D100', regraId: 'DOC-D100-EMIT-01', motivo: 'CT-e de SAÍDA (CFOP 5/6/7) → emissão própria: IND_EMIT 1→0', escopo: 'campo', linha: i, campo: 'IND_EMIT', antes: a, depois: '0', origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+        else if (dir === 'entrada') { const a = f[2]; f[2] = '0'; linhas[i] = f.join('|'); n++; if (log) log.add({ registro: 'D100', regraId: 'DOC-D100-EMIT-01', motivo: 'documento de terceiros (CFOP entrada) → IND_OPER 1→0', escopo: 'campo', linha: i, campo: 'IND_OPER', antes: a, depois: '0', origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+    }
+    return n;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
+    corrigirD100IndEmitOper,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,
