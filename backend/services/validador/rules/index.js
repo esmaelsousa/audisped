@@ -36,4 +36,6 @@ module.exports = [
     require('./r_0200_dup'),           // DOC-0200-DUP-01: COD_ITEM duplicado no 0200
     require('./r_monofasico_bc'),      // DOC-MONOF-BC-01: CST monofásico (02/15/53/61) em entrada com base de ICMS/ST
     require('./r_e210_saldo'),         // APUR-E210-SALDO-01: saldo do E210 (recolher/credor a transportar) incoerente
+    require('./r_e116_codrec'),        // DOC-E116-CODREC-01: E116 sem COD_REC (código de receita) — preenchido no export
+    require('./r_0100_contador'),      // DOC-0100-CONTADOR-01: 0100 (contabilista) sem CPF/CRC (manual — dado externo)
 ];

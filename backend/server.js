@@ -9359,6 +9359,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const n = injetarE116SeNecessario(outputLines, codRecE116, changelog);
                 if (n) { changesApplied += n; logger.info(`[E116] ${n} registro(s) E116 injetado(s) (COD_REC ${codRecE116}) no export do arquivo ${arquivoId}.`); }
             }
+            // E116 que EXISTE mas está sem COD_REC (f5 vazio) → preenche com o mesmo COD_REC
+            {
+                const { preencherE116CodRecVazio } = require('./services/spedCostureiraService');
+                const nc = preencherE116CodRecVazio(outputLines, codRecE116, changelog);
+                if (nc) { changesApplied += nc; logger.info(`[E116] ${nc} COD_REC vazio(s) preenchido(s) (${codRecE116}) no export do arquivo ${arquivoId}.`); }
+            }
         } catch (eE116) {
             logger.warn('[E116] injeção de E116 não aplicada (não bloqueia o export): ' + eE116.message);
         }

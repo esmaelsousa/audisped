@@ -1248,6 +1248,27 @@ function zerarBaseMonofasicoEntrada(linhas, log) {
     return n;
 }
 
+// ── E116 com COD_REC vazio: preenche o código de receita ─────────────────────────────────
+// PVA: "Campo obrigatório (COD_REC)." Alguns ERPs emitem o E116 SEM o código de receita (f5 vazio).
+// Diferente de injetarE116SeNecessario (que cria o E116 AUSENTE): aqui o E116 EXISTE, só falta o f5.
+// Preenche com o COD_REC informado (default global 0767, override por CNPJ em cad_apuracao_e116 — mesma
+// fonte). Só toca E116 com f5 vazio. No-op byte-idêntico quando já preenchido ou sem COD_REC. Antes do
+// recálculo X990. Caso: CASA DA BEBIDA 05/2026. Layout E116: f2 COD_OR, f3 VL_OR, f4 DT_VCTO, f5 COD_REC.
+function preencherE116CodRecVazio(linhas, codRec, log) {
+    codRec = String(codRec || '').trim();
+    if (!codRec) return 0;
+    let n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] !== 'E116' || f.length <= 5) continue;
+        if (String(f[5] || '').trim() === '') {
+            f[5] = codRec; linhas[i] = f.join('|'); n++;
+            if (log) log.add({ registro: 'E116', regraId: 'DOC-E116-CODREC-01', motivo: `COD_REC (código de receita) vazio preenchido (${codRec})`, escopo: 'campo', linha: i, campo: 'COD_REC', antes: '(vazio)', depois: codRec, origem: 'fiscal', classe: 'fiscal-deterministico' });
+        }
+    }
+    return n;
+}
+
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
@@ -1255,6 +1276,7 @@ module.exports = {
     corrigirD100Cancelado,
     dedupar0200,
     zerarBaseMonofasicoEntrada,
+    preencherE116CodRecVazio,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,

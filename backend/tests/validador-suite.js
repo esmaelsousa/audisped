@@ -266,6 +266,11 @@ t('monofásico: C170 CST 61 entrada zera BC/ALIQ/BC_ST, preserva VL_ICMS e VL_IC
 t('monofásico: C190 CST 61 entrada zera BC/BC_ST, preserva ALIQ/VL_ICMS/VL_ICMS_ST', () => { const { zerarBaseMonofasicoEntrada } = require('../services/spedCostureiraService'); const l = ['|C190|061|1652|12,86|11032,80|11032,80|1418,82|13770,00|352,00|0,00|0,00| |']; const n = zerarBaseMonofasicoEntrada(l); const f = l[0].split('|'); assert.equal(n, 1); assert.equal(f[6], '0,00'); assert.equal(f[8], '0,00'); assert.equal(f[4], '12,86'); assert.equal(f[7], '1418,82'); assert.equal(f[9], '352,00'); });
 t('monofásico: no-op em SAÍDA (CFOP 5) e em CST não monofásico', () => { const { zerarBaseMonofasicoEntrada } = require('../services/spedCostureiraService'); const saida = '|C190|061|5652|12,86|100,00|100,00|12,86|0,00|0,00|0,00|0,00| |'; const naoMonof = '|C190|000|1652|18,00|100,00|100,00|18,00|0,00|0,00|0,00|0,00| |'; const l = [saida, naoMonof]; assert.equal(zerarBaseMonofasicoEntrada(l), 0); assert.equal(l[0], saida); assert.equal(l[1], naoMonof); });
 
+// preencherE116CodRecVazio: preenche COD_REC (f5) vazio; no-op quando já preenchido ou sem codRec
+t('E116 COD_REC: preenche f5 vazio com o COD_REC informado', () => { const { preencherE116CodRecVazio } = require('../services/spedCostureiraService'); const l = ['|E116|000|91,50|01062026| | | | | |052026|']; const n = preencherE116CodRecVazio(l, '0767'); assert.equal(n, 1); assert.equal(l[0].split('|')[5], '0767'); });
+t('E116 COD_REC: no-op quando f5 já preenchido', () => { const { preencherE116CodRecVazio } = require('../services/spedCostureiraService'); const orig = '|E116|000|91,50|01062026|0767| | | | |052026|'; const l = [orig]; assert.equal(preencherE116CodRecVazio(l, '0759'), 0); assert.equal(l[0], orig); });
+t('E116 COD_REC: no-op sem codRec', () => { const { preencherE116CodRecVazio } = require('../services/spedCostureiraService'); const orig = '|E116|000|91,50|01062026| | | | | |052026|'; const l = [orig]; assert.equal(preencherE116CodRecVazio(l, ''), 0); assert.equal(l[0], orig); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

@@ -26,6 +26,8 @@ const PODE_DISPARAR = new Set([
     'DOC-0200-DUP-01',    // COD_ITEM duplicado no 0200 (deduplicado no export)
     'DOC-MONOF-BC-01',    // CST monofásico (02/15/53/61) em entrada com base de ICMS/ST (zerado no export)
     'APUR-E210-SALDO-01', // saldo do E210 incoerente com créditos/débitos ST (recalculado no export)
+    'DOC-E116-CODREC-01', // E116 sem COD_REC (preenchido no export c/ 0767 / cad_apuracao_e116)
+    'DOC-0100-CONTADOR-01', // 0100 (contabilista) sem CPF/CRC (manual — dado externo)
 ]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };
