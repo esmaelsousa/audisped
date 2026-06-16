@@ -30,4 +30,5 @@ module.exports = [
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques
     require('./r_h005_data'),          // INV-H005-01: DT_INV do inventário > data final do período
     require('./r_h010_inventario'),    // INV-H010-01: VL_INV do H005 ≠ soma dos VL_ITEM dos H010
+    require('./r_c191_fcp'),           // DOC-C191-FCP-01: VL_FCP_RET do C191 sem CST x60/500 no C190 pai
 ];

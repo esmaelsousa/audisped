@@ -20,6 +20,7 @@ const PODE_DISPARAR = new Set([
     'DOC-0200-GTIN-01',   // COD_BARRA não-numérico ("SEM GTIN")
     'CAD-0150-08',        // COD_PART do 1601 sem 0150 (credenciadora)
     'COMB-1350-1360-01',  // bomba (1350) sem lacre (1360) — corrigir no ERP
+    'DOC-C191-FCP-01',    // VL_FCP_RET do C191 sem CST x60/500 no C190 pai (zerado no export)
 ]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };

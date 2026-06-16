@@ -231,6 +231,13 @@ t('garantirRegistros9900: insere 9900 p/ registro sem entrada (E116)', () => { c
 t('garantirRegistros9900: no-op quando todos têm 9900', () => { const { garantirRegistros9900 } = require('../services/spedCostureiraService'); const l = ['|E110|0|', '|9900|E110|1|', '|9900|9900|2|', '|9900|9990|1|', '|9990|4|']; assert.equal(garantirRegistros9900(l), 0); });
 t('contadores: tipo presente sem entrada 9900 → "necessário totalizar"', () => { const mk = (reg, ...rest) => ({ reg, n: 1, f: ['', reg, ...rest] }); const linhas = [mk('E110', '0'), mk('E116', '000'), mk('9900', 'E110', '1'), mk('9999', '2')]; const porReg = new Map(); for (const l of linhas) { if (!porReg.has(l.reg)) porReg.set(l.reg, []); porReg.get(l.reg).push(l); } const erros = require('../services/validador/rules/r_contadores').detectar({ linhas, porReg, totalLinhas: 4, blocos: ['E', '9'] }); assert.ok(erros.some(e => e.detalhe.includes('totalizar os registros do tipo E116'))); });
 
+// DOC-C191-FCP-01 (VL_FCP_RET do C191 só com CST x60/500 no C190 pai)
+t('c191 +: VL_FCP_RET com C190 pai CST 040 dispara', () => assert.ok(fires(H(['|C190|040|1949|0,00|8,00|0|0|0|0||', '|C191|0,00|0,00|0,15|']), 'DOC-C191-FCP-01')));
+t('c191 -: VL_FCP_RET com C190 pai CST 060 (x60) não dispara', () => assert.ok(!fires(H(['|C190|060|1403|0,00|385|0|0|0|0||', '|C191|0,00|0,00|8,61|']), 'DOC-C191-FCP-01')));
+t('c191 -: VL_FCP_RET zero não dispara', () => assert.ok(!fires(H(['|C190|040|1949|0,00|8|0|0|0|0||', '|C191|0,00|0,00|0,00|']), 'DOC-C191-FCP-01')));
+t('corrigirC191FcpRet: zera quando pai não é x60/500', () => { const { corrigirC191FcpRet } = require('../services/spedCostureiraService'); const l = ['|C190|040|1949|0,00|8,00|0|0|0|0||', '|C191|0,00|0,00|0,15|']; corrigirC191FcpRet(l); assert.equal(l[1], '|C191|0,00|0,00|0,00|'); });
+t('corrigirC191FcpRet: preserva quando pai é x60', () => { const { corrigirC191FcpRet } = require('../services/spedCostureiraService'); const l = ['|C190|060|1403|0,00|385|0|0|0|0||', '|C191|0,00|0,00|8,61|']; corrigirC191FcpRet(l); assert.equal(l[1], '|C191|0,00|0,00|8,61|'); });
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

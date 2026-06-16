@@ -9217,6 +9217,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             enforcarCoerencia1300(outputLines, changelog); // muta in-place
         }
 
+        // ── C191: zera VL_FCP_RET quando o C190 pai não é x60/500 (FCP retido só vale p/ ST) ──
+        {
+            const { corrigirC191FcpRet } = require('./services/spedCostureiraService');
+            const n = corrigirC191FcpRet(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[C191] ${n} VL_FCP_RET zerado(s) (pai não ST) no arquivo ${arquivoId}.`); }
+        }
+
         // ── Correções do Validador (val_correcoes) — ADITIVO, opt-in ───────────
         // Aplica overrides de campo que o cliente confirmou no Validador, ANTES do
         // recálculo de totalizadores (assim contagens permanecem corretas). Com a

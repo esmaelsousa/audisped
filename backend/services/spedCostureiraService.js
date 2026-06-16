@@ -1109,8 +1109,32 @@ function garantirRegistros9900(linhas, log) {
     return inseridos;
 }
 
+// ── C191: VL_FCP_RET só com CST x60/500 no C190 pai ─────────────────────────────────
+// PVA: "VL_FCP_RET só pode ser preenchido se o CST_ICMS do registro pai (C190) for igual x60 ou 500."
+// O FCP RETIDO por ST não se aplica a item não-ST. Quando o C190 pai tem CST diferente de x60/500,
+// zera o VL_FCP_RET (C191 f4). C191 = |C191|VL_FCP_OP|VL_FCP_ST|VL_FCP_RET| (f2/f3/f4); C190 f2=CST.
+// No-op byte-idêntico quando já zerado ou todos os C191 têm pai ST. Roda antes do recálculo X990.
+function corrigirC191FcpRet(linhas, log) {
+    const ehST = (s) => { s = String(s || '').trim(); return (s.length === 3 && s.endsWith('60')) || s === '500'; };
+    let cstPai = '', n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] === 'C100') { cstPai = ''; continue; }
+        if (f[1] === 'C190') { cstPai = String(f[2] || '').trim(); continue; }
+        if (f[1] === 'C191' && f.length > 4) {
+            const v = parseFloat(String(f[4] || '0').replace(',', '.')) || 0;
+            if (v !== 0 && !ehST(cstPai)) {
+                const antes = f[4]; f[4] = '0,00'; linhas[i] = f.join('|'); n++;
+                if (log) log.add({ registro: 'C191', regraId: 'DOC-C191-FCP-01', motivo: `VL_FCP_RET zerado (FCP retido não se aplica: C190 pai CST ${cstPai || '?'} ≠ x60/500)`, escopo: 'campo', linha: i, campo: 'VL_FCP_RET', antes, depois: '0,00', origem: 'fiscal', classe: 'fiscal-deterministico' });
+            }
+        }
+    }
+    return n;
+}
+
 module.exports = {
     injetarXmlEPersistir,
+    corrigirC191FcpRet,
     gerarSpedFragmentado,
     costurarEAssinar,
     costurarEAssinarLinhas,
