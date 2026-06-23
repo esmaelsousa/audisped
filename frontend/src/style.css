@@ -24,6 +24,11 @@
   --color-ink: #121820;
   --color-risco: #646E6A;
   --color-line: #E2E6E4;
+  /* Tokens de profundidade do grafite (usados em TotalizerGauge, AppSidebar) */
+  --color-graphite-3: #161D24;  /* fundo dígito mais escuro */
+  --color-graphite-4: #2C353E;  /* trilho da barra de gauge */
+  /* Texto secundário sobre fundo escuro (sidebar, gauge label/legenda) */
+  --color-muted: #8A949C;
   /* Compat: nomes antigos aliasados às cores novas — telas ainda não migradas continuam
      funcionando e já adotam a paleta Aferição. Removidos no rollout final. */
   --color-naval: #1C232A;
@@ -34,6 +39,8 @@
   --font-display: "Familjen Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* Breakpoint unificado: sidebar drawer / hambúrguer / topbar alternam em 880px */
+  --breakpoint-md: 880px;
 }
 
 body { font-family: var(--font-body); background: var(--color-paper); color: var(--color-ink); }

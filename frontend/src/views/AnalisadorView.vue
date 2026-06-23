@@ -1428,44 +1428,47 @@ const afericaoRows = computed(() => {
         const severity = erro.tipo_erro === 'CRITICAL' ? 'lacre'
                        : erro.tipo_erro === 'WARNING'  ? 'variacao'
                        : 'conforme';
-        // origem: inferida pelo prefixo da regra
-        const prefixo = parts[0] || '';
-        const origem = prefixo === 'RTAX' ? 'fiscal'
-                     : prefixo === 'CRIT' ? 'fiscal'
-                     : prefixo === 'CAD'  ? 'manual'
-                     : prefixo === 'DOC'  ? 'injecao'
-                     : prefixo === 'EST'  ? 'auto'
-                     : 'auto';
+        // origem: prefixo REAL da regra_id (ex: RTAX, CRIT, CAD, DOC, EST)
+        // Não é uma procedência inventada — é o próprio identificador do grupo da regra.
+        const prefixo = parts[0] || (erro.regra_id || 'GERAL');
         return {
             severity,
             registro,
             campo: erro.titulo_erro || erro.regra_id,
-            // from: linha raw do SPED (se disponível e não vazia)
-            from: erro.conteudo_linha && erro.conteudo_linha.trim() ? erro.conteudo_linha.trim() : undefined,
+            // from: não usado como "linha antes" (não é um diff real de valor).
+            // conteudo_linha é contexto, exibido como texto secundário via campo.
+            from: undefined,
+            // to: descrição do erro/ocorrência
             to: erro.descricao_erro ? erro.descricao_erro.replace(/\*\*/g, '') : '—',
-            origem,
+            // contexto: linha SPED crua, se disponível (exibida pelo OccurrenceTable como texto secundário)
+            contexto: erro.conteudo_linha && erro.conteudo_linha.trim() ? erro.conteudo_linha.trim() : undefined,
+            origem: prefixo,
         };
     });
 });
 
-// ── Aferição: TotalizerGauge — variação de estoque do pior combustível ────────
-// Só exibido se houver dados reais de estoque com variação numérica
+// ── Aferição: TotalizerGauge — maior variação de estoque do período ──────────
+// Tolerância ANP (Portaria ANP 420/2019, §5°): 0,60% — Não alterar sem base legal.
+const LIMITE_ANP = 0.60
+// Gauge só é exibido se existirem dados reais com variação numérica (evita agulha falsa).
 const afericaoGauge = computed(() => {
     const es = auditResumoGerencial.value?.estoqueResumo || [];
     if (!es.length) return null;
-    // Pega o combustível com maior variação percentual
+    // Pega o combustível com maior variação percentual absoluta
     const pior = es.reduce((acc, x) => {
         const v = Math.abs(parseFloat(x.variacao_perc) || 0);
         return v > (Math.abs(parseFloat(acc.variacao_perc) || 0)) ? x : acc;
     }, es[0]);
     const varPerc = Math.abs(parseFloat(pior.variacao_perc) || 0);
+    // Se todos os combustíveis têm variação zero, omite o gauge (sem dado real para exibir)
     if (varPerc === 0 && es.every(x => (parseFloat(x.variacao_perc) || 0) === 0)) return null;
     return {
-        label: `Variação estoque — ${pior.nome_combustivel || pior.cod_item || 'Comb.'}`,
+        label: `Variação ANP — maior do período (${pior.nome_combustivel || pior.cod_item || 'Comb.'})`,
         value: varPerc.toFixed(2) + '%',
         min: 0,
-        max: 1.2, // teto visual: 2× a tolerância ANP
-        limit: 0.6,
+        // Teto visual = tolerância ANP (agulha além do limite indica irregularidade)
+        max: LIMITE_ANP,
+        limit: LIMITE_ANP,
         current: varPerc,
     };
 });

@@ -43,7 +43,7 @@ const chars = computed(() => props.value.split(''))
 <template>
   <div class="bg-graphite text-white px-[18px] py-[13px] flex flex-col justify-center">
     <!-- label -->
-    <div class="text-[11px] tracking-[.08em] uppercase font-medium" style="color:#8A949C">
+    <div class="text-[11px] tracking-[.08em] uppercase font-medium text-muted">
       {{ label }}
     </div>
 
@@ -52,21 +52,17 @@ const chars = computed(() => props.value.split(''))
       <span
         v-for="(ch, i) in chars"
         :key="i"
-        class="font-mono text-[26px] font-medium px-[7px] py-[2px] border-r border-white/[.12]"
+        class="font-mono text-[26px] font-medium px-[7px] py-[2px] border-r border-white/[.12] bg-graphite-3"
         :class="i === chars.length - 1 ? 'border-r-0 text-bronze' : 'text-white'"
-        style="background:#161D24"
       >{{ ch }}</span>
     </div>
 
     <!-- gauge bar -->
-    <div class="mt-[11px] h-[6px] relative rounded-[3px]" style="background:#2C353E">
-      <!-- fill gradiente até o pin -->
+    <div class="mt-[11px] h-[6px] relative rounded-[3px] bg-graphite-4">
+      <!-- fill sólido até o pin (cor conforme = dentro da tolerância) -->
       <div
-        class="absolute left-0 top-0 bottom-0 rounded-[3px]"
-        :style="{
-          width: pinPercent + '%',
-          background: 'linear-gradient(90deg, rgba(60,123,88,.5), rgba(181,132,15,.55))'
-        }"
+        class="absolute left-0 top-0 bottom-0 rounded-[3px] bg-conforme/50"
+        :style="{ width: pinPercent + '%' }"
       ></div>
       <!-- agulha bronze -->
       <div
@@ -80,7 +76,7 @@ const chars = computed(() => props.value.split(''))
     </div>
 
     <!-- legenda min/limit -->
-    <div class="flex justify-between mt-[6px] font-mono text-[10px]" style="color:#7E8890">
+    <div class="flex justify-between mt-[6px] font-mono text-[10px] text-muted">
       <span>{{ min.toFixed(2).replace('.', ',') }}%</span>
       <span>limite {{ limit.toFixed(2).replace('.', ',') }}%</span>
     </div>

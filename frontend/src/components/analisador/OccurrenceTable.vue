@@ -10,9 +10,9 @@ defineProps({
     //   severity: 'lacre'|'variacao'|'conforme',
     //   registro: string,
     //   campo: string,
-    //   from?: string,
-    //   to: string,
-    //   origem: string   -- passado para UiSelo :tipo
+    //   to: string,             -- descrição da ocorrência/erro
+    //   contexto?: string,      -- linha SPED crua (contexto secundário, não diff)
+    //   origem: string          -- prefixo real da regra_id (ex: RTAX, CRIT, CAD)
     // }>
   }
 })
@@ -40,8 +40,8 @@ const tarjaColor = (s) => ({
             <th class="w-[4px] p-0 bg-paper border-b border-line"></th>
             <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Registro</th>
             <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Campo</th>
-            <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Antes &rarr; Depois</th>
-            <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Origem</th>
+            <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Ocorrência</th>
+            <th class="sticky top-0 bg-paper text-left text-[11px] tracking-[.06em] uppercase text-risco font-semibold px-3 py-[9px] border-b border-line">Grupo</th>
             <th class="sticky top-0 bg-paper px-3 py-[9px] border-b border-line w-[32px]"></th>
           </tr>
         </thead>
@@ -69,16 +69,13 @@ const tarjaColor = (s) => ({
               {{ row.campo }}
             </td>
 
-            <!-- diff: from ▸ to -->
-            <td class="px-3 h-[34px] align-middle whitespace-nowrap">
-              <template v-if="row.from">
-                <span class="font-mono text-lacre line-through decoration-[1px]">{{ row.from }}</span>
-                <span class="text-risco mx-[5px]">&#9658;</span>
-              </template>
-              <span class="font-mono text-conforme font-medium">{{ row.to }}</span>
+            <!-- ocorrência: descrição do erro + contexto (linha SPED) como texto secundário -->
+            <td class="px-3 h-[34px] align-middle max-w-[360px]">
+              <span class="font-mono text-ink font-medium">{{ row.to }}</span>
+              <span v-if="row.contexto" class="block font-mono text-[10px] text-risco truncate mt-[1px]" :title="row.contexto">{{ row.contexto }}</span>
             </td>
 
-            <!-- origem via UiSelo -->
+            <!-- grupo (prefixo real da regra_id) via UiSelo -->
             <td class="px-3 h-[34px] align-middle whitespace-nowrap">
               <UiSelo :tipo="row.origem" />
             </td>

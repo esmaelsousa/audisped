@@ -55,7 +55,9 @@ function closeMenu() {
 
     <!-- Unauthenticated: full-screen RouterView (login page) -->
     <template v-else>
-      <RouterView />
+      <div class="flex-1 w-full">
+        <RouterView />
+      </div>
     </template>
 
   </div>
@@ -86,17 +88,6 @@ html, body {
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease-out; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-/* Tailwind 4: ensure md breakpoint maps correctly for sidebar show/hide */
-@media (min-width: 880px) {
-  .md\:hidden { display: none !important; }
-  .md\:static { position: static !important; }
-  .md\:translate-x-0 { transform: translateX(0) !important; }
-  .md\:flex { display: flex !important; }
-  .md\:flex-shrink-0 { flex-shrink: 0 !important; }
-  .md\:inline { display: inline !important; }
-}
-@media (max-width: 879px) {
-  .hidden.md\:flex { display: none !important; }
-  .hidden.md\:inline { display: none !important; }
-}
+/* Breakpoint md=880px declarado em style.css @theme --breakpoint-md.
+   As classes md:* são geradas automaticamente pelo Tailwind 4. */
 </style>

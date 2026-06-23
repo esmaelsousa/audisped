@@ -1,33 +1,9 @@
 <script setup>
 import { Menu } from 'lucide-vue-next'
-import { empresaSelecionada, arquivoInfo } from '@/store'
+import { empresaSelecionada } from '@/store'
+import { formatCnpj, competencia, layoutVer } from '@/utils/sped'
 
 defineEmits(['toggle-menu'])
-
-function formatCnpj(cnpj) {
-  if (!cnpj) return ''
-  const c = String(cnpj).replace(/\D/g, '')
-  if (c.length !== 14) return cnpj
-  return c.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
-}
-
-function competencia() {
-  if (!arquivoInfo.value) return null
-  const a = arquivoInfo.value
-  if (a.competencia) return a.competencia
-  if (a.periodo) return a.periodo
-  if (a.dt_ini) {
-    const s = String(a.dt_ini)
-    if (s.length === 8) return s.slice(2, 4) + '/' + s.slice(4)
-    return s
-  }
-  return null
-}
-
-function layoutVer() {
-  if (!arquivoInfo.value) return null
-  return arquivoInfo.value.cod_ver || arquivoInfo.value.versao || null
-}
 </script>
 
 <template>
@@ -73,12 +49,6 @@ function layoutVer() {
       </div>
     </div>
 
-    <!-- Status / Pendencias placeholder -->
-    <div class="ml-auto flex items-center gap-2 flex-shrink-0">
-      <span class="text-[12px] font-medium text-lacre hidden md:inline">
-        <!-- placeholder: rendered when there are pending issues -->
-      </span>
-    </div>
 
   </header>
 </template>
