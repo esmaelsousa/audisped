@@ -24,6 +24,12 @@
   --color-ink: #121820;
   --color-risco: #646E6A;
   --color-line: #E2E6E4;
+  /* Compat: nomes antigos aliasados às cores novas — telas ainda não migradas continuam
+     funcionando e já adotam a paleta Aferição. Removidos no rollout final. */
+  --color-naval: #1C232A;
+  --color-brand-accent: #A8631F;
+  --color-brand-surface: #F3F5F4;
+  --color-platinum: #E2E6E4;
   --radius: 6px;
   --font-display: "Familjen Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
