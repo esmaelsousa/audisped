@@ -12,13 +12,24 @@
   --color-primary-800: #1e293b;
   --color-primary-900: #0f172a;
 
-  /* Cores de Marca Baseadas em Corporate B2B */
-  --color-naval: #0F172A;
-  /* Um midnight blue quase preto para a Sidebar e Topbar */
-  --color-platinum: #E2E8F0;
-  /* Bordas e Divisórias Ultra finas e elegantes */
-  --color-brand-accent: #2563EB;
-  /* Azul Royal para botões de Ação (Aprovado/Avançar) */
-  --color-brand-surface: #F8FAFC;
-  /* Fundo base da aplicação fora das folhas brancas */
+  /* Tokens do sistema Aferição */
+  --color-graphite: #1C232A;
+  --color-graphite-2: #232C35;
+  --color-paper: #F3F5F4;
+  --color-sheet: #FFFFFF;
+  --color-bronze: #A8631F;
+  --color-conforme: #3C7B58;
+  --color-variacao: #B5840F;
+  --color-lacre: #AE3A33;
+  --color-ink: #121820;
+  --color-risco: #646E6A;
+  --color-line: #E2E6E4;
+  --radius: 6px;
+  --font-display: "Familjen Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
+
+body { font-family: var(--font-body); background: var(--color-paper); color: var(--color-ink); }
+:focus-visible { outline: 2px solid var(--color-bronze); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
