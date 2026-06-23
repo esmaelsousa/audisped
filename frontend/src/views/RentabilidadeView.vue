@@ -4,6 +4,7 @@ import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import { useRoute } from 'vue-router'
 import { Loader2, TrendingUp, Package, DollarSign, Percent, FileDown } from 'lucide-vue-next'
+import UiButton from '../components/ui/UiButton.vue'
 
 const route = useRoute();
 const loading = ref(true);
@@ -81,129 +82,128 @@ const formatNumber = (val, decimals = 2) => new Intl.NumberFormat('pt-BR', { min
 </script>
 
 <template>
-  <div class="p-6 space-y-8 animate-fade-in">
-    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div>
-        <h2 class="text-3xl font-extrabold text-slate-800 tracking-tight">
-          Posição do <span class="text-emerald-500">Estoque</span>
+  <div class="max-w-7xl mx-auto p-6 space-y-6 animate-fade-in">
+    <header class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-line pb-5">
+      <div class="space-y-1">
+        <h2 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink">
+          Posição do Estoque
         </h2>
-        <p class="text-slate-500 mt-1">Análise estratégica de giro, custos e movimentação por produto</p>
+        <p class="text-[13px] text-risco">Análise estratégica de giro, custos e movimentação por produto</p>
       </div>
-      <div class="flex items-center gap-3">
-        <input 
-          v-model="busca" 
-          type="text" 
-          placeholder="Buscar produto ou código..." 
-          class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none w-64 shadow-sm"
+      <div class="flex items-center gap-2.5">
+        <input
+          v-model="busca"
+          type="text"
+          placeholder="Buscar produto ou código..."
+          class="px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink placeholder-risco outline-none focus:border-bronze transition-colors w-64"
         />
-        <button 
-          @click="exportPDF" 
-          class="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 transition-all shadow-md active:scale-95"
+        <UiButton
+          @click="exportPDF"
           title="Exportar Relatório em PDF"
         >
-          <FileDown class="w-4 h-4" />
+          <FileDown class="w-4 h-4" :stroke-width="1.8" />
           Exportar PDF
-        </button>
-        <button @click="loadRentabilidade" class="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
-          <Loader2 v-if="loading" class="w-5 h-5 animate-spin text-emerald-500" />
+        </UiButton>
+        <UiButton variant="ghost" @click="loadRentabilidade">
+          <Loader2 v-if="loading" class="w-4 h-4 animate-spin text-bronze" :stroke-width="1.8" />
           <span v-else>🔄</span>
-        </button>
+        </UiButton>
       </div>
     </header>
 
     <!-- Filtro de Grupos -->
-    <div class="flex p-1 bg-slate-100/50 rounded-2xl w-fit border border-slate-100">
-      <button 
-        v-for="grupo in ['COMBUSTÍVEIS', 'OUTROS', 'TODOS']" 
+    <div class="flex p-1 bg-paper rounded-md w-fit border border-line">
+      <button
+        v-for="grupo in ['COMBUSTÍVEIS', 'OUTROS', 'TODOS']"
         :key="grupo"
         @click="grupoAtivo = grupo"
-        class="px-6 py-2 rounded-xl text-xs font-black transition-all"
-        :class="grupoAtivo === grupo ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'"
+        class="px-5 py-1.5 rounded-md text-[11px] uppercase tracking-wide font-medium transition-colors"
+        :class="grupoAtivo === grupo ? 'bg-sheet text-bronze border border-line' : 'text-risco hover:text-ink border border-transparent'"
       >
         {{ grupo }}
       </button>
     </div>
 
     <!-- Cards de Resumo -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-        <div class="w-12 h-12 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center">
-          <Package class="w-6 h-6" />
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-sheet p-5 rounded-md border border-line card-shadow flex items-center gap-4">
+        <div class="w-11 h-11 bg-paper border border-line text-bronze rounded-md flex items-center justify-center flex-shrink-0">
+          <Package class="w-5 h-5" :stroke-width="1.7" />
         </div>
         <div>
-          <p class="text-xs font-bold text-slate-400 uppercase">Volume Total Vendido</p>
-          <h3 class="text-2xl font-black text-slate-800">{{ formatNumber(stats.totalVendas) }} L</h3>
-        </div>
-      </div>
-      
-      <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-        <div class="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center">
-          <TrendingUp class="w-6 h-6" />
-        </div>
-        <div>
-          <p class="text-xs font-bold text-slate-400 uppercase">Volume Comprado</p>
-          <h3 class="text-2xl font-black text-slate-800">{{ formatNumber(stats.totalCompras) }} L</h3>
+          <p class="text-[10px] uppercase tracking-wide text-risco font-medium">Volume Total Vendido</p>
+          <h3 class="font-mono text-[22px] text-ink">{{ formatNumber(stats.totalVendas) }} L</h3>
         </div>
       </div>
 
-      <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-        <div class="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center">
-          <DollarSign class="w-6 h-6" />
+      <div class="bg-sheet p-5 rounded-md border border-line card-shadow flex items-center gap-4">
+        <div class="w-11 h-11 bg-conforme/10 border border-conforme/20 text-conforme rounded-md flex items-center justify-center flex-shrink-0">
+          <TrendingUp class="w-5 h-5" :stroke-width="1.7" />
         </div>
         <div>
-          <p class="text-xs font-bold text-slate-400 uppercase">Saldo Total Estoque</p>
-          <h3 class="text-2xl font-black text-slate-800">{{ formatNumber(stats.estoqueTotal) }} L</h3>
+          <p class="text-[10px] uppercase tracking-wide text-risco font-medium">Volume Comprado</p>
+          <h3 class="font-mono text-[22px] text-ink">{{ formatNumber(stats.totalCompras) }} L</h3>
+        </div>
+      </div>
+
+      <div class="bg-sheet p-5 rounded-md border border-line card-shadow flex items-center gap-4">
+        <div class="w-11 h-11 bg-variacao/10 border border-variacao/20 text-variacao rounded-md flex items-center justify-center flex-shrink-0">
+          <DollarSign class="w-5 h-5" :stroke-width="1.7" />
+        </div>
+        <div>
+          <p class="text-[10px] uppercase tracking-wide text-risco font-medium">Saldo Total Estoque</p>
+          <h3 class="font-mono text-[22px] text-ink">{{ formatNumber(stats.estoqueTotal) }} L</h3>
         </div>
       </div>
     </div>
 
     <!-- Tabela Principal -->
-    <div class="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+    <div class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
       <div v-if="loading" class="p-20 flex flex-col items-center justify-center gap-4">
-        <Loader2 class="w-10 h-10 animate-spin text-emerald-500" />
-        <p class="text-slate-400 font-medium italic">Cruzando dados de vendas e estoque...</p>
+        <Loader2 class="w-9 h-9 animate-spin text-bronze" :stroke-width="1.7" />
+        <p class="text-[13px] text-risco">Cruzando dados de vendas e estoque...</p>
       </div>
 
       <div v-else-if="filteredData.length === 0" class="p-20 text-center">
-        <p class="text-slate-400 font-medium">Nenhum dado encontrado para este período.</p>
+        <p class="text-[13px] text-risco">Nenhum dado encontrado para este período.</p>
       </div>
 
       <table v-else class="w-full text-left border-collapse">
-        <thead class="bg-slate-50/50 border-b border-slate-100">
+        <thead class="bg-paper border-b border-line">
           <tr>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Código</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Produto</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Estq. Inicial</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Entradas</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Venda</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Estq. Final</th>
-            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Custo (M)</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em]">Código</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em]">Produto</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em] text-right">Estq. Inicial</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em] text-right">Entradas</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em] text-right">Venda</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em] text-right">Estq. Final</th>
+            <th class="px-6 py-3 text-[10px] font-semibold text-risco uppercase tracking-[.08em] text-right">Custo (M)</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-50">
-          <tr v-for="item in filteredData" :key="item.codigo" class="hover:bg-slate-50/50 transition-colors group">
-            <td class="px-6 py-4 text-[10px] font-mono text-slate-400 max-w-[120px] truncate" :title="item.codigo">
+        <tbody>
+          <tr v-for="item in filteredData" :key="item.codigo" class="border-t border-line hover:bg-paper transition-colors group">
+            <td class="px-6 py-3 text-[11px] font-mono text-risco max-w-[120px] truncate" :title="item.codigo">
                 {{ item.codigo }}
             </td>
-            <td class="px-6 py-4">
-              <div class="font-bold text-slate-700 text-sm">{{ item.produto }}</div>
+            <td class="px-6 py-3">
+              <div class="font-medium text-ink text-[13px]">{{ item.produto }}</div>
             </td>
-            <td class="px-6 py-4 text-right text-xs text-slate-500 font-medium">
+            <td class="px-6 py-3 text-right text-[12px] font-mono text-risco">
                 {{ formatNumber(item.estoque_inicial) }}
             </td>
-            <td class="px-6 py-4 text-right text-xs text-slate-700 font-bold">
+            <td class="px-6 py-3 text-right text-[12px] font-mono text-ink font-medium">
                 {{ formatNumber(item.qtd_comprada) }}
             </td>
-            <td class="px-6 py-4 text-right font-black text-slate-700 text-sm">
+            <td class="px-6 py-3 text-right font-mono text-ink text-[13px] font-medium">
                 {{ formatNumber(item.qtd_vendida) }}
             </td>
-            <td class="px-6 py-4 text-right text-xs font-bold" :class="item.estoque_final < 0 ? 'text-red-500' : 'text-slate-700'">
+            <td class="px-6 py-3 text-right text-[12px] font-mono font-medium" :class="item.estoque_final < 0 ? 'text-lacre' : 'text-ink'">
                 {{ formatNumber(item.estoque_final) }}
             </td>
-            <td class="px-6 py-4 text-right text-sm font-medium text-slate-600 border-l border-slate-50">
+            <td class="px-6 py-3 text-right text-[13px] font-mono text-ink border-l border-line">
                 <div class="flex flex-col items-end">
                     <span>{{ formatCurrency(item.custo_medio) }}</span>
-                    <span v-if="item.usou_historico_custo" class="text-[8px] text-slate-400 uppercase font-bold tracking-tighter">Custo Histórico</span>
+                    <span v-if="item.usou_historico_custo" class="text-[9px] text-risco uppercase font-medium tracking-[-0.01em]">Custo Histórico</span>
                 </div>
             </td>
           </tr>
@@ -211,8 +211,21 @@ const formatNumber = (val, decimals = 2) => new Intl.NumberFormat('pt-BR', { min
       </table>
     </div>
 
-    <footer class="text-[10px] text-slate-400 italic text-center pb-8">
+    <footer class="text-[11px] text-risco text-center pb-8">
       * Preços médios e custos calculados a partir das NF-e (Entradas e Saídas) e do Registro 1300 identificados no SPED.
     </footer>
   </div>
 </template>
+
+<style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>

@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api';
 import { useRouter } from 'vue-router';
 import { token, empresaSelecionada } from '../store';
 import SpedPreview from '@/components/SpedPreview.vue';
+import UiButton from '@/components/ui/UiButton.vue';
 import { 
   UploadCloud, 
   X, 
@@ -615,33 +616,33 @@ async function prepararPainel() {
     <div v-if="empresaSelecionada" class="max-w-6xl w-full mx-auto flex flex-col gap-6 animate-fade-in">
         
         <!-- Breadcrumb e Título -->
-        <div class="flex flex-col gap-1 border-b border-slate-200 pb-6">
-            <div class="flex items-center gap-2 text-sm text-slate-500 font-medium mb-1">
+        <div class="flex flex-col gap-1 border-b border-line pb-6">
+            <div class="flex items-center gap-2 text-[12px] text-risco font-medium mb-1">
                 <span>Clientes</span>
-                <ChevronRight class="w-4 h-4 text-slate-300" />
-                <RouterLink :to="`/dashboard/${empresaSelecionada.id}`" class="hover:text-brand-accent transition-colors">
+                <ChevronRight class="w-4 h-4 text-line" :stroke-width="1.8" />
+                <RouterLink :to="`/dashboard/${empresaSelecionada.id}`" class="hover:text-bronze transition-colors">
                     {{ empresaSelecionada.nome_empresa }}
                 </RouterLink>
-                <ChevronRight class="w-4 h-4 text-slate-300" />
-                <span class="text-slate-900">Injetor de Notas (XML)</span>
+                <ChevronRight class="w-4 h-4 text-line" :stroke-width="1.8" />
+                <span class="text-ink">Injetor de Notas (XML)</span>
             </div>
-            <h1 class="text-3xl font-semibold text-slate-900 tracking-tight">Motor de Injeção XML</h1>
-            <p class="text-slate-500 text-sm">Force a reconstrução do arquivo SPED inserindo notas fiscais omitidas retroativamente.</p>
+            <h1 class="font-display text-[26px] font-semibold text-ink tracking-[-0.01em]">Motor de Injeção XML</h1>
+            <p class="text-risco text-[13px]">Force a reconstrução do arquivo SPED inserindo notas fiscais omitidas retroativamente.</p>
         </div>
 
         <!-- Regras Fiscais Corporativas -->
-        <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-col gap-5 shadow-sm">
+        <div class="bg-sheet rounded-md border border-line p-6 flex flex-col gap-5 card-shadow">
             <div class="flex items-center justify-between">
-                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <Settings2 class="w-4 h-4 text-slate-400" />
+                <h2 class="text-[11px] font-medium text-risco uppercase tracking-wide flex items-center gap-2">
+                    <Settings2 class="w-4 h-4 text-risco" :stroke-width="1.8" />
                     Parâmetros Fiscais da Injeção
                 </h2>
                 <button
                     @click="toggleModoGrupos"
-                    :class="modoGrupos ? 'bg-brand-accent text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                    class="text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                    :class="modoGrupos ? 'bg-bronze text-white border-bronze' : 'bg-paper text-risco border-line hover:bg-line/50'"
+                    class="text-[11px] font-medium uppercase tracking-wide px-3 py-1.5 rounded-md border transition-colors flex items-center gap-1.5"
                 >
-                    <Sparkles class="w-3.5 h-3.5" />
+                    <Sparkles class="w-3.5 h-3.5" :stroke-width="1.8" />
                     {{ modoGrupos ? 'Modo Grupos Ativo' : 'Ativar Modo Grupos' }}
                 </button>
             </div>
@@ -649,28 +650,28 @@ async function prepararPainel() {
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- SPED Alvo -->
                 <div class="flex flex-col gap-1.5">
-                    <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Base do SPED (Alvo)</label>
+                    <label class="text-[11px] font-medium text-risco uppercase tracking-wide">Base do SPED (Alvo)</label>
                     <div class="relative">
-                        <select v-model="idSpedBase" class="w-full bg-slate-50 border border-slate-200 text-sm text-slate-700 font-medium px-3 py-2.5 rounded-lg outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent appearance-none cursor-pointer">
+                        <select v-model="idSpedBase" class="w-full bg-sheet border border-line text-[13px] text-ink px-3 py-2.5 rounded-md outline-none focus:border-bronze appearance-none cursor-pointer transition-colors">
                             <option value="">Apenas testar tabelas (Simulação)</option>
                             <option v-for="arq in spedFiles" :key="arq.id" :value="arq.id">
                                 SPED: {{ arq.periodo_apuracao }}
                             </option>
                         </select>
-                        <ChevronRight class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                        <ChevronRight class="w-4 h-4 text-risco absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" :stroke-width="1.8" />
                     </div>
                 </div>
 
                 <!-- CFOP Padrão -->
                 <div class="flex flex-col gap-1.5">
-                    <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CFOP Padrão de Entrada</label>
+                    <label class="text-[11px] font-medium text-risco uppercase tracking-wide">CFOP Padrão de Entrada</label>
                     <div class="relative">
-                        <select v-model="cfopPadrao" class="w-full bg-slate-50 border border-slate-200 text-sm text-slate-700 font-medium px-3 py-2.5 rounded-lg outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent appearance-none cursor-pointer">
+                        <select v-model="cfopPadrao" class="w-full bg-sheet border border-line text-[13px] text-ink px-3 py-2.5 rounded-md outline-none focus:border-bronze appearance-none cursor-pointer transition-colors">
                             <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">
                                 {{ c.codigo }} — {{ c.descricao }}
                             </option>
                         </select>
-                        <ChevronRight class="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                        <ChevronRight class="w-4 h-4 text-risco absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" :stroke-width="1.8" />
                     </div>
                 </div>
 
@@ -680,15 +681,15 @@ async function prepararPainel() {
                         <label class="flex items-center gap-3 cursor-pointer group">
                             <div class="relative flex items-center justify-center">
                                 <input type="checkbox" v-model="forcarUsoConsumo" class="peer sr-only" />
-                                <div class="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-brand-accent peer-checked:border-brand-accent transition-colors flex items-center justify-center">
+                                <div class="w-5 h-5 border-2 border-line rounded peer-checked:bg-bronze peer-checked:border-bronze transition-colors flex items-center justify-center">
                                     <svg class="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm font-medium text-slate-800 leading-tight">Zerar ICMS (Desoneração)</span>
-                                <span class="text-[10px] text-slate-500">Forçar CST 040 e zerar BC (CFOP 1556)</span>
+                                <span class="text-[13px] font-medium text-ink leading-tight">Zerar ICMS (Desoneração)</span>
+                                <span class="text-[11px] text-risco">Forçar CST 040 e zerar BC (CFOP 1556)</span>
                             </div>
                         </label>
                     </div>
@@ -697,15 +698,15 @@ async function prepararPainel() {
                         <label class="flex items-center gap-3 cursor-pointer group">
                             <div class="relative flex items-center justify-center">
                                 <input type="checkbox" v-model="ajusteIpi" class="peer sr-only" />
-                                <div class="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-brand-accent peer-checked:border-brand-accent transition-colors flex items-center justify-center">
+                                <div class="w-5 h-5 border-2 border-line rounded peer-checked:bg-bronze peer-checked:border-bronze transition-colors flex items-center justify-center">
                                     <svg class="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm font-medium text-slate-800 leading-tight">Ajustar IPI (Custo)</span>
-                                <span class="text-[10px] text-slate-500">Somar IPI ao valor do item e zerar imposto</span>
+                                <span class="text-[13px] font-medium text-ink leading-tight">Ajustar IPI (Custo)</span>
+                                <span class="text-[11px] text-risco">Somar IPI ao valor do item e zerar imposto</span>
                             </div>
                         </label>
                     </div>
@@ -714,15 +715,15 @@ async function prepararPainel() {
                         <label class="flex items-center gap-3 cursor-pointer group">
                             <div class="relative flex items-center justify-center">
                                 <input type="checkbox" v-model="ajusteIcms" class="peer sr-only" />
-                                <div class="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-brand-accent peer-checked:border-brand-accent transition-colors flex items-center justify-center">
+                                <div class="w-5 h-5 border-2 border-line rounded peer-checked:bg-bronze peer-checked:border-bronze transition-colors flex items-center justify-center">
                                     <svg class="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm font-medium text-slate-800 leading-tight">Ajustar ICMS (Custo)</span>
-                                <span class="text-[10px] text-slate-500">Somar ICMS ao valor do item e zerar imposto</span>
+                                <span class="text-[13px] font-medium text-ink leading-tight">Ajustar ICMS (Custo)</span>
+                                <span class="text-[11px] text-risco">Somar ICMS ao valor do item e zerar imposto</span>
                             </div>
                         </label>
                     </div>
@@ -731,15 +732,15 @@ async function prepararPainel() {
                         <label class="flex items-center gap-3 cursor-pointer group">
                             <div class="relative flex items-center justify-center">
                                 <input type="checkbox" v-model="pularDuplicados" class="peer sr-only" />
-                                <div class="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-brand-accent peer-checked:border-brand-accent transition-colors flex items-center justify-center">
+                                <div class="w-5 h-5 border-2 border-line rounded peer-checked:bg-bronze peer-checked:border-bronze transition-colors flex items-center justify-center">
                                     <svg class="w-3 h-3 text-white opacity-0 peer-checked:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
                             </div>
                             <div class="flex flex-col">
-                                <span class="text-sm font-medium text-slate-800 leading-tight">Pular Chaves Duplicadas</span>
-                                <span class="text-[10px] text-slate-500">Ignorar notas que já foram injetadas neste SPED</span>
+                                <span class="text-[13px] font-medium text-ink leading-tight">Pular Chaves Duplicadas</span>
+                                <span class="text-[11px] text-risco">Ignorar notas que já foram injetadas neste SPED</span>
                             </div>
                         </label>
                     </div>
@@ -750,56 +751,56 @@ async function prepararPainel() {
         <!-- Área de Upload e Console -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" :class="modoGrupos ? 'min-h-[500px]' : 'h-[500px]'">
             <!-- Coluna 1: Upload de XML (modo simples) -->
-            <div v-if="!modoGrupos" class="bg-white rounded-xl border border-slate-200 p-5 flex flex-col flex-1 shadow-sm">
+            <div v-if="!modoGrupos" class="bg-sheet rounded-md border border-line p-5 flex flex-col flex-1 card-shadow">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <UploadCloud class="w-4 h-4 text-slate-400" />
+                    <h2 class="text-[11px] font-medium text-risco uppercase tracking-wide flex items-center gap-2">
+                        <UploadCloud class="w-4 h-4 text-risco" :stroke-width="1.8" />
                         Notas Fiscais (NFe)
                     </h2>
-                    
-                    <button v-if="xmlFiles.length > 0" @click="xmlFiles = []" class="text-[10px] uppercase font-bold tracking-wider text-red-500 hover:text-red-700 transition-colors">
+
+                    <button v-if="xmlFiles.length > 0" @click="xmlFiles = []" class="text-[10px] uppercase font-medium tracking-wide text-lacre hover:opacity-80 transition-opacity">
                         Limpar Fila
                     </button>
                 </div>
 
                 <!-- Drag & Drop B2B style -->
                 <input type="file" id="xml-upload" class="hidden" multiple accept=".xml" @change="handleFileDrop" />
-                <div 
+                <div
                     @click="triggerFileInput"
                     @dragover.prevent
                     @drop.prevent="handleFileDrop"
-                    class="border border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 hover:border-slate-400 transition-colors flex flex-col items-center justify-center gap-2 py-6 cursor-pointer mb-3 relative overflow-hidden group"
+                    class="border border-dashed border-line rounded-md bg-paper hover:border-bronze transition-colors flex flex-col items-center justify-center gap-2 py-6 cursor-pointer mb-3 relative overflow-hidden group"
                 >
-                    <HardDriveUpload class="w-6 h-6 text-slate-400 group-hover:text-brand-accent transition-colors" />
-                    <p class="text-slate-600 text-xs font-semibold">Arraste os arquivos XML ou clique para buscar</p>
+                    <HardDriveUpload class="w-6 h-6 text-risco group-hover:text-bronze transition-colors" :stroke-width="1.8" />
+                    <p class="text-risco text-[12px] font-medium">Arraste os arquivos XML ou clique para buscar</p>
                 </div>
 
                 <div class="flex items-center gap-2 mb-3">
-                    <button 
+                    <button
                         @click="analyzeItems"
                         :disabled="xmlFiles.length === 0 || isAnalyzing"
-                        class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wider py-2 rounded-lg transition-colors flex items-center justify-center gap-2 border border-slate-200"
+                        class="flex-1 bg-paper hover:bg-line/50 text-ink text-[11px] font-medium uppercase tracking-wide py-2 rounded-md transition-colors flex items-center justify-center gap-2 border border-line disabled:opacity-50"
                     >
-                        <TableProperties class="w-3.5 h-3.5" />
+                        <TableProperties class="w-3.5 h-3.5" :stroke-width="1.8" />
                         {{ isAnalyzing ? 'Analisando...' : 'De-Para em Lote (Itens)' }}
                     </button>
-                    <div v-if="detectedItems.length > 0" class="bg-emerald-100 text-emerald-700 text-[9px] px-2 py-1 rounded font-bold">
+                    <div v-if="detectedItems.length > 0" class="bg-conforme/10 text-conforme text-[9px] px-2 py-1 rounded-[3px] font-medium border border-conforme/25">
                         {{ detectedItems.length }} ITENS MAPEADOS
                     </div>
                 </div>
 
                 <!-- Fila de Arquivos -->
-                <div class="flex-1 overflow-y-auto mb-4 border border-slate-100 rounded-lg bg-slate-50/50 p-2">
-                    <div v-if="xmlFiles.length === 0" class="h-full flex items-center justify-center text-xs text-slate-400 font-medium">
+                <div class="flex-1 overflow-y-auto mb-4 border border-line rounded-md bg-paper p-2">
+                    <div v-if="xmlFiles.length === 0" class="h-full flex items-center justify-center text-[12px] text-risco font-medium">
                         Nenhuma nota inserida na fila.
                     </div>
-                    <ul v-else class="divide-y divide-slate-100">
-                        <li v-for="(file, index) in xmlFiles" :key="index" class="flex items-center justify-between px-3 py-2 hover:bg-white group transition-colors">
-                            <span class="text-xs text-slate-600 font-mono truncate mr-2" :title="file.name">
+                    <ul v-else class="divide-y divide-line">
+                        <li v-for="(file, index) in xmlFiles" :key="index" class="flex items-center justify-between px-3 py-2 hover:bg-sheet group transition-colors">
+                            <span class="text-[12px] text-ink font-mono truncate mr-2" :title="file.name">
                                 {{ file.name }}
                             </span>
-                            <button @click.stop="removeFile(index)" class="text-slate-300 hover:text-red-500 transition-colors" title="Remover da fila">
-                                <X class="w-3.5 h-3.5" />
+                            <button @click.stop="removeFile(index)" class="text-risco hover:text-lacre transition-colors" title="Remover da fila">
+                                <X class="w-3.5 h-3.5" :stroke-width="1.8" />
                             </button>
                         </li>
                     </ul>
@@ -808,81 +809,82 @@ async function prepararPainel() {
                 <!-- Action CTA -->
                 <div class="flex flex-col gap-3">
                     <div class="flex gap-2">
-                        <button 
-                            @click="simularInjecao" 
+                        <UiButton
+                            variant="ghost"
+                            @click="simularInjecao"
                             :disabled="xmlFiles.length === 0 || isLoading"
-                            class="flex-1 bg-white border border-brand-accent text-brand-accent hover:bg-brand-accent hover:text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm shadow-sm"
+                            class="flex-1 justify-center py-3 disabled:opacity-50"
                         >
-                            <Eye v-if="!isLoading" class="w-4 h-4" />
+                            <Eye v-if="!isLoading" class="w-4 h-4" :stroke-width="1.8" />
                             <span>{{ isLoading ? 'Aguarde...' : 'Gerar Prévia' }}</span>
-                        </button>
+                        </UiButton>
 
-                        <button
+                        <UiButton
                             @click="parseXmls()"
                             :disabled="xmlFiles.length === 0 || isLoading || !idSpedBase"
-                            class="flex-[2] bg-brand-accent hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
+                            class="flex-[2] justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <Activity v-if="isLoading" class="w-4 h-4 animate-spin" />
+                            <Activity v-if="isLoading" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
                             <span v-if="isLoading">Processando...</span>
                             <span v-else>Injetar no SPED</span>
-                        </button>
+                        </UiButton>
                     </div>
 
-                    <button 
-                        @click="standaloneExport" 
+                    <button
+                        @click="standaloneExport"
                         :disabled="xmlFiles.length === 0 || isLoading"
-                        class="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
+                        class="w-full bg-graphite hover:opacity-90 text-white font-medium py-3 rounded-md transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-[13px]"
                     >
-                        <Download v-if="!isLoading" class="w-4 h-4" />
-                        <Activity v-else class="w-4 h-4 animate-spin" />
+                        <Download v-if="!isLoading" class="w-4 h-4" :stroke-width="1.8" />
+                        <Activity v-else class="w-4 h-4 animate-spin" :stroke-width="1.8" />
                         <span>Ejeção Standalone (Gerar SPED Novo)</span>
                     </button>
 
-                    <button 
+                    <UiButton
                         v-if="successInjectedId"
-                        @click="downloadResultSped" 
-                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 text-sm shadow-lg animate-bounce mt-2"
+                        @click="downloadResultSped"
+                        class="w-full justify-center py-3 mt-2"
                     >
-                        <Download class="w-5 h-5" />
+                        <Download class="w-5 h-5" :stroke-width="1.8" />
                         <span>BAIXAR SPED RETIFICADO AGORA</span>
-                    </button>
+                    </UiButton>
                 </div>
             </div>
 
             <!-- Coluna 1: Modo Grupos -->
-            <div v-else class="bg-white rounded-xl border border-slate-200 p-5 flex flex-col shadow-sm">
+            <div v-else class="bg-sheet rounded-md border border-line p-5 flex flex-col card-shadow">
                 <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <Sparkles class="w-4 h-4 text-brand-accent" />
+                    <h2 class="text-[11px] font-medium text-risco uppercase tracking-wide flex items-center gap-2">
+                        <Sparkles class="w-4 h-4 text-bronze" :stroke-width="1.8" />
                         Grupos de Injeção
                     </h2>
-                    <button @click="adicionarGrupo" class="text-[11px] uppercase font-bold tracking-wider text-brand-accent hover:text-blue-700 transition-colors">
+                    <button @click="adicionarGrupo" class="text-[11px] uppercase font-medium tracking-wide text-bronze hover:opacity-80 transition-opacity">
                         + Adicionar Grupo
                     </button>
                 </div>
 
                 <!-- Lista de Grupos -->
                 <div class="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar-term">
-                    <div v-for="(grupo, idx) in grupos" :key="grupo.id" class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+                    <div v-for="(grupo, idx) in grupos" :key="grupo.id" class="border border-line rounded-md p-3 bg-paper">
                         <!-- Header do Grupo -->
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="text-xs font-bold text-slate-700">Grupo {{ idx + 1 }}</span>
-                                <span v-if="grupo.status === 'processando'" class="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold">PROCESSANDO</span>
-                                <span v-else-if="grupo.status === 'ok'" class="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">OK</span>
-                                <span v-else-if="grupo.status === 'erro'" class="text-[9px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">ERRO</span>
-                                <span v-if="grupo.logMsg" class="text-[9px] text-slate-500">{{ grupo.logMsg }}</span>
+                                <span class="text-[12px] font-medium text-ink">Grupo {{ idx + 1 }}</span>
+                                <span v-if="grupo.status === 'processando'" class="text-[9px] bg-variacao/10 text-variacao border border-variacao/25 px-2 py-0.5 rounded-[3px] font-medium">PROCESSANDO</span>
+                                <span v-else-if="grupo.status === 'ok'" class="text-[9px] bg-conforme/10 text-conforme border border-conforme/25 px-2 py-0.5 rounded-[3px] font-medium">OK</span>
+                                <span v-else-if="grupo.status === 'erro'" class="text-[9px] bg-lacre/10 text-lacre border border-lacre/25 px-2 py-0.5 rounded-[3px] font-medium">ERRO</span>
+                                <span v-if="grupo.logMsg" class="text-[9px] text-risco">{{ grupo.logMsg }}</span>
                             </div>
-                            <button v-if="grupos.length > 1" @click="removerGrupo(idx)" class="text-slate-300 hover:text-red-500 transition-colors">
-                                <X class="w-3.5 h-3.5" />
+                            <button v-if="grupos.length > 1" @click="removerGrupo(idx)" class="text-risco hover:text-lacre transition-colors">
+                                <X class="w-3.5 h-3.5" :stroke-width="1.8" />
                             </button>
                         </div>
 
                         <!-- Config: CFOP + Flags -->
                         <div class="flex gap-3 mb-2 flex-wrap items-end">
                             <div class="flex flex-col gap-1">
-                                <label class="text-[9px] font-bold text-slate-400 uppercase tracking-wide">CFOP</label>
-                                <select v-model="grupo.cfop" class="bg-white border border-slate-200 text-xs text-slate-700 font-medium px-2 py-1.5 rounded-md outline-none focus:border-brand-accent appearance-none cursor-pointer">
+                                <label class="text-[9px] font-medium text-risco uppercase tracking-wide">CFOP</label>
+                                <select v-model="grupo.cfop" class="bg-sheet border border-line text-[12px] text-ink px-2 py-1.5 rounded-md outline-none focus:border-bronze appearance-none cursor-pointer transition-colors">
                                     <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">
                                         {{ c.codigo }} — {{ c.descricao }}
                                     </option>
@@ -890,24 +892,24 @@ async function prepararPainel() {
                             </div>
                             <div class="flex flex-col gap-1">
                                 <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" v-model="grupo.forcarUsoConsumo" class="w-3.5 h-3.5 accent-blue-600" />
-                                    <span class="text-[10px] text-slate-600">Zerar ICMS</span>
+                                    <input type="checkbox" v-model="grupo.forcarUsoConsumo" class="w-3.5 h-3.5 accent-bronze" />
+                                    <span class="text-[10px] text-risco">Zerar ICMS</span>
                                 </label>
                                 <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" v-model="grupo.ajusteIpi" class="w-3.5 h-3.5 accent-blue-600" />
-                                    <span class="text-[10px] text-slate-600">Ajustar IPI</span>
+                                    <input type="checkbox" v-model="grupo.ajusteIpi" class="w-3.5 h-3.5 accent-bronze" />
+                                    <span class="text-[10px] text-risco">Ajustar IPI</span>
                                 </label>
                                 <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" v-model="grupo.ajusteIcms" class="w-3.5 h-3.5 accent-blue-600" />
-                                    <span class="text-[10px] text-slate-600">Ajustar ICMS</span>
+                                    <input type="checkbox" v-model="grupo.ajusteIcms" class="w-3.5 h-3.5 accent-bronze" />
+                                    <span class="text-[10px] text-risco">Ajustar ICMS</span>
                                 </label>
                                 <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" v-model="grupo.pularDuplicados" :disabled="grupo.forceReplace" class="w-3.5 h-3.5 accent-blue-600" />
-                                    <span class="text-[10px]" :class="grupo.forceReplace ? 'text-slate-300' : 'text-slate-600'">Pular Duplicados</span>
+                                    <input type="checkbox" v-model="grupo.pularDuplicados" :disabled="grupo.forceReplace" class="w-3.5 h-3.5 accent-bronze" />
+                                    <span class="text-[10px]" :class="grupo.forceReplace ? 'text-line' : 'text-risco'">Pular Duplicados</span>
                                 </label>
                                 <label class="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="checkbox" v-model="grupo.forceReplace" @change="() => { if (grupo.forceReplace) grupo.pularDuplicados = false }" class="w-3.5 h-3.5 accent-orange-500" />
-                                    <span class="text-[10px] text-slate-600">Substituir Existentes</span>
+                                    <input type="checkbox" v-model="grupo.forceReplace" @change="() => { if (grupo.forceReplace) grupo.pularDuplicados = false }" class="w-3.5 h-3.5 accent-variacao" />
+                                    <span class="text-[10px] text-risco">Substituir Existentes</span>
                                 </label>
                             </div>
                         </div>
@@ -918,71 +920,71 @@ async function prepararPainel() {
                             @click="triggerGrupoInput(grupo.id)"
                             @dragover.prevent
                             @drop.prevent="e => handleGrupoFiles(e, grupo)"
-                            class="border border-dashed border-slate-300 rounded-md bg-white hover:bg-slate-50 hover:border-slate-400 transition-colors flex items-center justify-center gap-2 py-2 cursor-pointer mb-2"
+                            class="border border-dashed border-line rounded-md bg-sheet hover:border-bronze transition-colors flex items-center justify-center gap-2 py-2 cursor-pointer mb-2"
                         >
-                            <UploadCloud class="w-3.5 h-3.5 text-slate-400" />
-                            <span class="text-[10px] text-slate-500 font-medium">Arraste XMLs ou clique para selecionar</span>
+                            <UploadCloud class="w-3.5 h-3.5 text-risco" :stroke-width="1.8" />
+                            <span class="text-[10px] text-risco font-medium">Arraste XMLs ou clique para selecionar</span>
                         </div>
 
                         <!-- Arquivos do Grupo -->
                         <div v-if="grupo.xmlFiles.length > 0" class="space-y-0.5 max-h-20 overflow-y-auto">
-                            <div v-for="(file, fidx) in grupo.xmlFiles" :key="fidx" class="flex items-center justify-between px-2 py-1 bg-white rounded text-[10px]">
-                                <span class="text-slate-600 font-mono truncate mr-2">{{ file.name }}</span>
-                                <button @click="removerArquivoGrupo(grupo, fidx)" class="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0">
-                                    <X class="w-3 h-3" />
+                            <div v-for="(file, fidx) in grupo.xmlFiles" :key="fidx" class="flex items-center justify-between px-2 py-1 bg-sheet border border-line rounded-[3px] text-[10px]">
+                                <span class="text-ink font-mono truncate mr-2">{{ file.name }}</span>
+                                <button @click="removerArquivoGrupo(grupo, fidx)" class="text-risco hover:text-lacre transition-colors flex-shrink-0">
+                                    <X class="w-3 h-3" :stroke-width="1.8" />
                                 </button>
                             </div>
                         </div>
-                        <div v-else class="text-[10px] text-slate-400 text-center py-1">Nenhum XML neste grupo</div>
+                        <div v-else class="text-[10px] text-risco text-center py-1">Nenhum XML neste grupo</div>
                     </div>
                 </div>
 
                 <!-- Botões de Ação dos Grupos -->
                 <div class="flex flex-col gap-2 mt-3">
-                    <button
+                    <UiButton
                         @click="ejetarTodosGrupos"
                         :disabled="isLoading || !idSpedBase"
-                        class="w-full bg-brand-accent hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
+                        class="w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Activity v-if="isLoading" class="w-4 h-4 animate-spin" />
-                        <Sparkles v-else class="w-4 h-4" />
+                        <Activity v-if="isLoading" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
+                        <Sparkles v-else class="w-4 h-4" :stroke-width="1.8" />
                         <span>{{ isLoading ? 'Processando grupos...' : 'Ejetar Todos os Grupos' }}</span>
-                    </button>
+                    </UiButton>
 
-                    <button
+                    <UiButton
                         v-if="successInjectedId"
                         @click="downloadResultSped"
-                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-3 text-sm shadow-lg animate-bounce"
+                        class="w-full justify-center py-3"
                     >
-                        <Download class="w-5 h-5" />
+                        <Download class="w-5 h-5" :stroke-width="1.8" />
                         <span>BAIXAR SPED RETIFICADO AGORA</span>
-                    </button>
+                    </UiButton>
                 </div>
             </div>
 
             <!-- Coluna 2: Terminal -->
-            <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col shadow-inner">
+            <div class="bg-graphite rounded-md border border-graphite-2 p-5 flex flex-col">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <FileTerminal class="w-4 h-4 text-slate-500" />
+                    <h2 class="text-[11px] font-medium text-muted uppercase tracking-wide flex items-center gap-2">
+                        <FileTerminal class="w-4 h-4 text-muted" :stroke-width="1.8" />
                         Log Operacional
                     </h2>
-                    
-                    <button 
-                        v-if="jsonResult" 
+
+                    <button
+                        v-if="jsonResult"
                         @click="previewData = jsonResult; showPreview = true"
-                        class="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider transition-colors animate-pulse"
+                        class="bg-bronze hover:opacity-85 text-white text-[10px] px-2 py-1 rounded-[3px] font-medium uppercase tracking-wide transition-opacity"
                     >
                         Visualizar Preview
                     </button>
                 </div>
-                
-                <div class="flex-1 overflow-y-auto font-mono text-[10px] text-green-400/90 space-y-1.5 custom-scrollbar-term leading-relaxed p-2">
-                    <div v-if="logs.length === 0" class="text-slate-600">
+
+                <div class="flex-1 overflow-y-auto font-mono text-[10px] text-conforme space-y-1.5 custom-scrollbar-term leading-relaxed p-2">
+                    <div v-if="logs.length === 0" class="text-muted">
                         > Servidor aguardando lote de injeção...
                     </div>
-                    <div v-for="(log, idx) in logs" :key="idx" class="whitespace-pre-wrap word-break hover:bg-slate-800 transition-colors p-1 rounded">
-                        <span class="text-slate-500 mr-2">[{{ new Date().toLocaleTimeString() }}]</span>
+                    <div v-for="(log, idx) in logs" :key="idx" class="whitespace-pre-wrap word-break hover:bg-graphite-2 transition-colors p-1 rounded-[3px]">
+                        <span class="text-muted mr-2">[{{ new Date().toLocaleTimeString() }}]</span>
                         {{ log }}
                     </div>
                 </div>
@@ -990,31 +992,31 @@ async function prepararPainel() {
         </div>
 
         <!-- Modal de De-Para de Itens -->
-        <div v-if="showItemsModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-            <div class="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-pop-in">
-                <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+        <div v-if="showItemsModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-ink/40">
+            <div class="bg-sheet rounded-md border border-line w-full max-w-4xl max-h-[90vh] flex flex-col card-shadow">
+                <div class="p-6 border-b border-line flex items-center justify-between">
                     <div>
-                        <h3 class="text-lg font-bold text-slate-900">Análise de XMLs e Itens</h3>
-                        <p class="text-xs text-slate-500">Exibindo resumo das notas e mapeamento de itens detectados.</p>
+                        <h3 class="font-display text-[18px] font-semibold text-ink">Análise de XMLs e Itens</h3>
+                        <p class="text-[12px] text-risco">Exibindo resumo das notas e mapeamento de itens detectados.</p>
                     </div>
-                    <button @click="showItemsModal = false" class="text-slate-400 hover:text-slate-600">
-                        <X class="w-6 h-6" />
+                    <button @click="showItemsModal = false" class="text-risco hover:text-ink transition-colors">
+                        <X class="w-6 h-6" :stroke-width="1.8" />
                     </button>
                 </div>
-                
+
                 <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-8">
                     <!-- Resumo das Notas -->
                     <section>
-                        <h4 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Resumo das Notas Fiscal ({{ detectedNotes.length }})</h4>
+                        <h4 class="text-[11px] font-medium text-risco uppercase tracking-wide mb-3">Resumo das Notas Fiscal ({{ detectedNotes.length }})</h4>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div v-for="nota in detectedNotes" :key="nota.numero" class="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col gap-1">
+                            <div v-for="nota in detectedNotes" :key="nota.numero" class="bg-paper border border-line rounded-md p-3 flex flex-col gap-1">
                                 <div class="flex justify-between items-start">
-                                    <span class="text-sm font-bold text-slate-700">NF-e: {{ nota.numero }}</span>
-                                    <span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono">{{ nota.data }}</span>
+                                    <span class="text-[13px] font-medium text-ink">NF-e: {{ nota.numero }}</span>
+                                    <span class="text-[10px] bg-line text-risco px-1.5 py-0.5 rounded-[3px] font-mono">{{ nota.data }}</span>
                                 </div>
-                                <div class="flex justify-between items-center text-xs">
-                                    <span class="text-slate-500 truncate mr-2">{{ nota.arquivo }}</span>
-                                    <span class="font-bold text-brand-accent">R$ {{ (Number(nota.valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+                                <div class="flex justify-between items-center text-[12px]">
+                                    <span class="text-risco truncate mr-2">{{ nota.arquivo }}</span>
+                                    <span class="font-mono font-medium text-bronze">R$ {{ (Number(nota.valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
                                 </div>
                             </div>
                         </div>
@@ -1022,18 +1024,18 @@ async function prepararPainel() {
 
                     <section>
                         <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mapeamento de Itens Detectados ({{ detectedItems.length }})</h4>
-                            <button 
+                            <h4 class="text-[11px] font-medium text-risco uppercase tracking-wide">Mapeamento de Itens Detectados ({{ detectedItems.length }})</h4>
+                            <button
                                 @click="applyDefaultCfopToAll"
-                                class="text-[10px] bg-brand-accent/10 text-brand-accent hover:bg-brand-accent hover:text-white px-3 py-1 rounded font-bold transition-all flex items-center gap-1.5 border border-brand-accent/20"
+                                class="text-[10px] bg-bronze/10 text-bronze hover:bg-bronze hover:text-white px-3 py-1 rounded-[3px] font-medium transition-all flex items-center gap-1.5 border border-bronze/20"
                             >
-                                <CheckCircle2 class="w-3 h-3" />
+                                <CheckCircle2 class="w-3 h-3" :stroke-width="1.8" />
                                 APLICAR CFOP PADRÃO ({{ cfopPadrao }}) EM TODOS
                             </button>
                         </div>
                         <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="text-[10px] uppercase tracking-wider text-slate-400 font-bold border-b border-slate-100">
+                            <tr class="text-[10px] uppercase tracking-wide text-risco font-medium border-b border-line">
                                 <th class="pb-3 px-2">Código/Descrição</th>
                                 <th class="pb-3 px-2 w-28">Nota/Data</th>
                                 <th class="pb-3 px-2 w-32">NCM</th>
@@ -1047,78 +1049,78 @@ async function prepararPainel() {
                                 <th class="pb-3 px-2">Conta Contábil</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-50">
+                        <tbody class="divide-y divide-line">
                             <tr v-for="(item, idx) in detectedItems" :key="item.codigo + '_' + item.numero_nota + '_' + idx" class="text-sm">
                                 <td class="py-3 px-2">
                                     <div class="flex flex-col gap-1">
-                                        <span class="font-mono text-[10px] text-slate-400">XML: {{ item.codigo }}</span>
-                                        <input 
-                                            v-model="item.descricao" 
-                                            type="text" 
-                                            class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1 rounded-md focus:border-brand-accent outline-none font-medium" 
+                                        <span class="font-mono text-[10px] text-risco">XML: {{ item.codigo }}</span>
+                                        <input
+                                            v-model="item.descricao"
+                                            type="text"
+                                            class="w-full bg-sheet border border-line text-[12px] px-2 py-1 rounded-md focus:border-bronze outline-none text-ink transition-colors"
                                             placeholder="Descrição no SPED"
                                         />
                                     </div>
                                 </td>
                                 <td class="py-3 px-2">
-                                    <div class="flex flex-col text-[10px] text-slate-500 font-medium whitespace-nowrap">
-                                        <span class="text-slate-900 font-bold">NF: {{ item.numero_nota }}</span>
+                                    <div class="flex flex-col text-[10px] text-risco font-medium whitespace-nowrap">
+                                        <span class="text-ink font-medium">NF: {{ item.numero_nota }}</span>
                                         <span>{{ item.data_nota ? item.data_nota.replace(/(\d{4})(\d{2})(\d{2})/, '$3/$2/$1') : '-' }}</span>
                                     </div>
                                 </td>
                                 <td class="py-3 px-2">
-                                    <input 
-                                        v-model="item.ncm" 
-                                        type="text" 
-                                        class="w-24 bg-slate-50 border border-slate-200 text-xs px-2 py-1 rounded-md focus:border-brand-accent outline-none text-slate-500 font-mono" 
+                                    <input
+                                        v-model="item.ncm"
+                                        type="text"
+                                        class="w-24 bg-sheet border border-line text-[12px] px-2 py-1 rounded-md focus:border-bronze outline-none text-risco font-mono transition-colors"
                                         placeholder="NCM"
                                     />
                                 </td>
                                 <td class="py-3 px-2">
                                     <div class="flex flex-col gap-1">
-                                        <input 
-                                            v-model="item.cod_interno" 
-                                            type="text" 
-                                            class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1 rounded-md focus:border-brand-accent outline-none font-mono" 
+                                        <input
+                                            v-model="item.cod_interno"
+                                            type="text"
+                                            class="w-full bg-sheet border border-line text-[12px] px-2 py-1 rounded-md focus:border-bronze outline-none font-mono text-ink transition-colors"
                                             placeholder="Cód no SPED"
                                         />
-                                        <button 
+                                        <button
                                             v-if="item.cod_item_sugerido && item.cod_interno !== item.cod_item_sugerido"
                                             @click="item.cod_interno = item.cod_item_sugerido"
-                                            class="text-[9px] text-brand-accent hover:underline text-left"
+                                            class="text-[9px] text-bronze hover:underline text-left"
                                         >
                                             Sugerido: {{ item.cod_item_sugerido }}
                                         </button>
                                     </div>
                                 </td>
                                 <td class="py-3 px-2">
-                                    <select v-model="item.cfop_alvo" class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none">
+                                    <select v-model="item.cfop_alvo" class="w-full bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none text-ink transition-colors">
                                         <option v-for="c in cfopsDisponiveis" :key="c.codigo" :value="c.codigo">{{ c.codigo }} {{ c.descricao ? '- ' + c.descricao.substring(0, 18) : '' }}</option>
                                     </select>
                                 </td>
                                 <td class="py-3 px-2">
-                                    <input v-model="item.cst_alvo" type="text" maxlength="3" placeholder="000" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
+                                    <input v-model="item.cst_alvo" type="text" maxlength="3" placeholder="000" class="w-16 bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none font-mono text-center text-ink transition-colors" />
                                 </td>
                                 <td class="py-3 px-2">
                                     <div class="flex flex-col gap-0.5">
-                                        <input v-model="item.aliq_icms" type="number" step="0.01" min="0" placeholder="0,00" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none text-right" />
-                                        <span class="text-[9px] text-slate-400 text-right">XML: {{ item._aliq_icms_xml }}%</span>
+                                        <input v-model="item.aliq_icms" type="number" step="0.01" min="0" placeholder="0,00" class="w-16 bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none text-right font-mono text-ink transition-colors" />
+                                        <span class="text-[9px] text-risco text-right">XML: {{ item._aliq_icms_xml }}%</span>
                                     </div>
                                 </td>
                                 <td class="py-3 px-2">
                                     <div class="flex flex-col gap-0.5">
-                                        <input v-model="item.bc_icms_override" type="number" step="0.01" min="0" placeholder="Calc. auto" class="w-24 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none text-right" />
-                                        <span class="text-[9px] text-slate-400 text-right">Ref: {{ item._bc_icms_xml > 0 ? item._bc_icms_xml.toFixed(2) : 'calculado' }}</span>
+                                        <input v-model="item.bc_icms_override" type="number" step="0.01" min="0" placeholder="Calc. auto" class="w-24 bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none text-right font-mono text-ink transition-colors" />
+                                        <span class="text-[9px] text-risco text-right">Ref: {{ item._bc_icms_xml > 0 ? item._bc_icms_xml.toFixed(2) : 'calculado' }}</span>
                                     </div>
                                 </td>
                                 <td class="py-3 px-2">
-                                    <input v-model="item.cst_pis" type="text" maxlength="3" placeholder="07" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
+                                    <input v-model="item.cst_pis" type="text" maxlength="3" placeholder="07" class="w-16 bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none font-mono text-center text-ink transition-colors" />
                                 </td>
                                 <td class="py-3 px-2">
-                                    <input v-model="item.cst_cofins" type="text" maxlength="3" placeholder="07" class="w-16 bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none font-mono text-center" />
+                                    <input v-model="item.cst_cofins" type="text" maxlength="3" placeholder="07" class="w-16 bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none font-mono text-center text-ink transition-colors" />
                                 </td>
                                 <td class="py-3 px-2">
-                                    <input v-model="item.conta_contabil" type="text" placeholder="Ex: 1.01.01..." class="w-full bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded-md focus:border-brand-accent outline-none" />
+                                    <input v-model="item.conta_contabil" type="text" placeholder="Ex: 1.01.01..." class="w-full bg-sheet border border-line text-[12px] px-2 py-1.5 rounded-md focus:border-bronze outline-none text-ink transition-colors" />
                                 </td>
                             </tr>
                         </tbody>
@@ -1126,20 +1128,21 @@ async function prepararPainel() {
                 </section>
             </div>
 
-            <div class="p-6 border-t border-slate-100 flex justify-between items-center bg-slate-50 rounded-b-2x">
-                    <p class="text-[11px] text-slate-400 italic">Os mapeamentos salvos serão aplicados automaticamente nas próximas injeções para o mesmo CNPJ Emissor + Código Produto.</p>
+            <div class="p-6 border-t border-line flex justify-between items-center bg-paper rounded-b-md">
+                    <p class="text-[11px] text-risco">Os mapeamentos salvos serão aplicados automaticamente nas próximas injeções para o mesmo CNPJ Emissor + Código Produto.</p>
                     <div class="flex items-center gap-3">
-                        <button 
-                            @click="saveBatchDePara" 
+                        <UiButton
+                            variant="ghost"
+                            @click="saveBatchDePara"
                             :disabled="isSavingMapping"
-                            class="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 px-6 rounded-lg transition-colors text-sm shadow-sm flex items-center gap-2"
+                            class="py-2.5 px-6"
                         >
-                            <Activity v-if="isSavingMapping" class="w-4 h-4 animate-spin" />
+                            <Activity v-if="isSavingMapping" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
                             Salvar de-para no Banco
-                        </button>
-                        <button @click="showItemsModal = false" class="bg-brand-accent hover:bg-blue-700 text-white font-bold py-2.5 px-8 rounded-lg transition-colors text-sm shadow-sm">
+                        </UiButton>
+                        <UiButton @click="showItemsModal = false" class="py-2.5 px-8">
                             Utilizar nesta Injeção
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
@@ -1155,71 +1158,71 @@ async function prepararPainel() {
 
         <!-- Modal: Período Divergente -->
         <Teleport to="body">
-            <div v-if="modalPeriodo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-                    <div class="bg-amber-500 px-6 py-4 flex items-center gap-3">
-                        <svg class="w-6 h-6 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                        <h2 class="text-white font-black text-sm uppercase tracking-wide">Atenção — Período Divergente</h2>
+            <div v-if="modalPeriodo" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40">
+                <div class="bg-sheet rounded-md border border-line card-shadow w-full max-w-lg mx-4 overflow-hidden">
+                    <div class="bg-variacao/10 border-b border-variacao/25 px-6 py-4 flex items-center gap-3">
+                        <AlertTriangle class="w-5 h-5 text-variacao shrink-0" :stroke-width="1.8" />
+                        <h2 class="font-display text-[15px] font-semibold text-ink">Atenção — Período Divergente</h2>
                     </div>
                     <div class="px-6 py-4 space-y-3">
-                        <p class="text-sm text-slate-600">Os XMLs abaixo possuem data fora do período auditado. Deseja injetá-los mesmo assim?</p>
-                        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs font-mono text-amber-800 font-bold">
+                        <p class="text-[13px] text-risco">Os XMLs abaixo possuem data fora do período auditado. Deseja injetá-los mesmo assim?</p>
+                        <div class="bg-paper border border-line rounded-md px-4 py-2 text-[12px] font-mono text-ink">
                             Período do SPED: {{ modalPeriodoData.periodo_sped }}
                         </div>
                         <ul class="space-y-1 max-h-48 overflow-y-auto">
-                            <li v-for="a in modalPeriodoData.avisos" :key="a.arquivo" class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-1.5 text-xs">
-                                <span class="text-slate-700 font-medium truncate max-w-[260px]">{{ a.arquivo }}</span>
-                                <span class="text-amber-600 font-bold font-mono shrink-0 ml-2">{{ a.data_xml }}</span>
+                            <li v-for="a in modalPeriodoData.avisos" :key="a.arquivo" class="flex items-center justify-between bg-paper border border-line rounded-[3px] px-3 py-1.5 text-[12px]">
+                                <span class="text-ink font-medium truncate max-w-[260px]">{{ a.arquivo }}</span>
+                                <span class="text-variacao font-mono shrink-0 ml-2">{{ a.data_xml }}</span>
                             </li>
                         </ul>
                     </div>
-                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-slate-100">
-                        <button @click="modalPeriodo = false; logs.push('[CANCELADO] Injeção cancelada pelo usuário.')" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors">
+                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-line bg-paper">
+                        <UiButton variant="ghost" @click="modalPeriodo = false; logs.push('[CANCELADO] Injeção cancelada pelo usuário.')">
                             Cancelar
-                        </button>
-                        <button @click="confirmarForcePeriodo" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black transition-colors">
+                        </UiButton>
+                        <UiButton @click="confirmarForcePeriodo">
                             Confirmar Injeção
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
 
             <!-- MODAL: Confirmar substituição de NF já lançada no SPED -->
-            <div v-if="modalSubstituir" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
-                    <div class="bg-orange-500 px-6 py-4 flex items-center gap-3">
-                        <svg class="w-6 h-6 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                        <h2 class="text-white font-black text-sm uppercase tracking-wide">Confirmar Substituição</h2>
+            <div v-if="modalSubstituir" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40">
+                <div class="bg-sheet rounded-md border border-line card-shadow w-full max-w-2xl mx-4 overflow-hidden">
+                    <div class="bg-variacao/10 border-b border-variacao/25 px-6 py-4 flex items-center gap-3">
+                        <AlertTriangle class="w-5 h-5 text-variacao shrink-0" :stroke-width="1.8" />
+                        <h2 class="font-display text-[15px] font-semibold text-ink">Confirmar Substituição</h2>
                     </div>
                     <div class="px-6 py-4 space-y-3">
-                        <p class="text-sm text-slate-600">A(s) NF(s) abaixo <strong>já estão lançadas neste SPED</strong> e serão <strong>removidas e regravadas</strong> com os dados do XML:</p>
-                        <div class="overflow-x-auto border border-slate-200 rounded-xl">
-                            <table class="w-full text-left text-xs">
-                                <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 font-black">
+                        <p class="text-[13px] text-risco">A(s) NF(s) abaixo <strong class="text-ink">já estão lançadas neste SPED</strong> e serão <strong class="text-ink">removidas e regravadas</strong> com os dados do XML:</p>
+                        <div class="overflow-x-auto border border-line rounded-md">
+                            <table class="w-full text-left text-[12px]">
+                                <thead class="bg-paper text-[10px] uppercase text-risco font-medium">
                                     <tr>
                                         <th class="px-3 py-2">Nº NF</th>
                                         <th class="px-3 py-2">Data da NF</th>
                                         <th class="px-3 py-2 text-right">Valor (no SPED)</th>
                                         <th class="px-3 py-2">Data entrada</th>
-                                        <th class="px-3 py-2 text-right bg-orange-50/60">Valor (do XML)</th>
+                                        <th class="px-3 py-2 text-right bg-variacao/[0.06]">Valor (do XML)</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-slate-100 text-slate-600">
+                                <tbody class="divide-y divide-line text-risco">
                                     <tr v-for="d in duplicadasSub" :key="d.chv_nfe">
-                                        <td class="px-3 py-2 font-mono font-bold text-slate-800">{{ d.num_doc }}</td>
-                                        <td class="px-3 py-2">{{ fmtDataSped(d.dt_doc) }}</td>
+                                        <td class="px-3 py-2 font-mono text-ink">{{ d.num_doc }}</td>
+                                        <td class="px-3 py-2 font-mono">{{ fmtDataSped(d.dt_doc) }}</td>
                                         <td class="px-3 py-2 text-right font-mono">{{ fmtMoeda(d.valor) }}</td>
-                                        <td class="px-3 py-2">{{ fmtDataSped(d.dt_e_s) }}</td>
-                                        <td class="px-3 py-2 text-right font-mono font-bold text-orange-600 bg-orange-50/40">{{ fmtMoeda(d.valor_novo) }}</td>
+                                        <td class="px-3 py-2 font-mono">{{ fmtDataSped(d.dt_e_s) }}</td>
+                                        <td class="px-3 py-2 text-right font-mono font-medium text-variacao bg-variacao/[0.04]">{{ fmtMoeda(d.valor_novo) }}</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                        <p class="text-[11px] text-slate-400">A coluna "Valor (do XML)" é o que será gravado no lugar do valor atual.</p>
+                        <p class="text-[11px] text-risco">A coluna "Valor (do XML)" é o que será gravado no lugar do valor atual.</p>
                     </div>
-                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-slate-100">
-                        <button @click="cancelarSubstituicao" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors">Cancelar</button>
-                        <button @click="confirmarSubstituicao" class="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black transition-colors">Substituir</button>
+                    <div class="px-6 py-4 flex justify-end gap-3 border-t border-line bg-paper">
+                        <UiButton variant="ghost" @click="cancelarSubstituicao">Cancelar</UiButton>
+                        <button @click="confirmarSubstituicao" class="inline-flex items-center gap-2 rounded-md px-[13px] py-[7px] bg-lacre text-white text-[13px] font-medium hover:opacity-85 transition-opacity">Substituir</button>
                     </div>
                 </div>
             </div>
@@ -1229,22 +1232,17 @@ async function prepararPainel() {
 
 
 <style scoped>
-.animate-fade-in {
-    animation: fadeIn 0.4s ease-out;
+.card-shadow {
+    box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
 }
 
-.animate-pop-in {
-    animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+.animate-fade-in {
+    animation: fadeIn 0.4s ease-out;
 }
 
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes popIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
 }
 
 .custom-scrollbar-term::-webkit-scrollbar {

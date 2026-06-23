@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api';
 import { token } from '../store';
 import { Plus, Edit2, Trash2, Save, X, Tag, Search, ChevronRight } from 'lucide-vue-next';
 import { useRouter } from 'vue-router';
+import UiButton from '@/components/ui/UiButton.vue';
 
 const router = useRouter();
 
@@ -101,13 +102,13 @@ onMounted(loadCfops);
 </script>
 
 <template>
-    <div class="min-h-screen bg-slate-50 p-6 md:p-10">
+    <div class="min-h-screen bg-paper p-6 md:p-10">
 
         <!-- Notificação -->
         <transition name="fade">
             <div v-if="notification.show"
-                :class="notification.type === 'success' ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-red-50 border-red-300 text-red-800'"
-                class="fixed top-5 right-5 z-50 border rounded-xl px-5 py-3 text-sm font-semibold shadow-lg">
+                :class="notification.type === 'success' ? 'bg-conforme/[0.06] border-conforme/25 text-conforme' : 'bg-lacre/[0.06] border-lacre/25 text-lacre'"
+                class="fixed top-5 right-5 z-50 border rounded-md px-5 py-3 text-[13px] font-medium card-shadow">
                 {{ notification.message }}
             </div>
         </transition>
@@ -116,65 +117,65 @@ onMounted(loadCfops);
 
             <!-- Header -->
             <div>
-                <div class="flex items-center gap-2 text-xs text-slate-400 font-medium mb-2">
-                    <span @click="router.push('/')" class="hover:text-brand-accent cursor-pointer transition-colors">Início</span>
-                    <ChevronRight class="w-3 h-3" />
-                    <span class="text-slate-900">Cadastro de CFOPs</span>
+                <div class="flex items-center gap-2 text-[11px] text-risco font-medium mb-2">
+                    <span @click="router.push('/')" class="hover:text-bronze cursor-pointer transition-colors">Início</span>
+                    <ChevronRight class="w-3 h-3" :stroke-width="1.8" />
+                    <span class="text-ink">Cadastro de CFOPs</span>
                 </div>
-                <h1 class="text-2xl font-semibold text-slate-900 tracking-tight">Cadastro de CFOPs</h1>
-                <p class="text-slate-500 text-sm mt-1">Gerencie os CFOPs disponíveis para seleção na injeção de XMLs.</p>
+                <h1 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">Cadastro de CFOPs</h1>
+                <p class="text-risco text-[13px] mt-1">Gerencie os CFOPs disponíveis para seleção na injeção de XMLs.</p>
             </div>
 
             <!-- Barra de ações -->
             <div class="flex items-center gap-3">
                 <div class="relative flex-1">
-                    <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search class="w-4 h-4 text-risco absolute left-3 top-1/2 -translate-y-1/2" :stroke-width="1.8" />
                     <input
                         v-model="searchTerm"
                         placeholder="Buscar por código ou descrição..."
-                        class="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent"
+                        class="w-full pl-9 pr-3 py-2.5 bg-sheet border border-line rounded-md text-[13px] text-ink placeholder-risco outline-none focus:border-bronze transition-colors"
                     />
                 </div>
-                <button
+                <UiButton
                     @click="iniciarNovo"
                     :disabled="editando !== null"
-                    class="flex items-center gap-2 bg-brand-accent hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                    class="disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <Plus class="w-4 h-4" />
+                    <Plus class="w-4 h-4" :stroke-width="2" />
                     Novo CFOP
-                </button>
+                </UiButton>
             </div>
 
             <!-- Formulário de novo/edição -->
-            <div v-if="editando" class="bg-white rounded-xl border border-brand-accent/40 shadow-sm p-5 flex flex-col gap-4">
-                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <Tag class="w-4 h-4 text-brand-accent" />
+            <div v-if="editando" class="bg-sheet rounded-md border border-bronze/40 card-shadow p-5 flex flex-col gap-4">
+                <h3 class="text-[13px] font-semibold text-ink flex items-center gap-2">
+                    <Tag class="w-4 h-4 text-bronze" :stroke-width="1.8" />
                     {{ editando.id ? 'Editar CFOP' : 'Novo CFOP' }}
                 </h3>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div class="flex flex-col gap-1">
-                        <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Código *</label>
+                        <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Código *</label>
                         <input
                             v-model="editando.codigo"
                             placeholder="ex: 1102"
                             maxlength="10"
-                            class="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent"
+                            class="bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink font-mono outline-none focus:border-bronze transition-colors"
                         />
                     </div>
                     <div class="flex flex-col gap-1 sm:col-span-2">
-                        <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Descrição</label>
+                        <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Descrição</label>
                         <input
                             v-model="editando.descricao"
                             placeholder="ex: Compra para Comercialização"
-                            class="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent"
+                            class="bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze transition-colors"
                         />
                     </div>
                     <div class="flex flex-col gap-1">
-                        <label class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Tipo</label>
+                        <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Tipo</label>
                         <select
                             v-model="editando.tipo"
-                            class="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-accent appearance-none cursor-pointer bg-white"
+                            class="bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze appearance-none cursor-pointer transition-colors"
                         >
                             <option value="entrada">Entrada</option>
                             <option value="saida">Saída</option>
@@ -183,52 +184,52 @@ onMounted(loadCfops);
                     </div>
                 </div>
 
-                <p v-if="formErro" class="text-xs text-red-600 font-medium">{{ formErro }}</p>
+                <p v-if="formErro" class="text-[12px] text-lacre font-medium">{{ formErro }}</p>
 
                 <div class="flex gap-2 justify-end">
-                    <button @click="cancelarEdicao" class="flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900 px-4 py-2 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
-                        <X class="w-4 h-4" /> Cancelar
-                    </button>
-                    <button @click="salvar" class="flex items-center gap-1.5 text-sm font-semibold bg-brand-accent hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm">
-                        <Save class="w-4 h-4" /> Salvar
-                    </button>
+                    <UiButton variant="ghost" @click="cancelarEdicao">
+                        <X class="w-4 h-4" :stroke-width="1.8" /> Cancelar
+                    </UiButton>
+                    <UiButton @click="salvar">
+                        <Save class="w-4 h-4" :stroke-width="1.8" /> Salvar
+                    </UiButton>
                 </div>
             </div>
 
             <!-- Lista de CFOPs -->
-            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            <div class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+                <div class="px-5 py-4 border-b border-line flex items-center justify-between">
+                    <span class="text-[11px] uppercase tracking-wide text-risco font-medium">
                         {{ filteredCfops.length }} CFOP(s) cadastrado(s)
                     </span>
-                    <span v-if="isLoading" class="text-xs text-slate-400">Carregando...</span>
+                    <span v-if="isLoading" class="text-[11px] text-risco">Carregando...</span>
                 </div>
 
-                <div v-if="cfops.length === 0 && !isLoading" class="py-16 text-center text-slate-400 text-sm">
+                <div v-if="cfops.length === 0 && !isLoading" class="py-16 text-center text-risco text-[13px]">
                     Nenhum CFOP cadastrado. Clique em "Novo CFOP" para começar.
                 </div>
 
-                <table v-else class="w-full text-sm">
+                <table v-else class="w-full text-[13px]">
                     <thead>
-                        <tr class="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        <tr class="bg-paper text-[10px] uppercase tracking-wide text-risco font-medium">
                             <th class="text-left px-5 py-3">Código</th>
                             <th class="text-left px-5 py-3">Descrição</th>
                             <th class="text-left px-5 py-3">Tipo</th>
                             <th class="px-5 py-3"></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
+                    <tbody class="divide-y divide-line">
                         <tr v-for="cfop in filteredCfops" :key="cfop.id"
-                            class="hover:bg-slate-50 transition-colors"
-                            :class="{ 'bg-blue-50/40': editando?.id === cfop.id }">
-                            <td class="px-5 py-3 font-mono font-bold text-slate-800">{{ cfop.codigo }}</td>
-                            <td class="px-5 py-3 text-slate-600">{{ cfop.descricao || '—' }}</td>
+                            class="hover:bg-paper transition-colors"
+                            :class="{ 'bg-bronze/[0.04]': editando?.id === cfop.id }">
+                            <td class="px-5 py-3 font-mono font-medium text-ink">{{ cfop.codigo }}</td>
+                            <td class="px-5 py-3 text-risco">{{ cfop.descricao || '—' }}</td>
                             <td class="px-5 py-3">
                                 <span :class="{
-                                    'bg-emerald-100 text-emerald-700': cfop.tipo === 'entrada',
-                                    'bg-amber-100 text-amber-700': cfop.tipo === 'saida',
-                                    'bg-slate-100 text-slate-600': cfop.tipo === 'ambos' || !cfop.tipo
-                                }" class="text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+                                    'bg-conforme/10 text-conforme border-conforme/20': cfop.tipo === 'entrada',
+                                    'bg-variacao/10 text-variacao border-variacao/20': cfop.tipo === 'saida',
+                                    'bg-paper text-risco border-line': cfop.tipo === 'ambos' || !cfop.tipo
+                                }" class="text-[10px] font-medium px-2 py-0.5 rounded uppercase border">
                                     {{ cfop.tipo || 'entrada' }}
                                 </span>
                             </td>
@@ -236,15 +237,15 @@ onMounted(loadCfops);
                                 <div class="flex items-center justify-end gap-2">
                                     <button @click="iniciarEdicao(cfop)"
                                         :disabled="editando !== null"
-                                        class="text-slate-400 hover:text-brand-accent transition-colors disabled:opacity-30"
+                                        class="text-risco hover:text-bronze transition-colors disabled:opacity-30"
                                         title="Editar">
-                                        <Edit2 class="w-4 h-4" />
+                                        <Edit2 class="w-4 h-4" :stroke-width="1.6" />
                                     </button>
                                     <button @click="excluir(cfop)"
                                         :disabled="editando !== null"
-                                        class="text-slate-400 hover:text-red-500 transition-colors disabled:opacity-30"
+                                        class="text-risco hover:text-lacre transition-colors disabled:opacity-30"
                                         title="Excluir">
-                                        <Trash2 class="w-4 h-4" />
+                                        <Trash2 class="w-4 h-4" :stroke-width="1.6" />
                                     </button>
                                 </div>
                             </td>
@@ -258,6 +259,7 @@ onMounted(loadCfops);
 </template>
 
 <style scoped>
+.card-shadow { box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07); }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

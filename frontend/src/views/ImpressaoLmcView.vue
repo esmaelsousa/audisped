@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { Printer, FileText } from 'lucide-vue-next'
 import { empresaSelecionada as empresaStore, arquivoInfo as arquivoStore } from '../store'
+import UiButton from '@/components/ui/UiButton.vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -178,25 +179,30 @@ async function gerarPDF() {
 </script>
 
 <template>
-    <div class="p-4 max-w-[1200px] mx-auto">
-        <div class="flex items-center gap-3 mb-5">
-            <Printer class="w-6 h-6 text-brand-accent" />
-            <h1 class="text-xl font-bold text-slate-800">Impressão do LMC</h1>
-        </div>
+    <div class="p-4 sm:p-6 max-w-[1200px] mx-auto">
+        <header class="flex items-center gap-3 mb-6 border-b border-line pb-5">
+            <span class="w-10 h-10 rounded-md border border-line bg-paper flex items-center justify-center text-bronze flex-shrink-0">
+                <Printer class="w-5 h-5" :stroke-width="1.7" />
+            </span>
+            <div class="space-y-0.5">
+                <h1 class="font-display text-[22px] font-semibold tracking-[-0.01em] text-ink">Impressão do LMC</h1>
+                <p class="text-[13px] text-risco">Livro de Movimentação de Combustíveis — filtros e resumo do período.</p>
+            </div>
+        </header>
 
         <!-- Layout 2 colunas: Filtros à esquerda | Resumo à direita -->
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
             <!-- COLUNA ESQUERDA: Filtros + Configurações + Botão (2/5) -->
             <div class="lg:col-span-2 space-y-4">
-                <div class="bg-white rounded-2xl shadow-md p-5 space-y-4">
-                    <p class="text-xs font-black text-slate-500 uppercase tracking-widest">Configuração</p>
+                <div class="bg-sheet border border-line rounded-md p-5 space-y-4 card-shadow">
+                    <p class="text-[11px] uppercase tracking-wide text-risco font-medium">Configuração</p>
 
                     <!-- Empresa -->
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Empresa</label>
+                    <div class="space-y-1">
+                        <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Empresa</label>
                         <select v-model="empresaSelecionada" @change="carregarArquivos"
-                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent">
+                            class="w-full bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze transition-colors">
                             <option :value="null">Selecione...</option>
                             <option v-for="emp in empresas" :key="emp.id" :value="emp.id">
                                 {{ emp.nome_fantasia || emp.nome_empresa }}
@@ -205,10 +211,10 @@ async function gerarPDF() {
                     </div>
 
                     <!-- Período -->
-                    <div v-if="arquivos.length > 0">
-                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Período</label>
+                    <div v-if="arquivos.length > 0" class="space-y-1">
+                        <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Período</label>
                         <select v-model="arquivoSelecionado" @change="carregarCombustiveis"
-                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent">
+                            class="w-full bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze transition-colors">
                             <option :value="null">Selecione...</option>
                             <option v-for="arq in arquivos" :key="arq.id" :value="arq.id">
                                 {{ arq.periodo_apuracao }}
@@ -217,10 +223,10 @@ async function gerarPDF() {
                     </div>
 
                     <!-- Combustível -->
-                    <div v-if="combustiveis.length > 0">
-                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Combustível</label>
+                    <div v-if="combustiveis.length > 0" class="space-y-1">
+                        <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Combustível</label>
                         <select v-model="combustivelSelecionado"
-                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent">
+                            class="w-full bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze transition-colors">
                             <option value="todos">Todos os combustíveis</option>
                             <option v-for="comb in combustiveis" :key="comb.cod" :value="comb.cod">
                                 {{ comb.nome }}
@@ -230,39 +236,39 @@ async function gerarPDF() {
 
                     <!-- Datas lado a lado -->
                     <div v-if="arquivoSelecionado" class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data Início</label>
+                        <div class="space-y-1">
+                            <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Data Início</label>
                             <input type="date" v-model="dataInicio"
-                                class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent" />
+                                class="w-full bg-sheet border border-line rounded-md px-2.5 py-2 text-[13px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
                         </div>
-                        <div>
-                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Data Fim</label>
+                        <div class="space-y-1">
+                            <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Data Fim</label>
                             <input type="date" v-model="dataFim"
-                                class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent" />
+                                class="w-full bg-sheet border border-line rounded-md px-2.5 py-2 text-[13px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
                         </div>
                     </div>
 
                     <!-- Folha Inicial -->
-                    <div v-if="arquivoSelecionado">
-                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nº Folha Inicial</label>
+                    <div v-if="arquivoSelecionado" class="space-y-1">
+                        <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Nº Folha Inicial</label>
                         <input type="number" v-model="folhaInicial" min="1"
-                            class="w-24 border border-slate-300 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent" />
+                            class="w-24 bg-sheet border border-line rounded-md px-2.5 py-2 text-[13px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
                     </div>
 
                     <!-- Observações -->
-                    <div v-if="arquivoSelecionado">
-                        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Observações (Campo 13)</label>
+                    <div v-if="arquivoSelecionado" class="space-y-1">
+                        <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Observações (Campo 13)</label>
                         <textarea v-model="observacao" rows="2" placeholder="Texto para o campo 13 do LMC..."
-                            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent resize-none"></textarea>
+                            class="w-full bg-sheet border border-line rounded-md px-3 py-2 text-[13px] text-ink outline-none focus:border-bronze transition-colors resize-none"></textarea>
                     </div>
 
                     <!-- Botão Gerar -->
                     <div v-if="arquivoSelecionado">
-                        <button @click="gerarPDF" :disabled="salvandoObs"
-                            class="w-full flex items-center justify-center gap-2 px-6 py-3 bg-brand-accent hover:bg-blue-600 text-white text-sm font-bold rounded-xl shadow-lg transition-all disabled:opacity-50">
-                            <FileText class="w-4 h-4" />
+                        <UiButton @click="gerarPDF" :disabled="salvandoObs"
+                            class="w-full justify-center py-[9px] disabled:opacity-50">
+                            <FileText class="w-4 h-4" :stroke-width="1.8" />
                             {{ salvandoObs ? 'Salvando...' : 'Gerar PDF do LMC' }}
-                        </button>
+                        </UiButton>
                     </div>
                 </div>
             </div>
@@ -271,79 +277,85 @@ async function gerarPDF() {
             <div class="lg:col-span-3">
                 <div v-if="resumo.length > 0" class="space-y-3">
 
-                    <div v-for="r in resumo" :key="r.cod" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                        <div class="bg-gradient-to-r from-slate-700 to-slate-800 px-4 py-2.5 flex items-center justify-between">
-                            <span class="text-sm font-bold text-white">{{ r.nome }}</span>
-                            <span :class="r.saidas > 0 && (Math.abs(r.perdas - r.ganhos) / r.saidas * 100) > 0.6 ? 'bg-red-500' : 'bg-green-500'" class="text-[11px] text-white font-bold px-2.5 py-0.5 rounded-full">
+                    <div v-for="r in resumo" :key="r.cod" class="bg-sheet border border-line rounded-md overflow-hidden card-shadow">
+                        <div class="bg-graphite px-4 py-2.5 flex items-center justify-between">
+                            <span class="font-display text-[13px] font-medium text-white">{{ r.nome }}</span>
+                            <span :class="r.saidas > 0 && (Math.abs(r.perdas - r.ganhos) / r.saidas * 100) > 0.6 ? 'bg-lacre/20 text-lacre' : 'bg-conforme/20 text-conforme'" class="font-mono text-[10px] tracking-[.05em] font-medium px-2.5 py-0.5 rounded-[3px]">
                                 ANP {{ r.saidas > 0 ? (Math.abs(r.perdas - r.ganhos) / r.saidas * 100).toFixed(2).replace('.', ',') + '%' : '-' }}
                             </span>
                         </div>
-                        <div class="grid grid-cols-4 gap-px bg-slate-100">
-                            <div class="bg-white px-3 py-3 text-center">
-                                <p class="text-[10px] text-slate-400 font-semibold uppercase">Est. Inicial</p>
-                                <p class="text-[15px] font-black text-slate-800 font-mono">{{ r.aberturaInicial !== null ? r.aberturaInicial.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
+                        <div class="grid grid-cols-4 gap-px bg-line">
+                            <div class="bg-sheet px-3 py-3 text-center">
+                                <p class="text-[10px] text-risco font-medium uppercase tracking-wide">Est. Inicial</p>
+                                <p class="text-[15px] font-mono text-ink mt-0.5">{{ r.aberturaInicial !== null ? r.aberturaInicial.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
                             </div>
-                            <div class="bg-white px-3 py-3 text-center">
-                                <p class="text-[10px] text-green-500 font-semibold uppercase">Entradas</p>
-                                <p class="text-[15px] font-black text-green-700 font-mono">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                            <div class="bg-sheet px-3 py-3 text-center">
+                                <p class="text-[10px] text-conforme font-medium uppercase tracking-wide">Entradas</p>
+                                <p class="text-[15px] font-mono text-conforme mt-0.5">{{ r.entradas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
                             </div>
-                            <div class="bg-white px-3 py-3 text-center">
-                                <p class="text-[10px] text-red-400 font-semibold uppercase">Saídas</p>
-                                <p class="text-[15px] font-black text-red-600 font-mono">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                            <div class="bg-sheet px-3 py-3 text-center">
+                                <p class="text-[10px] text-lacre font-medium uppercase tracking-wide">Saídas</p>
+                                <p class="text-[15px] font-mono text-lacre mt-0.5">{{ r.saidas.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
                             </div>
-                            <div class="bg-white px-3 py-3 text-center">
-                                <p class="text-[10px] text-slate-400 font-semibold uppercase">Est. Final</p>
-                                <p class="text-[15px] font-black text-slate-800 font-mono">{{ r.fechamentoFinal !== null ? r.fechamentoFinal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
+                            <div class="bg-sheet px-3 py-3 text-center">
+                                <p class="text-[10px] text-risco font-medium uppercase tracking-wide">Est. Final</p>
+                                <p class="text-[15px] font-mono text-ink mt-0.5">{{ r.fechamentoFinal !== null ? r.fechamentoFinal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '-' }}</p>
                             </div>
                         </div>
-                        <div class="grid grid-cols-4 gap-px bg-slate-50 border-t border-slate-100">
-                            <div class="bg-white px-3 py-2 text-center">
-                                <p class="text-[9px] text-orange-400 font-semibold uppercase">Perdas</p>
-                                <p class="text-xs font-bold text-orange-600 font-mono">{{ r.perdas.toFixed(1).replace('.', ',') }}</p>
+                        <div class="grid grid-cols-4 gap-px bg-line border-t border-line">
+                            <div class="bg-sheet px-3 py-2 text-center">
+                                <p class="text-[9px] text-variacao font-medium uppercase tracking-wide">Perdas</p>
+                                <p class="text-[13px] font-mono text-variacao mt-0.5">{{ r.perdas.toFixed(1).replace('.', ',') }}</p>
                             </div>
-                            <div class="bg-white px-3 py-2 text-center">
-                                <p class="text-[9px] text-blue-400 font-semibold uppercase">Ganhos</p>
-                                <p class="text-xs font-bold text-blue-600 font-mono">{{ r.ganhos.toFixed(1).replace('.', ',') }}</p>
+                            <div class="bg-sheet px-3 py-2 text-center">
+                                <p class="text-[9px] text-bronze font-medium uppercase tracking-wide">Ganhos</p>
+                                <p class="text-[13px] font-mono text-bronze mt-0.5">{{ r.ganhos.toFixed(1).replace('.', ',') }}</p>
                             </div>
-                            <div class="bg-white px-3 py-2 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Variação</p>
-                                <p class="text-xs font-bold font-mono" :class="(r.ganhos - r.perdas) >= 0 ? 'text-blue-600' : 'text-red-600'">{{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}</p>
+                            <div class="bg-sheet px-3 py-2 text-center">
+                                <p class="text-[9px] text-risco font-medium uppercase tracking-wide">Variação</p>
+                                <p class="text-[13px] font-mono mt-0.5" :class="(r.ganhos - r.perdas) >= 0 ? 'text-bronze' : 'text-lacre'">{{ (r.ganhos - r.perdas).toFixed(1).replace('.', ',') }}</p>
                             </div>
-                            <div class="bg-white px-3 py-2 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Dias</p>
-                                <p class="text-xs font-bold text-slate-700 font-mono">{{ r.dias }}</p>
+                            <div class="bg-sheet px-3 py-2 text-center">
+                                <p class="text-[9px] text-risco font-medium uppercase tracking-wide">Dias</p>
+                                <p class="text-[13px] font-mono text-ink mt-0.5">{{ r.dias }}</p>
                             </div>
                         </div>
                     </div>
 
                     <!-- Totais -->
-                    <div class="bg-slate-800 rounded-2xl overflow-hidden shadow-md">
+                    <div class="bg-graphite rounded-md overflow-hidden card-shadow">
                         <div class="grid grid-cols-4 gap-px">
-                            <div class="bg-slate-700 px-3 py-3 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Total Entradas</p>
-                                <p class="text-lg font-black text-green-400 font-mono">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                            <div class="px-3 py-3 text-center">
+                                <p class="text-[9px] text-muted font-medium uppercase tracking-wide">Total Entradas</p>
+                                <p class="text-[17px] font-mono text-conforme mt-0.5">{{ resumo.reduce((s,r) => s + r.entradas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
                             </div>
-                            <div class="bg-slate-700 px-3 py-3 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Total Saídas</p>
-                                <p class="text-lg font-black text-red-400 font-mono">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
+                            <div class="px-3 py-3 text-center">
+                                <p class="text-[9px] text-muted font-medium uppercase tracking-wide">Total Saídas</p>
+                                <p class="text-[17px] font-mono text-lacre mt-0.5">{{ resumo.reduce((s,r) => s + r.saidas, 0).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') }}</p>
                             </div>
-                            <div class="bg-slate-700 px-3 py-3 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Total Perdas</p>
-                                <p class="text-lg font-black text-orange-400 font-mono">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</p>
+                            <div class="px-3 py-3 text-center">
+                                <p class="text-[9px] text-muted font-medium uppercase tracking-wide">Total Perdas</p>
+                                <p class="text-[17px] font-mono text-variacao mt-0.5">{{ resumo.reduce((s,r) => s + r.perdas, 0).toFixed(1).replace('.', ',') }}</p>
                             </div>
-                            <div class="bg-slate-700 px-3 py-3 text-center">
-                                <p class="text-[9px] text-slate-400 font-semibold uppercase">Total Ganhos</p>
-                                <p class="text-lg font-black text-blue-400 font-mono">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</p>
+                            <div class="px-3 py-3 text-center">
+                                <p class="text-[9px] text-muted font-medium uppercase tracking-wide">Total Ganhos</p>
+                                <p class="text-[17px] font-mono text-white mt-0.5">{{ resumo.reduce((s,r) => s + r.ganhos, 0).toFixed(1).replace('.', ',') }}</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Sem dados -->
-                <div v-else-if="arquivoSelecionado" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center">
-                    <p class="text-sm text-slate-400">Selecione um período para ver o resumo</p>
+                <div v-else-if="arquivoSelecionado" class="bg-sheet border border-line rounded-md p-8 text-center card-shadow">
+                    <p class="text-[13px] text-risco">Selecione um período para ver o resumo</p>
                 </div>
             </div>
         </div>
     </div>
 </template>
+
+<style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
+</style>

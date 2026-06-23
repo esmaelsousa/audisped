@@ -2,10 +2,12 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { empresaSelecionada, arquivoInfo } from '../store';
-import { 
-  FileText, 
-  Settings2, 
-  DatabaseZap, 
+import { formatCnpj } from '@/utils/sped';
+import UiSelo from '../components/ui/UiSelo.vue';
+import {
+  FileText,
+  Settings2,
+  DatabaseZap,
   HardDriveUpload,
   ChevronRight
 } from 'lucide-vue-next';
@@ -65,62 +67,63 @@ const navigateTo = (modulo) => {
 </script>
 
 <template>
-  <div v-if="empresaSelecionada" class="max-w-6xl mx-auto w-full flex flex-col gap-8 fade-in">
-    
+  <div v-if="empresaSelecionada" class="max-w-6xl mx-auto w-full py-8 px-4 sm:px-6 flex flex-col gap-6 fade-in">
+
     <!-- Cabeçalho do Cliente -->
-    <div class="flex flex-col gap-1 border-b border-slate-200 pb-6">
-      <div class="flex items-center gap-2 text-sm text-slate-500 font-medium mb-1">
+    <div class="flex flex-col gap-1 border-b border-line pb-5">
+      <div class="flex items-center gap-1.5 text-[12px] text-risco mb-1">
         <span>Clientes</span>
-        <ChevronRight class="w-4 h-4 text-slate-300" />
-        <span class="text-slate-900">{{ empresaSelecionada.nome_empresa }}</span>
+        <ChevronRight class="w-3.5 h-3.5 text-line" />
+        <span class="text-ink font-medium truncate">{{ empresaSelecionada.nome_empresa }}</span>
       </div>
-      <h1 class="text-3xl font-semibold text-slate-900 tracking-tight">Hub de Operações</h1>
-      <p class="text-slate-500 text-sm">Selecione o módulo para iniciar a tarefa com o cliente {{ empresaSelecionada.cnpj }}.</p>
+      <h1 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink">Hub de Operações</h1>
+      <p class="text-[13px] text-risco">
+        Selecione o módulo para iniciar a tarefa — <span class="font-mono text-ink">{{ formatCnpj(empresaSelecionada.cnpj) }}</span>.
+      </p>
     </div>
 
     <!-- Grid de Módulos (The Spokes) -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      
-      <div 
-        v-for="mod in modulos" 
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+
+      <div
+        v-for="mod in modulos"
         :key="mod.id"
         @click="navigateTo(mod)"
         :class="[
-          'relative p-6 rounded-xl border transition-all duration-200 flex flex-col gap-4',
-          mod.active 
-            ? 'bg-white border-slate-200 hover:border-blue-600/30 hover:shadow-sm cursor-pointer group' 
-            : 'bg-slate-50 border-slate-100 opacity-60 cursor-not-allowed'
+          'relative p-5 rounded-md border transition-all duration-200 flex flex-col gap-4',
+          mod.active
+            ? 'bg-sheet border-line hover:border-bronze/40 hover:shadow-[0_1px_4px_0_rgba(18,24,32,0.07)] cursor-pointer group'
+            : 'bg-paper border-line opacity-60 cursor-not-allowed'
         ]"
       >
         <!-- Ícone e Tag -->
         <div class="flex items-start justify-between">
           <div :class="[
-            'p-3 rounded-lg border',
-            mod.active ? 'bg-slate-50 border-slate-100 text-slate-700 group-hover:text-blue-600 group-hover:bg-blue-50 group-hover:border-blue-100 transition-colors' : 'bg-slate-100 border-transparent text-slate-400'
+            'p-2.5 rounded-md border',
+            mod.active
+              ? 'bg-paper border-line text-risco group-hover:text-bronze group-hover:border-bronze/30 transition-colors'
+              : 'bg-line/40 border-transparent text-risco'
           ]">
-            <component :is="mod.icon" class="w-6 h-6 stroke-[1.5]" />
+            <component :is="mod.icon" class="w-5 h-5" :stroke-width="1.6" />
           </div>
-          
-          <span class="text-[10px] font-semibold tracking-wider uppercase px-2 py-1 rounded bg-slate-100 text-slate-500">
-            {{ mod.tag }}
-          </span>
+          <UiSelo :tipo="mod.tag" />
         </div>
 
         <!-- Textos -->
-        <div class="flex flex-col gap-1.5 mt-2">
-          <h2 class="text-lg font-semibold text-slate-900">{{ mod.name }}</h2>
-          <p class="text-sm text-slate-500 leading-relaxed">{{ mod.description }}</p>
+        <div class="flex flex-col gap-1">
+          <h2 class="font-display text-[16px] font-semibold text-ink">{{ mod.name }}</h2>
+          <p class="text-[13px] text-risco leading-relaxed">{{ mod.description }}</p>
         </div>
-        
+
         <!-- Warning / Action -->
-        <div class="mt-auto pt-4 flex items-center justify-between border-t border-slate-100">
-          <span v-if="mod.warning" class="text-xs font-medium text-amber-600 flex items-center gap-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+        <div class="mt-auto pt-3.5 flex items-center justify-between border-t border-line">
+          <span v-if="mod.warning" class="text-[12px] font-medium text-variacao flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-variacao"></span>
             {{ mod.warning }}
           </span>
-          <span v-else-if="mod.active" class="text-xs font-semibold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+          <span v-else-if="mod.active" class="text-[12px] font-medium text-bronze opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
             Acessar Módulo
-            <ChevronRight class="w-3 h-3" />
+            <ChevronRight class="w-3.5 h-3.5" :stroke-width="1.8" />
           </span>
         </div>
 

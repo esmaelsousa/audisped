@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { API_BASE_URL } from '../api'
 import { Search, Plus, FolderOpen, Trash2, ArrowRight, ArrowLeft, Loader2, FolderArchive, ChevronDown, ChevronRight, CalendarDays } from 'lucide-vue-next'
+import UiButton from '@/components/ui/UiButton.vue'
 
 const route = useRoute();
 const router = useRouter();
@@ -163,152 +164,151 @@ function abrirAnalise(id) {
 </script>
 
 <template>
-  <div class="max-w-6xl mx-auto py-10 px-6 space-y-8 animate-fade-in">
+  <div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 space-y-6 animate-fade-in">
 
     <!-- Header -->
-    <header class="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-slate-100">
+    <header class="flex flex-col md:flex-row md:items-end justify-between gap-5 pb-5 border-b border-line">
       <div class="space-y-1">
-        <button @click="router.push('/')" class="text-xs font-black text-brand-accent hover:underline mb-2 flex items-center gap-1 group">
-          <ArrowLeft class="w-3 h-3 group-hover:-translate-x-1 transition-transform" />
-          VOLTAR PARA EMPRESAS
+        <button @click="router.push('/')" class="text-[11px] uppercase tracking-wide font-medium text-bronze hover:opacity-80 mb-2 flex items-center gap-1 group">
+          <ArrowLeft class="w-3 h-3 group-hover:-translate-x-1 transition-transform" :stroke-width="1.8" />
+          Voltar para empresas
         </button>
-        <h1 class="text-4xl font-black text-slate-800 tracking-tight">
-          Histórico de <span class="text-brand-accent">Auditorias</span>
+        <h1 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink">
+          Histórico de Auditorias
         </h1>
-        <p class="text-slate-400 font-medium">
-          {{ empresa.nome_empresa }} • <span class="font-mono text-xs">{{ empresa.cnpj }}</span>
+        <p class="text-[13px] text-risco">
+          {{ empresa.nome_empresa }} <span class="font-mono text-[11px]">{{ empresa.cnpj }}</span>
         </p>
       </div>
 
-      <div class="flex items-center gap-3 flex-wrap justify-end">
+      <div class="flex items-center gap-2.5 flex-wrap justify-end">
         <!-- Filtro por ano -->
         <div class="relative">
-          <CalendarDays class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <CalendarDays class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco pointer-events-none" :stroke-width="1.8" />
           <select v-model="anoFiltro"
-            class="pl-9 pr-8 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm text-slate-600 font-semibold shadow-sm focus:outline-none focus:ring-1 focus:ring-brand-accent focus:border-brand-accent appearance-none cursor-pointer transition-all">
+            class="pl-9 pr-8 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink font-medium outline-none focus:border-bronze appearance-none cursor-pointer transition-colors">
             <option value="">Todos os anos</option>
             <option v-for="ano in anosDisponiveis" :key="ano" :value="ano">{{ ano }}</option>
           </select>
-          <ChevronDown class="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <ChevronDown class="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-risco pointer-events-none" :stroke-width="1.8" />
         </div>
 
         <!-- Busca -->
-        <div class="relative group">
+        <div class="relative">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco pointer-events-none" :stroke-width="1.8" />
           <input v-model="busca" type="text" placeholder="Buscar período..."
-                 class="pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl focus:ring-1 focus:ring-brand-accent focus:border-brand-accent outline-none transition-all text-sm w-52 shadow-sm placeholder:text-slate-400">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-hover:text-brand-accent transition-colors" />
+                 class="pl-9 pr-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink placeholder-risco outline-none focus:border-bronze transition-colors w-52">
         </div>
 
-        <button @click="router.push('/analisador')" class="px-6 py-2.5 flex items-center gap-2 bg-brand-accent text-white font-bold rounded-2xl shadow-lg shadow-brand-accent/20 hover:scale-[1.02] transition-all text-sm">
-          <Plus class="w-4 h-4" />
-          NOVA ANÁLISE
-        </button>
+        <UiButton @click="router.push('/analisador')">
+          <Plus class="w-4 h-4" :stroke-width="2" />
+          Nova Análise
+        </UiButton>
       </div>
     </header>
 
     <!-- Toolbar de Ações em Massa -->
     <!-- Confirmação de exclusão -->
-    <div v-if="pendingDelete" class="flex items-center justify-between gap-4 bg-red-50 border border-red-300 rounded-2xl px-5 py-3 shadow-sm">
+    <div v-if="pendingDelete" class="flex items-center justify-between gap-4 bg-lacre/[0.06] border border-lacre/25 rounded-md px-5 py-3">
       <div class="flex items-center gap-3">
-        <span class="text-red-500 text-lg">🗑️</span>
-        <p class="text-sm font-black text-red-800">Excluir permanentemente {{ pendingDelete.label }}? Esta ação não pode ser desfeita.</p>
+        <Trash2 class="w-4 h-4 text-lacre shrink-0" :stroke-width="1.8" />
+        <p class="text-[13px] font-medium text-lacre">Excluir permanentemente {{ pendingDelete.label }}? Esta ação não pode ser desfeita.</p>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <button @click="pendingDelete = null" class="px-4 py-1.5 border border-slate-300 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-100 transition-all">CANCELAR</button>
-        <button @click="confirmarDelete" class="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-black rounded-xl transition-all">CONFIRMAR</button>
+        <UiButton variant="ghost" @click="pendingDelete = null">Cancelar</UiButton>
+        <button @click="confirmarDelete" class="inline-flex items-center gap-[7px] rounded-md text-[13px] font-medium px-[13px] py-[7px] bg-lacre text-white hover:opacity-85 transition-opacity">Confirmar</button>
       </div>
     </div>
 
     <!-- Resultado da exclusão -->
-    <div v-if="deleteMsg" class="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-300 rounded-2xl px-5 py-3 shadow-sm">
-      <p class="text-sm font-black text-emerald-800">{{ deleteMsg }}</p>
-      <button @click="deleteMsg = ''" class="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl transition-all">FECHAR</button>
+    <div v-if="deleteMsg" class="flex items-center justify-between gap-4 bg-conforme/[0.06] border border-conforme/25 rounded-md px-5 py-3">
+      <p class="text-[13px] font-medium text-conforme">{{ deleteMsg }}</p>
+      <UiButton variant="ghost" @click="deleteMsg = ''">Fechar</UiButton>
     </div>
 
-    <div v-if="arquivos.length > 0" class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200">
+    <div v-if="arquivos.length > 0" class="flex items-center justify-between bg-paper p-4 rounded-md border border-line">
       <div class="flex items-center gap-4">
         <label class="flex items-center gap-2 cursor-pointer group">
           <input type="checkbox" :checked="selecionados.length === arquivosFiltrados.length && arquivosFiltrados.length > 0"
-                 @change="selecionarTudo" class="w-5 h-5 rounded border-slate-300 text-brand-accent focus:ring-brand-accent" />
-          <span class="text-sm font-bold text-slate-600 group-hover:text-slate-800">SELECIONAR TUDO</span>
+                 @change="selecionarTudo" class="w-4 h-4 rounded border-line text-bronze focus:ring-bronze accent-bronze" />
+          <span class="text-[11px] uppercase tracking-wide font-medium text-risco group-hover:text-ink">Selecionar tudo</span>
         </label>
-        <span v-if="selecionados.length > 0" class="text-xs font-black bg-brand-accent text-white px-3 py-1 rounded-full animate-bounce">
-          {{ selecionados.length }} SELECIONADO(S)
+        <span v-if="selecionados.length > 0" class="text-[10px] font-mono uppercase tracking-[.05em] bg-bronze text-white px-2.5 py-0.5 rounded">
+          {{ selecionados.length }} selecionado(s)
         </span>
       </div>
       <button v-if="selecionados.length > 0" @click="deletarVariosArquivos"
-              class="px-6 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-lg shadow-red-100">
-        <Trash2 class="w-4 h-4" />
-        EXCLUIR SELECIONADOS
+              class="inline-flex items-center gap-[7px] rounded-md text-[13px] font-medium px-[13px] py-[7px] bg-lacre text-white hover:opacity-85 transition-opacity">
+        <Trash2 class="w-4 h-4" :stroke-width="1.8" />
+        Excluir selecionados
       </button>
     </div>
 
     <!-- Loading -->
     <div v-if="loading" class="py-32 flex flex-col items-center justify-center text-center">
-      <Loader2 class="w-12 h-12 text-slate-300 animate-spin mb-4" />
-      <p class="text-slate-400 font-bold tracking-widest text-xs uppercase">Carregando Repositório...</p>
+      <Loader2 class="w-8 h-8 text-bronze animate-spin mb-4" :stroke-width="1.8" />
+      <p class="text-risco text-[11px] uppercase tracking-wide font-medium">Carregando repositório...</p>
     </div>
 
     <!-- Erro de carregamento -->
     <div v-else-if="erroCarregamento" class="py-32 flex flex-col items-center justify-center text-center">
-      <p class="text-red-400 font-bold text-sm mb-3">Falha ao carregar arquivos. Verifique a conexão com o servidor.</p>
-      <button @click="() => { erroCarregamento = false; $nextTick(() => location.reload()); }"
-        class="px-5 py-2 bg-brand-accent text-white text-xs font-bold rounded-xl">
+      <p class="text-lacre text-[13px] font-medium mb-3">Falha ao carregar arquivos. Verifique a conexão com o servidor.</p>
+      <UiButton @click="() => { erroCarregamento = false; $nextTick(() => location.reload()); }">
         Tentar novamente
-      </button>
+      </UiButton>
     </div>
 
     <!-- Lista agrupada por ano -->
     <div v-else-if="arquivosPorAno.length > 0" class="space-y-3">
-      <div v-for="[ano, itens] in arquivosPorAno" :key="ano" class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div v-for="[ano, itens] in arquivosPorAno" :key="ano" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
 
         <!-- Cabeçalho do ano (clicável) -->
         <button
           @click="toggleAno(ano)"
-          class="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/80 transition-colors group"
+          class="w-full flex items-center justify-between px-5 py-3 hover:bg-paper transition-colors group"
         >
           <div class="flex items-center gap-3">
             <component :is="anosExpandidos.includes(ano) ? ChevronDown : ChevronRight"
-              class="w-4 h-4 text-slate-400 group-hover:text-brand-accent transition-all" />
-            <span class="text-base font-black text-slate-700 tracking-tight">{{ ano }}</span>
-            <span class="text-[11px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              class="w-4 h-4 text-risco group-hover:text-bronze transition-colors" :stroke-width="1.8" />
+            <span class="font-display text-[15px] font-semibold text-ink">{{ ano }}</span>
+            <span class="text-[10px] font-mono uppercase tracking-[.05em] text-risco bg-paper border border-line px-2 py-0.5 rounded">
               {{ itens.length }} {{ itens.length === 1 ? 'período' : 'períodos' }}
             </span>
           </div>
-          <span class="text-xs text-slate-300 font-medium">
+          <span class="text-[11px] font-mono text-risco">
             {{ formatPeriodo(itens[itens.length - 1].periodo_apuracao) }} — {{ formatPeriodo(itens[0].periodo_apuracao) }}
           </span>
         </button>
 
         <!-- Tabela de registros (expansível) -->
-        <div v-show="anosExpandidos.includes(ano)" class="border-t border-slate-50">
-          <table class="w-full text-sm">
+        <div v-show="anosExpandidos.includes(ano)" class="border-t border-line">
+          <table class="w-full text-[13px]">
             <thead>
-              <tr class="bg-slate-50/60 border-b border-slate-100 text-left">
-                <th class="px-4 py-2.5 w-10"></th>
-                <th class="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-xs">Período</th>
-                <th class="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-xs">Arquivo</th>
-                <th class="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-xs">Importado em</th>
-                <th class="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-xs w-10 text-center">ID</th>
-                <th class="px-4 py-2.5 w-20"></th>
+              <tr class="bg-paper text-left">
+                <th class="px-4 py-2 w-10"></th>
+                <th class="px-4 py-2 font-medium text-risco uppercase tracking-wide text-[10px]">Período</th>
+                <th class="px-4 py-2 font-medium text-risco uppercase tracking-wide text-[10px]">Arquivo</th>
+                <th class="px-4 py-2 font-medium text-risco uppercase tracking-wide text-[10px]">Importado em</th>
+                <th class="px-4 py-2 font-medium text-risco uppercase tracking-wide text-[10px] w-10 text-center">ID</th>
+                <th class="px-4 py-2 w-20"></th>
               </tr>
             </thead>
             <tbody>
               <tr
                 v-for="arq in itens"
                 :key="arq.id"
-                class="group border-b border-slate-50 last:border-0 hover:bg-slate-50/70 transition-colors cursor-pointer"
-                :class="{'bg-brand-accent/5': selecionados.includes(arq.id)}"
+                class="group border-t border-line hover:bg-paper transition-colors cursor-pointer"
+                :class="{'bg-bronze/[0.05]': selecionados.includes(arq.id)}"
               >
                 <!-- Checkbox -->
                 <td class="px-4 py-3" @click.stop>
                   <input type="checkbox" :checked="selecionados.includes(arq.id)" @change="toggleSelecao(arq.id)"
-                         class="w-4 h-4 rounded border-slate-300 text-brand-accent focus:ring-brand-accent cursor-pointer" />
+                         class="w-4 h-4 rounded border-line text-bronze focus:ring-bronze accent-bronze cursor-pointer" />
                 </td>
 
                 <!-- Período -->
                 <td class="px-4 py-3" @click="abrirAnalise(arq.id)">
-                  <span class="font-black text-slate-800 font-mono tracking-tight text-base">
+                  <span class="font-mono font-medium text-ink text-[14px]">
                     {{ formatPeriodo(arq.periodo_apuracao) }}
                   </span>
                 </td>
@@ -316,19 +316,19 @@ function abrirAnalise(id) {
                 <!-- Nome arquivo -->
                 <td class="px-4 py-3 max-w-xs" @click="abrirAnalise(arq.id)">
                   <div class="flex items-center gap-2">
-                    <FolderOpen class="w-4 h-4 text-slate-300 group-hover:text-brand-accent transition-colors shrink-0" />
-                    <span class="text-slate-500 truncate text-xs font-medium">{{ arq.nome_arquivo }}</span>
+                    <FolderOpen class="w-4 h-4 text-risco group-hover:text-bronze transition-colors shrink-0" :stroke-width="1.6" />
+                    <span class="text-risco truncate text-[11px] font-mono">{{ arq.nome_arquivo }}</span>
                   </div>
                 </td>
 
                 <!-- Data -->
-                <td class="px-4 py-3 text-slate-400 text-xs font-medium" @click="abrirAnalise(arq.id)">
+                <td class="px-4 py-3 text-risco text-[11px] font-mono" @click="abrirAnalise(arq.id)">
                   {{ formatData(arq.data_upload) }}
                 </td>
 
                 <!-- ID -->
                 <td class="px-4 py-3 text-center" @click="abrirAnalise(arq.id)">
-                  <span class="text-[10px] font-black text-slate-300 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md">#{{ arq.id }}</span>
+                  <span class="text-[10px] font-mono text-risco bg-paper border border-line px-1.5 py-0.5 rounded">#{{ arq.id }}</span>
                 </td>
 
                 <!-- Ações -->
@@ -336,17 +336,17 @@ function abrirAnalise(id) {
                   <div class="flex items-center gap-1 justify-end">
                     <button
                       @click="abrirAnalise(arq.id)"
-                      class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-400 hover:border-brand-accent/30 hover:bg-brand-accent/5 hover:text-brand-accent transition-all flex items-center justify-center shadow-sm"
+                      class="w-8 h-8 rounded-md bg-sheet border border-line text-risco hover:border-bronze/40 hover:bg-bronze/[0.05] hover:text-bronze transition-colors flex items-center justify-center"
                       title="Abrir análise"
                     >
-                      <ArrowRight class="w-4 h-4" />
+                      <ArrowRight class="w-4 h-4" :stroke-width="1.8" />
                     </button>
                     <button
                       @click="deletarArquivo(arq.id, arq.periodo_apuracao)"
-                      class="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-all flex items-center justify-center shadow-sm"
+                      class="w-8 h-8 rounded-md bg-sheet border border-line text-risco hover:border-lacre/30 hover:bg-lacre/5 hover:text-lacre transition-colors flex items-center justify-center"
                       title="Excluir Período"
                     >
-                      <Trash2 class="w-4 h-4" />
+                      <Trash2 class="w-4 h-4" :stroke-width="1.8" />
                     </button>
                   </div>
                 </td>
@@ -358,27 +358,28 @@ function abrirAnalise(id) {
     </div>
 
     <!-- Vazio -->
-    <div v-else class="bg-white rounded-[3rem] p-24 text-center border border-dashed border-slate-200 flex flex-col items-center shadow-sm">
-      <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 border border-slate-100">
-        <FolderArchive class="w-10 h-10 text-slate-300" />
-      </div>
-      <h2 class="text-xl font-bold text-slate-700">Nenhum arquivo encontrado</h2>
-      <p class="text-slate-400 max-w-sm mx-auto mt-2 mb-8 text-sm">Parece que ainda não processamos arquivos para este período ou empresa no repositório.</p>
-      <button @click="router.push('/analisador')" class="px-8 py-3.5 flex items-center gap-2 bg-brand-accent hover:bg-slate-800 text-white font-bold rounded-2xl transition-all shadow-md">
-        <Plus class="w-4 h-4" />
-        COMEÇAR PRIMEIRA ANÁLISE
-      </button>
+    <div v-else class="bg-sheet rounded-md p-16 text-center border border-line card-shadow flex flex-col items-center">
+      <FolderArchive class="w-11 h-11 text-line mb-4" :stroke-width="1.4" />
+      <h2 class="font-display text-[15px] font-semibold text-ink">Nenhum arquivo encontrado</h2>
+      <p class="text-risco max-w-sm mx-auto mt-1 mb-5 text-[13px]">Parece que ainda não processamos arquivos para este período ou empresa no repositório.</p>
+      <UiButton @click="router.push('/analisador')">
+        <Plus class="w-4 h-4" :stroke-width="2" />
+        Começar primeira análise
+      </UiButton>
     </div>
 
   </div>
 </template>
 
 <style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
 .animate-fade-in {
-  animation: fadeIn 0.5s ease-out;
+  animation: fadeIn 0.3s ease-out;
 }
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
 </style>

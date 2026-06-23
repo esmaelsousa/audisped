@@ -4,6 +4,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { token } from '../store';
 import { Scale, Search, RefreshCw, Plus, Pencil, Copy, Power, Trash2, FlaskConical, X } from 'lucide-vue-next';
+import UiButton from '@/components/ui/UiButton.vue';
 
 const regras = ref([]);
 const carregando = ref(false);
@@ -62,8 +63,8 @@ function acaoTexto(r) {
   return a.length ? a.join(', ') : '—';
 }
 const fmtData = d => d ? String(d).slice(0, 10) : '—';
-const corEscopo = { ambos: 'bg-emerald-100 text-emerald-700', export: 'bg-blue-100 text-blue-700', injecao: 'bg-purple-100 text-purple-700' };
-const corConf = { alta: 'bg-emerald-100 text-emerald-700', media: 'bg-amber-100 text-amber-700', baixa: 'bg-rose-100 text-rose-700' };
+const corEscopo = { ambos: 'bg-conforme/10 text-conforme border-conforme/20', export: 'bg-bronze/10 text-bronze border-bronze/20', injecao: 'bg-paper text-ink border-line' };
+const corConf = { alta: 'bg-conforme/10 text-conforme border-conforme/20', media: 'bg-variacao/10 text-variacao border-variacao/20', baixa: 'bg-lacre/10 text-lacre border-lacre/20' };
 
 // ---------- Formulário (criar/editar) ----------
 const modal = ref(false);
@@ -148,121 +149,121 @@ async function simular() {
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3 mb-2">
       <div class="flex items-center gap-3">
-        <div class="p-2 rounded-xl bg-brand-accent/10"><Scale class="w-5 h-5 text-brand-accent" /></div>
+        <div class="p-2 rounded-md bg-bronze/10"><Scale class="w-5 h-5 text-bronze" :stroke-width="1.8" /></div>
         <div>
-          <h1 class="text-xl font-black text-slate-800">Regras Fiscais</h1>
-          <p class="text-xs text-slate-500">Cadastro <b>global</b> (condição → ação), aplicado na injeção/exportação. Vigência por competência.</p>
+          <h1 class="font-display text-[22px] font-semibold tracking-[-0.01em] text-ink">Regras Fiscais</h1>
+          <p class="text-[13px] text-risco">Cadastro <b class="text-ink font-medium">global</b> (condição → ação), aplicado na injeção/exportação. Vigência por competência.</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <button @click="sim = true" class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"><FlaskConical class="w-4 h-4" /> Simulador</button>
-        <button @click="abrirNova" class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-accent text-white hover:bg-blue-700 font-semibold"><Plus class="w-4 h-4" /> Nova regra</button>
+        <UiButton variant="ghost" @click="sim = true"><FlaskConical class="w-4 h-4 text-risco" :stroke-width="1.8" /> Simulador</UiButton>
+        <UiButton @click="abrirNova"><Plus class="w-4 h-4" :stroke-width="2" /> Nova regra</UiButton>
       </div>
     </div>
 
     <!-- Filtros -->
     <div class="flex flex-wrap items-center gap-2 my-4">
       <div class="relative flex-1 min-w-[200px]">
-        <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input v-model="busca" placeholder="Buscar por nome ou fundamento…" class="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-brand-accent/30" />
+        <Search class="w-4 h-4 text-risco absolute left-3 top-1/2 -translate-y-1/2" :stroke-width="1.8" />
+        <input v-model="busca" placeholder="Buscar por nome ou fundamento…" class="w-full pl-9 pr-3 py-2 text-[13px] bg-sheet text-ink placeholder-risco border border-line rounded-md outline-none focus:border-bronze transition-colors" />
       </div>
-      <select v-model="filtroEscopo" @change="carregar" class="text-sm border border-slate-200 rounded-lg px-3 py-2">
+      <select v-model="filtroEscopo" @change="carregar" class="text-[13px] bg-sheet text-ink border border-line rounded-md px-3 py-2 outline-none focus:border-bronze transition-colors">
         <option value="">Todos os escopos</option><option value="ambos">ambos</option><option value="export">export</option><option value="injecao">injeção</option>
       </select>
-      <select v-model="filtroAtivo" @change="carregar" class="text-sm border border-slate-200 rounded-lg px-3 py-2">
+      <select v-model="filtroAtivo" @change="carregar" class="text-[13px] bg-sheet text-ink border border-line rounded-md px-3 py-2 outline-none focus:border-bronze transition-colors">
         <option value="">Ativas e inativas</option><option value="true">Só ativas</option><option value="false">Só inativas</option>
       </select>
-      <button @click="carregar" class="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600"><RefreshCw class="w-4 h-4" /> Atualizar</button>
+      <UiButton variant="ghost" @click="carregar"><RefreshCw class="w-4 h-4 text-risco" :stroke-width="1.8" /> Atualizar</UiButton>
     </div>
 
-    <div v-if="erro" class="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-4">{{ erro }}</div>
-    <div v-if="carregando" class="text-sm text-slate-500 italic">Carregando…</div>
+    <div v-if="erro" class="text-[13px] text-lacre bg-lacre/[0.06] border border-lacre/25 rounded-md px-3 py-2 mb-4">{{ erro }}</div>
+    <div v-if="carregando" class="text-[13px] text-risco italic">Carregando…</div>
 
     <!-- Lista -->
-    <div v-else class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div v-else class="bg-sheet border border-line rounded-md card-shadow overflow-hidden">
       <table class="w-full text-left">
-        <thead class="bg-slate-50 text-[10px] uppercase tracking-widest text-slate-400 border-b border-slate-200">
+        <thead class="bg-paper text-[10px] uppercase tracking-[.08em] text-risco border-b border-line">
           <tr>
             <th class="py-2.5 px-3 text-center w-12">Prio</th><th class="py-2.5 px-3">Regra</th><th class="py-2.5 px-3">QUANDO</th>
             <th class="py-2.5 px-3">ENTÃO</th><th class="py-2.5 px-3 text-center">Vig. ≥</th><th class="py-2.5 px-3 text-center">Status</th><th class="py-2.5 px-3 text-center">Ações</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-50">
-          <tr v-for="r in filtradas" :key="r.id" class="hover:bg-slate-50/60 align-top">
-            <td class="py-2.5 px-3 text-center font-mono font-bold text-slate-400">{{ r.prioridade }}</td>
-            <td class="py-2.5 px-3"><div class="text-xs font-bold text-slate-700">{{ r.nome }}</div><div class="text-[10px] text-slate-400 mt-0.5">{{ r.fundamento_legal }}</div></td>
-            <td class="py-2.5 px-3 text-[11px] text-slate-600">{{ condTexto(r) }}</td>
-            <td class="py-2.5 px-3 text-[11px] font-medium text-slate-700">{{ acaoTexto(r) }}</td>
-            <td class="py-2.5 px-3 text-center text-[10px] font-mono text-slate-500">{{ fmtData(r.dt_ini) }}</td>
+        <tbody>
+          <tr v-for="r in filtradas" :key="r.id" class="border-t border-line hover:bg-paper transition-colors align-top">
+            <td class="py-2.5 px-3 text-center font-mono font-semibold text-risco">{{ r.prioridade }}</td>
+            <td class="py-2.5 px-3"><div class="text-[13px] font-medium text-ink">{{ r.nome }}</div><div class="text-[10px] text-risco mt-0.5">{{ r.fundamento_legal }}</div></td>
+            <td class="py-2.5 px-3 text-[11px] text-risco">{{ condTexto(r) }}</td>
+            <td class="py-2.5 px-3 text-[11px] font-medium text-ink">{{ acaoTexto(r) }}</td>
+            <td class="py-2.5 px-3 text-center text-[10px] font-mono text-risco">{{ fmtData(r.dt_ini) }}</td>
             <td class="py-2.5 px-3 text-center whitespace-nowrap">
-              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full" :class="corEscopo[r.escopo_aplicacao] || 'bg-slate-100 text-slate-600'">{{ r.escopo_aplicacao }}</span>
-              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ml-1" :class="corConf[r.confianca] || 'bg-slate-100'">{{ r.confianca }}</span>
-              <div class="mt-1"><span class="text-[9px] font-black px-2 py-0.5 rounded-full" :class="r.ativo ? 'bg-emerald-500 text-white' : 'bg-slate-300 text-slate-600'">{{ r.ativo ? 'ATIVA' : 'inativa' }}</span></div>
+              <span class="text-[9px] font-medium px-2 py-0.5 rounded uppercase border" :class="corEscopo[r.escopo_aplicacao] || 'bg-paper text-risco border-line'">{{ r.escopo_aplicacao }}</span>
+              <span class="text-[9px] font-medium px-2 py-0.5 rounded uppercase border ml-1" :class="corConf[r.confianca] || 'bg-paper text-risco border-line'">{{ r.confianca }}</span>
+              <div class="mt-1"><span class="text-[9px] font-semibold px-2 py-0.5 rounded uppercase" :class="r.ativo ? 'bg-conforme text-white' : 'bg-line text-risco'">{{ r.ativo ? 'ATIVA' : 'inativa' }}</span></div>
             </td>
             <td class="py-2.5 px-3 text-center whitespace-nowrap">
-              <button @click="abrirEditar(r)" title="Editar" class="p-1.5 text-slate-400 hover:text-brand-accent"><Pencil class="w-3.5 h-3.5" /></button>
-              <button @click="duplicar(r)" title="Duplicar" class="p-1.5 text-slate-400 hover:text-blue-600"><Copy class="w-3.5 h-3.5" /></button>
-              <button @click="toggleAtivo(r)" :title="r.ativo ? 'Desativar' : 'Ativar'" class="p-1.5" :class="r.ativo ? 'text-emerald-500' : 'text-slate-300 hover:text-emerald-500'"><Power class="w-3.5 h-3.5" /></button>
-              <button @click="excluir(r)" title="Excluir" class="p-1.5 text-slate-400 hover:text-rose-600"><Trash2 class="w-3.5 h-3.5" /></button>
+              <button @click="abrirEditar(r)" title="Editar" class="p-1.5 text-risco hover:text-bronze transition-colors"><Pencil class="w-3.5 h-3.5" :stroke-width="1.8" /></button>
+              <button @click="duplicar(r)" title="Duplicar" class="p-1.5 text-risco hover:text-bronze transition-colors"><Copy class="w-3.5 h-3.5" :stroke-width="1.8" /></button>
+              <button @click="toggleAtivo(r)" :title="r.ativo ? 'Desativar' : 'Ativar'" class="p-1.5 transition-colors" :class="r.ativo ? 'text-conforme' : 'text-risco hover:text-conforme'"><Power class="w-3.5 h-3.5" :stroke-width="1.8" /></button>
+              <button @click="excluir(r)" title="Excluir" class="p-1.5 text-risco hover:text-lacre transition-colors"><Trash2 class="w-3.5 h-3.5" :stroke-width="1.8" /></button>
             </td>
           </tr>
-          <tr v-if="!filtradas.length"><td colspan="7" class="py-8 text-center text-sm text-slate-400 italic">Nenhuma regra encontrada.</td></tr>
+          <tr v-if="!filtradas.length"><td colspan="7" class="py-8 text-center text-[13px] text-risco italic">Nenhuma regra encontrada.</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="text-[11px] text-slate-400 mt-3">{{ filtradas.length }} regra(s) · tabela <code>regras_fiscais</code> · alterações refletem na próxima exportação.</p>
+    <p class="text-[11px] text-risco mt-3">{{ filtradas.length }} regra(s) · tabela <code class="font-mono text-ink">regras_fiscais</code> · alterações refletem na próxima exportação.</p>
 
     <!-- ===== Modal: criar/editar ===== -->
     <Teleport to="body">
-      <div v-if="modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" @click.self="modal = false">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-          <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100 sticky top-0 bg-white">
-            <h3 class="font-black text-slate-800">{{ editandoId ? 'Editar regra' : 'Nova regra fiscal' }}</h3>
-            <button @click="modal = false" class="text-slate-400 hover:text-slate-700"><X class="w-5 h-5" /></button>
+      <div v-if="modal" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" @click.self="modal = false">
+        <div class="bg-sheet rounded-md border border-line card-shadow w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-line sticky top-0 bg-sheet">
+            <h3 class="font-display text-[16px] font-semibold text-ink">{{ editandoId ? 'Editar regra' : 'Nova regra fiscal' }}</h3>
+            <button @click="modal = false" class="text-risco hover:text-ink transition-colors"><X class="w-5 h-5" :stroke-width="1.8" /></button>
           </div>
-          <div class="p-5 space-y-4 text-sm">
+          <div class="p-5 space-y-4 text-[13px]">
             <!-- Identificação -->
             <div class="grid grid-cols-12 gap-3">
-              <div class="col-span-8"><label class="text-[10px] uppercase font-bold text-slate-400">Nome *</label><input v-model="form.nome" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] uppercase font-bold text-slate-400">Prioridade</label><input v-model="form.prioridade" type="number" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2 flex items-end pb-1.5"><label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.ativo" class="accent-emerald-500" /> <span class="text-xs">Ativa</span></label></div>
-              <div class="col-span-12"><label class="text-[10px] uppercase font-bold text-slate-400">Fundamento legal</label><input v-model="form.fundamento_legal" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-4"><label class="text-[10px] uppercase font-bold text-slate-400">Escopo</label><select v-model="form.escopo_aplicacao" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="ambos">ambos</option><option value="export">export</option><option value="injecao">injeção</option></select></div>
-              <div class="col-span-4"><label class="text-[10px] uppercase font-bold text-slate-400">Confiança</label><select v-model="form.confianca" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="alta">alta</option><option value="media">media</option><option value="baixa">baixa</option></select></div>
-              <div class="col-span-2"><label class="text-[10px] uppercase font-bold text-slate-400">Vig. início</label><input v-model="form.dt_ini" type="date" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] uppercase font-bold text-slate-400">Vig. fim</label><input v-model="form.dt_fim" type="date" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
+              <div class="col-span-8"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Nome *</label><input v-model="form.nome" class="w-full bg-sheet text-ink border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Prioridade</label><input v-model="form.prioridade" type="number" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2 flex items-end pb-1.5"><label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.ativo" class="accent-conforme" /> <span class="text-[13px] text-ink">Ativa</span></label></div>
+              <div class="col-span-12"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Fundamento legal</label><input v-model="form.fundamento_legal" class="w-full bg-sheet text-ink border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-4"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Escopo</label><select v-model="form.escopo_aplicacao" class="w-full bg-sheet text-ink border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="ambos">ambos</option><option value="export">export</option><option value="injecao">injeção</option></select></div>
+              <div class="col-span-4"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Confiança</label><select v-model="form.confianca" class="w-full bg-sheet text-ink border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="alta">alta</option><option value="media">media</option><option value="baixa">baixa</option></select></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Vig. início</label><input v-model="form.dt_ini" type="date" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Vig. fim</label><input v-model="form.dt_fim" type="date" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
             </div>
             <!-- QUANDO -->
-            <div class="bg-slate-50 rounded-xl p-3">
-              <div class="text-[10px] uppercase font-black tracking-wider text-slate-500 mb-2">QUANDO (condições)</div>
+            <div class="bg-paper border border-line rounded-md p-3">
+              <div class="flex items-center gap-2 mb-2"><span class="w-1 h-5 bg-bronze rounded-sm"></span><span class="text-[10px] uppercase tracking-[.08em] font-semibold text-risco">QUANDO (condições)</span></div>
               <div class="grid grid-cols-12 gap-3">
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">Operação</label><select v-model="form.ind_oper" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="">Ambos</option><option value="0">Entrada</option><option value="1">Saída</option></select></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">NCM (prefixo)</label><input v-model="form.ncm_prefix" placeholder="ex: 2710" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CFOP origem (prefixo)</label><input v-model="form.cfop_origem" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CST origem (lista)</label><input v-model="cstOrigemStr" placeholder="ex: 60, 61" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Operação</label><select v-model="form.ind_oper" class="w-full bg-sheet text-ink border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="">Ambos</option><option value="0">Entrada</option><option value="1">Saída</option></select></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">NCM (prefixo)</label><input v-model="form.ncm_prefix" placeholder="ex: 2710" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CFOP origem (prefixo)</label><input v-model="form.cfop_origem" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST origem (lista)</label><input v-model="cstOrigemStr" placeholder="ex: 60, 61" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
               </div>
             </div>
             <!-- ENTÃO -->
-            <div class="bg-emerald-50/50 rounded-xl p-3">
-              <div class="text-[10px] uppercase font-black tracking-wider text-emerald-700 mb-2">ENTÃO (ações — vazio = mantém)</div>
+            <div class="bg-paper border border-line rounded-md p-3">
+              <div class="flex items-center gap-2 mb-2"><span class="w-1 h-5 bg-bronze rounded-sm"></span><span class="text-[10px] uppercase tracking-[.08em] font-semibold text-risco">ENTÃO (ações — vazio = mantém)</span></div>
               <div class="grid grid-cols-12 gap-3">
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CST ICMS</label><select v-model="form.acao_cst_icms" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="">—</option><option v-for="c in CST_ICMS" :key="c" :value="c">{{ c }}</option></select></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CFOP</label><input v-model="form.acao_cfop" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CST PIS</label><select v-model="form.acao_cst_pis" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="">—</option><option v-for="c in CST_PISCOFINS" :key="c" :value="c">{{ c }}</option></select></div>
-                <div class="col-span-3"><label class="text-[10px] text-slate-400">CST COFINS</label><select v-model="form.acao_cst_cofins" class="w-full border border-slate-200 rounded-lg px-2 py-1.5"><option value="">—</option><option v-for="c in CST_PISCOFINS" :key="c" :value="c">{{ c }}</option></select></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST ICMS</label><select v-model="form.acao_cst_icms" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="">—</option><option v-for="c in CST_ICMS" :key="c" :value="c">{{ c }}</option></select></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CFOP</label><input v-model="form.acao_cfop" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST PIS</label><select v-model="form.acao_cst_pis" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="">—</option><option v-for="c in CST_PISCOFINS" :key="c" :value="c">{{ c }}</option></select></div>
+                <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST COFINS</label><select v-model="form.acao_cst_cofins" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors"><option value="">—</option><option v-for="c in CST_PISCOFINS" :key="c" :value="c">{{ c }}</option></select></div>
               </div>
-              <div class="flex flex-wrap gap-4 mt-3 text-xs">
-                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_zera_icms" /> zera ICMS</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_usar_st_ret" /> usa ST retido</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_bloqueia_credito_st" /> bloqueia crédito ST</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_apenas_alerta" /> só alerta (não aplica)</label>
-                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_para_no_match" /> para no 1º match</label>
+              <div class="flex flex-wrap gap-4 mt-3 text-[13px] text-ink">
+                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_zera_icms" class="accent-bronze" /> zera ICMS</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_usar_st_ret" class="accent-bronze" /> usa ST retido</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_bloqueia_credito_st" class="accent-bronze" /> bloqueia crédito ST</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_apenas_alerta" class="accent-bronze" /> só alerta (não aplica)</label>
+                <label class="flex items-center gap-1.5"><input type="checkbox" v-model="form.flag_para_no_match" class="accent-bronze" /> para no 1º match</label>
               </div>
             </div>
           </div>
-          <div class="flex justify-end gap-2 px-5 py-3 border-t border-slate-100 sticky bottom-0 bg-white">
-            <button @click="modal = false" class="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm">Cancelar</button>
-            <button @click="salvar" :disabled="salvando" class="px-4 py-2 rounded-lg bg-brand-accent text-white text-sm font-bold disabled:opacity-50">{{ salvando ? 'Salvando…' : 'Salvar' }}</button>
+          <div class="flex justify-end gap-2 px-5 py-3 border-t border-line sticky bottom-0 bg-paper">
+            <UiButton variant="ghost" @click="modal = false">Cancelar</UiButton>
+            <UiButton @click="salvar" :disabled="salvando" class="disabled:opacity-50">{{ salvando ? 'Salvando…' : 'Salvar' }}</UiButton>
           </div>
         </div>
       </div>
@@ -270,33 +271,33 @@ async function simular() {
 
     <!-- ===== Modal: simulador ===== -->
     <Teleport to="body">
-      <div v-if="sim" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" @click.self="sim = false">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
-          <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-            <h3 class="font-black text-slate-800 flex items-center gap-2"><FlaskConical class="w-4 h-4 text-brand-accent" /> Simulador de regras</h3>
-            <button @click="sim = false" class="text-slate-400 hover:text-slate-700"><X class="w-5 h-5" /></button>
+      <div v-if="sim" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" @click.self="sim = false">
+        <div class="bg-sheet rounded-md border border-line card-shadow w-full max-w-2xl">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-line">
+            <h3 class="font-display text-[16px] font-semibold text-ink flex items-center gap-2"><FlaskConical class="w-4 h-4 text-bronze" :stroke-width="1.8" /> Simulador de regras</h3>
+            <button @click="sim = false" class="text-risco hover:text-ink transition-colors"><X class="w-5 h-5" :stroke-width="1.8" /></button>
           </div>
-          <div class="p-5 space-y-4 text-sm">
-            <p class="text-xs text-slate-500">Informe um item e veja qual(is) regra(s) casa(m) e o resultado — sem persistir nada.</p>
+          <div class="p-5 space-y-4 text-[13px]">
+            <p class="text-[13px] text-risco">Informe um item e veja qual(is) regra(s) casa(m) e o resultado — sem persistir nada.</p>
             <div class="grid grid-cols-12 gap-3">
-              <div class="col-span-3"><label class="text-[10px] text-slate-400">NCM</label><input v-model="simItem.ncm" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] text-slate-400">CST ICMS</label><input v-model="simItem.cst_icms" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] text-slate-400">CFOP</label><input v-model="simItem.cfop" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] text-slate-400">CST PIS</label><input v-model="simItem.cst_pis" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-2"><label class="text-[10px] text-slate-400">COFINS</label><input v-model="simItem.cst_cofins" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-1"><label class="text-[10px] text-slate-400">Oper</label><select v-model="simItem.ind_oper" class="w-full border border-slate-200 rounded-lg px-1 py-1.5"><option value="0">E</option><option value="1">S</option></select></div>
-              <div class="col-span-3"><label class="text-[10px] text-slate-400">Competência</label><input v-model="simItem.competencia" placeholder="2024-04" class="w-full border border-slate-200 rounded-lg px-2 py-1.5" /></div>
-              <div class="col-span-9 flex items-end"><button @click="simular" :disabled="simLoad" class="px-4 py-2 rounded-lg bg-brand-accent text-white text-sm font-bold disabled:opacity-50">{{ simLoad ? 'Simulando…' : 'Simular' }}</button></div>
+              <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">NCM</label><input v-model="simItem.ncm" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST ICMS</label><input v-model="simItem.cst_icms" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CFOP</label><input v-model="simItem.cfop" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">CST PIS</label><input v-model="simItem.cst_pis" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-2"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">COFINS</label><input v-model="simItem.cst_cofins" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-1"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Oper</label><select v-model="simItem.ind_oper" class="w-full bg-sheet text-ink border border-line rounded-md px-1 py-1.5 outline-none focus:border-bronze transition-colors"><option value="0">E</option><option value="1">S</option></select></div>
+              <div class="col-span-3"><label class="block text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Competência</label><input v-model="simItem.competencia" placeholder="2024-04" class="w-full bg-sheet text-ink font-mono border border-line rounded-md px-2 py-1.5 outline-none focus:border-bronze transition-colors" /></div>
+              <div class="col-span-9 flex items-end"><UiButton @click="simular" :disabled="simLoad" class="disabled:opacity-50">{{ simLoad ? 'Simulando…' : 'Simular' }}</UiButton></div>
             </div>
-            <div v-if="simRes" class="bg-slate-50 rounded-xl p-3 text-xs space-y-2">
+            <div v-if="simRes" class="bg-paper border border-line rounded-md p-3 text-[13px] space-y-2">
               <div class="grid grid-cols-2 gap-3">
-                <div><div class="text-[10px] uppercase font-bold text-slate-400">Antes</div><div class="font-mono">CST {{ simRes.antes.cst_icms }} · CFOP {{ simRes.antes.cfop }} · PIS {{ simRes.antes.cst_pis }} · COFINS {{ simRes.antes.cst_cofins }}</div></div>
-                <div><div class="text-[10px] uppercase font-bold text-emerald-600">Depois</div><div class="font-mono text-emerald-700 font-bold">CST {{ simRes.depois.cst_icms }} · CFOP {{ simRes.depois.cfop }} · PIS {{ simRes.depois.cst_pis }} · COFINS {{ simRes.depois.cst_cofins }}</div></div>
+                <div><div class="text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Antes</div><div class="font-mono text-ink">CST {{ simRes.antes.cst_icms }} · CFOP {{ simRes.antes.cfop }} · PIS {{ simRes.antes.cst_pis }} · COFINS {{ simRes.antes.cst_cofins }}</div></div>
+                <div><div class="text-[11px] uppercase tracking-wide font-medium text-conforme mb-1">Depois</div><div class="font-mono text-conforme font-semibold">CST {{ simRes.depois.cst_icms }} · CFOP {{ simRes.depois.cfop }} · PIS {{ simRes.depois.cst_pis }} · COFINS {{ simRes.depois.cst_cofins }}</div></div>
               </div>
               <div>
-                <div class="text-[10px] uppercase font-bold text-slate-400 mb-1">Regras que casaram ({{ simRes.trilha.length }})</div>
-                <div v-if="!simRes.trilha.length" class="text-slate-400 italic">Nenhuma regra casou (competência {{ simRes.competencia }}).</div>
-                <div v-for="(t, i) in simRes.trilha" :key="i" class="text-slate-600">▸ <b>{{ t.nome }}</b> <span class="text-slate-400">({{ t.fundamento }})</span></div>
+                <div class="text-[11px] uppercase tracking-wide font-medium text-risco mb-1">Regras que casaram ({{ simRes.trilha.length }})</div>
+                <div v-if="!simRes.trilha.length" class="text-risco italic">Nenhuma regra casou (competência {{ simRes.competencia }}).</div>
+                <div v-for="(t, i) in simRes.trilha" :key="i" class="text-ink">▸ <b class="font-medium">{{ t.nome }}</b> <span class="text-risco">({{ t.fundamento }})</span></div>
               </div>
             </div>
           </div>
@@ -305,3 +306,7 @@ async function simular() {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.card-shadow { box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07); }
+</style>

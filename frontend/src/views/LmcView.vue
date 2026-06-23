@@ -5,6 +5,7 @@ import axios from 'axios'
 import { API_BASE_URL } from '../api';
 import { arquivoInfo, setArquivoInfo, setEmpresaSelecionada, empresaSelecionada } from '../store';
 import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import UiButton from '../components/ui/UiButton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -706,21 +707,21 @@ async function exportarSped() {
 <template>
   <div class="max-w-7xl mx-auto py-8 px-6 space-y-6 animate-fade-in">
     <!-- Header -->
-    <header class="flex justify-between items-end border-b border-slate-200 pb-4">
-      <div>
-        <button @click="router.push('/analisador/' + route.params.id)" class="text-xs font-black text-brand-accent hover:underline mb-2 flex items-center gap-1 group">
-          <ArrowLeft class="w-3 h-3 group-hover:-translate-x-1 transition-transform" /> VOLTAR PARA O ANALISADOR
+    <header class="flex flex-col md:flex-row justify-between md:items-end gap-4 border-b border-line pb-5">
+      <div class="space-y-1">
+        <button @click="router.push('/analisador/' + route.params.id)" class="text-[11px] uppercase tracking-wide font-medium text-bronze hover:opacity-80 mb-1 flex items-center gap-1 group">
+          <ArrowLeft class="w-3 h-3 group-hover:-translate-x-1 transition-transform" :stroke-width="1.8" /> Voltar para o Analisador
         </button>
-        <h1 class="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-          <Database class="w-8 h-8 text-brand-accent" /> LMC Diário Fiscal
+        <h1 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink flex items-center gap-2.5">
+          <Database class="w-6 h-6 text-bronze" :stroke-width="1.7" /> LMC Diário Fiscal
         </h1>
-        <p class="text-slate-500 font-medium mt-1">Inspeção interativa de recálculo de inventário e camuflagem de Quebra ANP.</p>
+        <p class="text-[13px] text-risco">Inspeção interativa de recálculo de inventário e camuflagem de Quebra ANP.</p>
       </div>
-      <div v-if="arquivoInfo" class="flex flex-col items-end gap-1 max-w-sm">
-        <p class="text-xl font-black text-slate-800 leading-tight text-right">
+      <div v-if="arquivoInfo" class="flex flex-col md:items-end gap-1 max-w-sm">
+        <p class="font-display text-[16px] font-semibold text-ink leading-tight md:text-right">
           {{ arquivoInfo?.empresa || empresaSelecionada?.nome_empresa || '—' }}
         </p>
-        <p class="text-xs font-mono text-slate-400 tracking-widest">
+        <p class="text-[12px] font-mono text-risco">
           CNPJ {{ arquivoInfo?.cnpj || empresaSelecionada?.cnpj || '' }}
         </p>
         <div class="mt-1 flex items-center gap-1.5">
@@ -728,21 +729,21 @@ async function exportarSped() {
             @click="navPeriodo(periodoAnterior)"
             :disabled="!periodoAnterior"
             :title="periodoAnterior ? `← ${periodoAnterior.label}` : 'Sem período anterior'"
-            class="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-            :class="periodoAnterior ? 'bg-slate-100 hover:bg-brand-accent hover:text-white text-slate-500 cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'"
+            class="w-7 h-7 rounded-md border flex items-center justify-center transition-colors"
+            :class="periodoAnterior ? 'bg-sheet border-line hover:bg-bronze hover:text-white hover:border-bronze text-risco cursor-pointer' : 'bg-paper border-line text-line cursor-not-allowed'"
           >
-            <ChevronLeft class="w-4 h-4" />
+            <ChevronLeft class="w-4 h-4" :stroke-width="1.8" />
           </button>
 
           <select
             v-if="periodosEmpresa.length > 1"
             :value="currentArquivoId"
             @change="navPeriodo(periodosEmpresa.find(p => p.id == $event.target.value))"
-            class="text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full appearance-none text-center cursor-pointer hover:bg-brand-accent/20 transition-colors"
+            class="text-[13px] font-medium font-mono text-bronze bg-bronze/10 border border-bronze/20 px-3 py-1 rounded-md appearance-none text-center cursor-pointer hover:bg-bronze/15 transition-colors outline-none"
           >
             <option v-for="p in periodosEmpresa" :key="p.id" :value="p.id">{{ p.label }}</option>
           </select>
-          <span v-else class="text-sm font-bold font-mono text-brand-accent bg-brand-accent/10 border border-brand-accent/20 px-3 py-1 rounded-full">
+          <span v-else class="text-[13px] font-medium font-mono text-bronze bg-bronze/10 border border-bronze/20 px-3 py-1 rounded-md">
             {{ arquivoInfo.periodo }}
           </span>
 
@@ -750,179 +751,174 @@ async function exportarSped() {
             @click="navPeriodo(periodoSeguinte)"
             :disabled="!periodoSeguinte"
             :title="periodoSeguinte ? `${periodoSeguinte.label} →` : 'Sem período seguinte'"
-            class="w-7 h-7 rounded-full flex items-center justify-center transition-all"
-            :class="periodoSeguinte ? 'bg-slate-100 hover:bg-brand-accent hover:text-white text-slate-500 cursor-pointer' : 'bg-slate-50 text-slate-300 cursor-not-allowed'"
+            class="w-7 h-7 rounded-md border flex items-center justify-center transition-colors"
+            :class="periodoSeguinte ? 'bg-sheet border-line hover:bg-bronze hover:text-white hover:border-bronze text-risco cursor-pointer' : 'bg-paper border-line text-line cursor-not-allowed'"
           >
-            <ChevronRight class="w-4 h-4" />
+            <ChevronRight class="w-4 h-4" :stroke-width="1.8" />
           </button>
         </div>
       </div>
     </header>
 
     <div v-if="loading" class="py-20 flex flex-col justify-center items-center text-center">
-      <Loader2 class="w-10 h-10 animate-spin text-slate-300 mb-4" />
-      <p class="text-slate-500 font-bold">{{ processingStatus || 'Processando fechamentos e encadeamento em cascata...' }}</p>
+      <Loader2 class="w-9 h-9 animate-spin text-bronze mb-4" :stroke-width="1.7" />
+      <p class="text-[13px] text-risco">{{ processingStatus || 'Processando fechamentos e encadeamento em cascata...' }}</p>
 
     </div>
 
-    <div v-else-if="lmcData.length === 0" class="bg-white rounded-[3rem] p-24 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-200 shadow-sm">
-        <div class="w-24 h-24 bg-slate-50 rounded-full flex justify-center items-center mb-6">
-           <FileX class="w-10 h-10 text-slate-300" />
+    <div v-else-if="lmcData.length === 0" class="bg-sheet rounded-md p-16 flex flex-col items-center justify-center text-center border border-line card-shadow">
+        <div class="w-16 h-16 bg-paper rounded-md border border-line flex justify-center items-center mb-5">
+           <FileX class="w-7 h-7 text-line" :stroke-width="1.5" />
         </div>
-        <h3 class="text-xl font-bold text-slate-700">Nenhum dado de LMC (Bloco 1300) encontrado.</h3>
-        <p class="text-slate-400 mt-2">Este SPED não possui registros consolidados mensais.</p>
+        <h3 class="font-display text-[15px] font-semibold text-ink">Nenhum dado de LMC (Bloco 1300) encontrado.</h3>
+        <p class="text-[13px] text-risco mt-1">Este SPED não possui registros consolidados mensais.</p>
     </div>
 
     <div v-else class="space-y-4">
         <!-- Dashboard Macro - SLIM VERSION -->
-        <div class="bg-slate-900 px-6 py-3 rounded-2xl shadow-lg border border-slate-700 flex items-center justify-between gap-6">
-            <div class="flex items-center gap-4 flex-1">
-                <div class="bg-brand-accent/10 p-2 rounded-lg">
-                   <Settings class="w-5 h-5 text-brand-accent" />
+        <div class="bg-graphite px-5 py-3 rounded-md flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-1">
+                <div class="bg-bronze/15 p-2 rounded-md">
+                   <Settings class="w-5 h-5 text-bronze" :stroke-width="1.7" />
                 </div>
                 <div>
-                   <h3 class="font-black text-sm text-white uppercase tracking-wider">Distribuição Inteligente</h3>
-                   <p class="text-[10px] text-slate-400 font-medium leading-tight">Rateio proporcional ANP (±0.35%) e camuflagem de quebras no Banco de Dados.</p>
+                   <h3 class="font-display font-semibold text-[14px] text-white">Distribuição Inteligente</h3>
+                   <p class="text-[11px] text-muted leading-tight">Rateio proporcional ANP (±0.35%) e camuflagem de quebras no Banco de Dados.</p>
                 </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="flex items-center flex-wrap gap-2">
                 <button @click="rodarAutoOtimizador" :disabled="savingMacro"
                     title="Distribui automaticamente as vendas do mês garantindo todos os dias ≤ 0,60% ANP"
-                    class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-black transition-all disabled:opacity-50 flex items-center gap-2 shadow-md shadow-emerald-900/20">
+                    class="bg-conforme hover:opacity-85 text-white px-3.5 py-1.5 rounded-md text-[12px] font-medium transition-opacity disabled:opacity-50 flex items-center gap-1.5">
                     <Loader2 v-if="savingMacro" class="w-3 h-3 animate-spin" />
-                    <RefreshCw v-else class="w-3 h-3" />
+                    <RefreshCw v-else class="w-3 h-3" :stroke-width="1.8" />
                     AUTO
                 </button>
                 <div class="relative group">
                     <input type="number" v-model="volumeAlvo" placeholder="Meta Volume (L)"
-                        class="w-32 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-white text-xs font-mono font-bold outline-none focus:ring-1 focus:ring-brand-accent transition-all text-right" />
+                        class="w-32 px-3 py-1.5 rounded-md border border-graphite-4 bg-graphite-2 text-white text-[12px] font-mono outline-none focus:border-bronze transition-colors text-right" />
                 </div>
                 <button @click="rodarOtimizador" :disabled="savingMacro"
-                    class="bg-brand-accent hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-black transition-all disabled:opacity-50 flex items-center gap-2">
+                    class="bg-bronze hover:opacity-85 text-white px-3.5 py-1.5 rounded-md text-[12px] font-medium transition-opacity disabled:opacity-50 flex items-center gap-1.5">
                     <Loader2 v-if="savingMacro" class="w-3 h-3 animate-spin" />
                     OTIMIZAR 1300
                 </button>
-                <div class="w-px h-6 bg-slate-700 mx-1"></div>
-                <button @click="salvarLoteRateio" :disabled="savingMacro" 
-                    class="bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center gap-2">
-                    <Save v-if="!savingMacro" class="w-3 h-3" /> 
+                <div class="w-px h-6 bg-graphite-4 mx-1"></div>
+                <button @click="salvarLoteRateio" :disabled="savingMacro"
+                    class="bg-graphite-2 border border-graphite-4 hover:bg-graphite-4 text-line px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5">
+                    <Save v-if="!savingMacro" class="w-3 h-3" :stroke-width="1.8" />
                     GRAVAR
                 </button>
-                <button @click="exportarSped" 
-                    class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-[10px] font-black transition-all shadow-md shadow-emerald-900/20 flex items-center gap-2">
-                    <DownloadCloud class="w-3 h-3" /> EXPORTAR SPED
-                </button>
+                <UiButton @click="exportarSped" class="text-[12px]">
+                    <DownloadCloud class="w-3.5 h-3.5" :stroke-width="1.8" /> EXPORTAR SPED
+                </UiButton>
             </div>
         </div>
 
         <!-- Totais Dashboards - COMPACT CARDS -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             <!-- Card destaque: compras do combustível selecionado -->
-            <div class="bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-3 rounded-xl shadow-md shadow-emerald-200 col-span-1 relative overflow-hidden">
-                <div class="absolute -right-3 -top-3 w-14 h-14 bg-white/10 rounded-full"></div>
-                <p class="text-[8px] font-black text-emerald-200 uppercase tracking-tight truncate">
+            <div class="bg-graphite px-4 py-3 rounded-md col-span-1">
+                <p class="text-[10px] font-medium text-muted uppercase tracking-wide truncate">
                     Compras · {{ combustiveis.find(c => c.cod_item === selectedFuel)?.nome || '—' }}
                 </p>
-                <p class="text-xl font-black text-white mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] font-bold text-emerald-200">L</span></p>
-                <p v-if="Math.abs(totais.comprasTotal - totais.nfsTotal) > 0.01" class="text-[8px] font-black text-amber-300 mt-0.5">
+                <p class="font-mono text-[20px] font-semibold text-white mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] text-muted">L</span></p>
+                <p v-if="Math.abs(totais.comprasTotal - totais.nfsTotal) > 0.01" class="text-[10px] font-medium text-variacao mt-0.5">
                     ⚠ NF-e: {{ fNum(totais.nfsTotal) }} L
                 </p>
-                <p v-else class="text-[8px] font-bold text-emerald-200/70 mt-0.5">✓ NF-e conferida</p>
+                <p v-else class="text-[10px] text-conforme mt-0.5">✓ NF-e conferida</p>
             </div>
             <!-- Card variação líquida (perdas - ganhos) -->
-            <div class="bg-white px-4 py-3 rounded-xl border shadow-sm transition-colors"
-                 :class="totais.variacaoLiquida > 0 ? 'border-red-200 hover:border-red-300' : totais.variacaoLiquida < 0 ? 'border-emerald-200 hover:border-emerald-300' : 'border-slate-200'">
-                <p class="text-[9px] font-black uppercase tracking-tight"
-                   :class="totais.variacaoLiquida > 0 ? 'text-red-400' : totais.variacaoLiquida < 0 ? 'text-emerald-500' : 'text-slate-400'">
+            <div class="bg-sheet px-4 py-3 rounded-md border transition-colors card-shadow"
+                 :class="totais.variacaoLiquida > 0 ? 'border-lacre/30' : totais.variacaoLiquida < 0 ? 'border-conforme/30' : 'border-line'">
+                <p class="text-[10px] uppercase tracking-wide font-medium"
+                   :class="totais.variacaoLiquida > 0 ? 'text-lacre' : totais.variacaoLiquida < 0 ? 'text-conforme' : 'text-risco'">
                     {{ viewMode === 'lab' ? 'Variação Lab.' : 'Variação RX' }}
                 </p>
-                <p class="text-lg font-black mt-1 break-all"
-                   :class="totais.variacaoLiquida > 0 ? 'text-red-500' : totais.variacaoLiquida < 0 ? 'text-emerald-500' : 'text-slate-400'">
+                <p class="font-mono text-[18px] font-semibold mt-1 break-all"
+                   :class="totais.variacaoLiquida > 0 ? 'text-lacre' : totais.variacaoLiquida < 0 ? 'text-conforme' : 'text-risco'">
                     {{ totais.variacaoLiquida > 0 ? '-' : totais.variacaoLiquida < 0 ? '+' : '' }}{{ fNum(Math.abs(totais.variacaoLiquida)) }}
-                    <span class="text-[10px] font-bold">L</span>
+                    <span class="text-[10px]">L</span>
                 </p>
-                <p class="text-[8px] text-slate-400 mt-0.5 font-bold">
+                <p class="text-[10px] text-risco mt-0.5">
                     {{ totais.variacaoLiquida > 0 ? 'Perda líquida' : totais.variacaoLiquida < 0 ? 'Ganho líquido' : 'Sem variação' }}
                 </p>
             </div>
-            <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-brand-accent transition-colors">
-                <p class="text-[9px] font-black text-brand-accent uppercase tracking-tight">NF-e Entradas</p>
+            <div class="bg-sheet px-4 py-3 rounded-md border border-line card-shadow">
+                <p class="text-[10px] font-medium text-risco uppercase tracking-wide">NF-e Entradas</p>
                 <div class="flex items-center gap-1.5 mt-1">
-                    <p class="text-lg font-black text-slate-700 break-all">{{ fNum(totais.nfsTotal) }} <span class="text-[10px] font-bold text-slate-400">L</span></p>
-                    <AlertTriangle v-if="Math.abs(totais.nfsTotal - totais.comprasTotal) > 0.01" class="w-3.5 h-3.5 text-amber-500" />
+                    <p class="font-mono text-[18px] font-semibold text-ink break-all">{{ fNum(totais.nfsTotal) }} <span class="text-[10px] text-risco">L</span></p>
+                    <AlertTriangle v-if="Math.abs(totais.nfsTotal - totais.comprasTotal) > 0.01" class="w-3.5 h-3.5 text-variacao" :stroke-width="1.8" />
                 </div>
             </div>
-            <div class="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm group hover:border-orange-200 transition-colors">
-                <p class="text-[9px] font-black text-slate-400 uppercase tracking-tight">Vendas Brutas</p>
-                <p class="text-lg font-black text-orange-500 mt-1 break-all">{{ fNum(totais.vendasDeclaradas) }} <span class="text-[10px] font-bold">L</span></p>
+            <div class="bg-sheet px-4 py-3 rounded-md border border-line card-shadow">
+                <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Vendas Brutas</p>
+                <p class="font-mono text-[18px] font-semibold text-ink mt-1 break-all">{{ fNum(totais.vendasDeclaradas) }} <span class="text-[10px] text-risco">L</span></p>
             </div>
-            <div class="bg-slate-50 px-4 py-3 rounded-xl border-2 border-indigo-100 shadow-sm relative overflow-hidden group">
-                <div class="absolute top-0 right-0 p-1">
-                    <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
-                </div>
-                <p class="text-[9px] font-black text-indigo-400 uppercase tracking-tight">Vendas Auditoria</p>
-                <p class="text-lg font-black text-indigo-600 mt-1 break-all">{{ fNum(totais.vendasAjustadas) }} <span class="text-[10px] font-bold">L</span></p>
-                <p v-if="Math.abs(totais.vendasAjustadas - totais.vendasDeclaradas) > 0.01" class="text-[8px] font-black text-indigo-400/70 mt-1 uppercase">
+            <div class="bg-paper px-4 py-3 rounded-md border border-bronze/30 card-shadow">
+                <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">Vendas Auditoria</p>
+                <p class="font-mono text-[18px] font-semibold text-bronze mt-1 break-all">{{ fNum(totais.vendasAjustadas) }} <span class="text-[10px]">L</span></p>
+                <p v-if="Math.abs(totais.vendasAjustadas - totais.vendasDeclaradas) > 0.01" class="text-[10px] font-medium text-bronze/80 mt-1 uppercase">
                     Δ: {{ fNum(totais.vendasAjustadas - totais.vendasDeclaradas) }} L
                 </p>
             </div>
         </div>
 
         <!-- Toast de sucesso do Otimizador 1300 -->
-        <div v-if="otimizadorMsg" class="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-300 rounded-2xl px-5 py-3 shadow-sm">
+        <div v-if="otimizadorMsg" class="flex items-center justify-between gap-4 bg-conforme/[0.07] border border-conforme/30 rounded-md px-5 py-3">
             <div class="flex items-center gap-3">
-                <span class="text-emerald-500 text-lg">✅</span>
-                <p class="text-sm font-black text-emerald-800">{{ otimizadorMsg }}</p>
+                <CheckCircle2 class="w-4 h-4 text-conforme shrink-0" :stroke-width="1.8" />
+                <p class="text-[13px] font-medium text-conforme">{{ otimizadorMsg }}</p>
             </div>
-            <button @click="otimizadorMsg = ''" class="shrink-0 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black rounded-xl transition-all">
+            <button @click="otimizadorMsg = ''" class="shrink-0 px-3.5 py-1.5 bg-conforme hover:opacity-85 text-white text-[12px] font-medium rounded-md transition-opacity">
                 FECHAR
             </button>
         </div>
 
         <!-- Confirmação do GRAVAR -->
-        <div v-if="pendingGravar" class="flex items-center justify-between gap-4 bg-amber-50 border border-amber-300 rounded-2xl px-5 py-3 shadow-sm">
+        <div v-if="pendingGravar" class="flex items-center justify-between gap-4 bg-variacao/[0.08] border border-variacao/30 rounded-md px-5 py-3">
             <div class="flex items-center gap-3">
-                <span class="text-amber-500 text-lg">⚠️</span>
-                <p class="text-sm font-black text-amber-800">Isso reescreverá a auditoria deste combustível e salvará todas as quebras mascaradas. Confirmar?</p>
+                <AlertTriangle class="w-4 h-4 text-variacao shrink-0" :stroke-width="1.8" />
+                <p class="text-[13px] font-medium text-variacao">Isso reescreverá a auditoria deste combustível e salvará todas as quebras mascaradas. Confirmar?</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-                <button @click="pendingGravar = false" class="px-4 py-1.5 border border-slate-300 text-slate-600 text-xs font-black rounded-xl hover:bg-slate-100 transition-all">CANCELAR</button>
-                <button @click="confirmarGravar" class="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl transition-all">CONFIRMAR</button>
+                <button @click="pendingGravar = false" class="px-3.5 py-1.5 border border-line text-risco text-[12px] font-medium rounded-md hover:bg-paper transition-colors">CANCELAR</button>
+                <button @click="confirmarGravar" class="px-3.5 py-1.5 bg-variacao hover:opacity-85 text-white text-[12px] font-medium rounded-md transition-opacity">CONFIRMAR</button>
             </div>
         </div>
 
         <!-- Banner de Continuidade de Estoque -->
-        <div v-if="continuidade.divergencias.length > 0" class="bg-amber-50 border border-amber-300 rounded-2xl p-4 shadow-sm">
+        <div v-if="continuidade.divergencias.length > 0" class="bg-variacao/[0.08] border border-variacao/30 rounded-md p-4">
             <div class="flex items-start justify-between gap-4">
                 <div class="flex items-start gap-3 flex-1">
-                    <AlertTriangle class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <AlertTriangle class="w-5 h-5 text-variacao shrink-0 mt-0.5" :stroke-width="1.8" />
                     <div>
-                        <p class="text-sm font-black text-amber-800 uppercase tracking-wide">
+                        <p class="text-[13px] font-semibold text-variacao uppercase tracking-wide">
                             Divergência de Estoque Detectada
                         </p>
-                        <p class="text-xs text-amber-700 mt-0.5">
+                        <p class="text-[12px] text-risco mt-0.5">
                             O estoque de abertura deste mês difere do fechamento do mês anterior
-                            <span class="font-bold">({{ continuidade.divergencias[0]?.periodo_anterior?.substring(5,7) }}/{{ continuidade.divergencias[0]?.periodo_anterior?.substring(0,4) }})</span>
+                            <span class="font-mono text-ink">({{ continuidade.divergencias[0]?.periodo_anterior?.substring(5,7) }}/{{ continuidade.divergencias[0]?.periodo_anterior?.substring(0,4) }})</span>
                             em {{ continuidade.divergencias.length }} produto(s).
                         </p>
                         <div class="mt-3 space-y-1.5">
                             <div v-for="div in continuidade.divergencias" :key="div.cod_item"
-                                class="flex items-center gap-3 bg-white/70 rounded-xl px-3 py-2 border border-amber-200">
+                                class="flex items-center gap-3 bg-sheet rounded-md px-3 py-2 border border-line">
                                 <div class="flex-1 min-w-0">
-                                    <span class="text-xs font-black text-slate-700 truncate block">{{ div.nome || div.cod_item }}</span>
-                                    <div class="flex items-center gap-3 mt-0.5 text-[10px] font-mono">
-                                        <span class="text-slate-500">Fech. anterior: <span class="font-bold text-slate-700">{{ fNum(div.fechamento_anterior) }} L</span></span>
-                                        <span class="text-slate-400">→</span>
-                                        <span class="text-slate-500">Abert. atual: <span class="font-bold text-slate-700">{{ fNum(div.abertura_atual) }} L</span></span>
-                                        <span :class="div.diferenca > 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">
+                                    <span class="text-[12px] font-medium text-ink truncate block">{{ div.nome || div.cod_item }}</span>
+                                    <div class="flex items-center gap-3 mt-0.5 text-[11px] font-mono">
+                                        <span class="text-risco">Fech. anterior: <span class="text-ink">{{ fNum(div.fechamento_anterior) }} L</span></span>
+                                        <span class="text-risco">→</span>
+                                        <span class="text-risco">Abert. atual: <span class="text-ink">{{ fNum(div.abertura_atual) }} L</span></span>
+                                        <span :class="div.diferenca > 0 ? 'text-conforme' : 'text-lacre'" class="font-medium">
                                             (Δ {{ div.diferenca > 0 ? '+' : '' }}{{ fNum(div.diferenca) }} L)
                                         </span>
                                     </div>
                                 </div>
                                 <button @click="sincronizarEstoque(div.cod_item, div.fechamento_anterior)"
                                     :disabled="sincronizando[div.cod_item]"
-                                    class="shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black rounded-lg transition-all disabled:opacity-50 flex items-center gap-1.5">
+                                    class="shrink-0 px-3 py-1.5 bg-variacao hover:opacity-85 text-white text-[11px] font-medium rounded-md transition-opacity disabled:opacity-50 flex items-center gap-1.5">
                                     <Loader2 v-if="sincronizando[div.cod_item]" class="w-3 h-3 animate-spin" />
                                     SINCRONIZAR
                                 </button>
@@ -932,7 +928,7 @@ async function exportarSped() {
                 </div>
                 <button v-if="continuidade.divergencias.length > 1" @click="sincronizarTodos"
                     :disabled="Object.keys(sincronizando).length > 0"
-                    class="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-md shadow-amber-200">
+                    class="shrink-0 px-4 py-2 bg-variacao hover:opacity-85 text-white text-[12px] font-medium rounded-md transition-opacity disabled:opacity-50 flex items-center gap-2">
                     <Loader2 v-if="Object.keys(sincronizando).length > 0" class="w-3 h-3 animate-spin" />
                     SINCRONIZAR TODOS
                 </button>
@@ -940,42 +936,42 @@ async function exportarSped() {
         </div>
 
         <!-- Controles Interativos -->
-        <div class="flex flex-col md:flex-row justify-between items-center gap-4 bg-white/50 p-2 rounded-2xl border border-white">
+        <div class="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-sheet p-2 rounded-md border border-line">
             <!-- Abas de Seleção de Combustível -->
             <div class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar flex-1">
-                <button 
-                    v-for="comb in combustiveis" 
+                <button
+                    v-for="comb in combustiveis"
                     :key="comb.cod_item"
                     @click="selectedFuel = comb.cod_item"
-                    class="px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all whitespace-nowrap border"
-                    :class="selectedFuel === comb.cod_item 
-                        ? 'bg-brand-accent text-white border-brand-accent shadow-md shadow-brand-accent/20' 
-                        : 'bg-white text-slate-400 border-slate-200 hover:border-brand-accent hover:text-brand-accent'"
+                    class="px-4 py-2 rounded-md font-medium text-[11px] uppercase tracking-wide transition-colors whitespace-nowrap border"
+                    :class="selectedFuel === comb.cod_item
+                        ? 'bg-bronze text-white border-bronze'
+                        : 'bg-sheet text-risco border-line hover:border-bronze hover:text-bronze'"
                 >
                     {{ comb.nome || `Prod ${comb.cod_item}` }}
                 </button>
             </div>
-            
+
             <!-- Simulador vs Original -->
             <div class="flex items-center gap-2 shrink-0">
                 <button v-if="viewMode === 'lab' && selectedFuel && movimentacaoAtiva.length > 0"
                         @click="redistribuirCombustivel"
                         :disabled="syncPreviewLoading"
-                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border border-indigo-300 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all disabled:opacity-50"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wide border border-bronze/30 bg-bronze/10 text-bronze hover:bg-bronze/15 transition-colors disabled:opacity-50"
                         title="Re-executa a distribuição inteligente usando a abertura atual">
-                    <RefreshCw class="w-3 h-3" :class="syncPreviewLoading ? 'animate-spin' : ''" />
+                    <RefreshCw class="w-3 h-3" :class="syncPreviewLoading ? 'animate-spin' : ''" :stroke-width="1.8" />
                     Re-distribuir
                 </button>
-                <div class="bg-slate-200/50 p-1 rounded-xl flex gap-1 h-fit backdrop-blur-sm">
+                <div class="bg-paper p-1 rounded-md flex gap-1 h-fit border border-line">
                     <button @click="viewMode = 'raiox'"
-                        class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
-                        :class="viewMode === 'raiox' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'">
-                        <Eye class="w-3.5 h-3.5" /> RAIO-X
+                        class="flex items-center gap-2 px-4 py-1.5 rounded-md text-[11px] font-medium uppercase transition-colors"
+                        :class="viewMode === 'raiox' ? 'bg-sheet text-ink border border-line' : 'text-risco hover:text-ink'">
+                        <Eye class="w-3.5 h-3.5" :stroke-width="1.8" /> RAIO-X
                     </button>
                     <button @click="viewMode = 'lab'"
-                        class="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all"
-                        :class="viewMode === 'lab' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:text-slate-700'">
-                        <Beaker class="w-3.5 h-3.5" /> LABORATÓRIO
+                        class="flex items-center gap-2 px-4 py-1.5 rounded-md text-[11px] font-medium uppercase transition-colors"
+                        :class="viewMode === 'lab' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'">
+                        <Beaker class="w-3.5 h-3.5" :stroke-width="1.8" /> LABORATÓRIO
                     </button>
                 </div>
             </div>
@@ -983,175 +979,175 @@ async function exportarSped() {
 
         <!-- Banner: distribuição inconsistente (sync com código antigo) -->
         <div v-if="distribuicaoInconsistente"
-             class="flex items-center justify-between gap-4 bg-red-50 border border-red-300 rounded-2xl px-5 py-3 shadow-sm">
+             class="flex items-center justify-between gap-4 bg-lacre/[0.07] border border-lacre/30 rounded-md px-5 py-3">
             <div class="flex items-center gap-3">
-                <AlertTriangle class="w-5 h-5 text-red-500 shrink-0" />
+                <AlertTriangle class="w-5 h-5 text-lacre shrink-0" :stroke-width="1.8" />
                 <div>
-                    <p class="text-sm font-black text-red-700">Distribuição inconsistente detectada</p>
-                    <p class="text-xs text-red-600 mt-0.5">
+                    <p class="text-[13px] font-semibold text-lacre">Distribuição inconsistente detectada</p>
+                    <p class="text-[12px] text-risco mt-0.5">
                         A cascata calculada diverge dos ajustes salvos. Clique em Corrigir para redistribuir as vendas e realinhar o físico.
                     </p>
                 </div>
             </div>
             <button @click="corrigirDistribuicao" :disabled="corrigindoDistribuicao"
-                    class="shrink-0 flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 text-white text-xs font-black rounded-xl transition-all disabled:opacity-50 shadow-md shadow-red-200">
+                    class="shrink-0 flex items-center gap-2 px-5 py-2 bg-lacre hover:opacity-85 text-white text-[12px] font-medium rounded-md transition-opacity disabled:opacity-50">
                 <Loader2 v-if="corrigindoDistribuicao" class="w-3.5 h-3.5 animate-spin" />
-                <RefreshCw v-else class="w-3.5 h-3.5" />
+                <RefreshCw v-else class="w-3.5 h-3.5" :stroke-width="1.8" />
                 {{ corrigindoDistribuicao ? 'Corrigindo...' : 'Corrigir Distribuição' }}
             </button>
         </div>
 
         <!-- Tabela Progressiva -->
-        <div class="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 overflow-hidden">
+        <div class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse min-w-[900px]">
                     <thead>
-                        <tr class="bg-slate-900 text-[8px] font-black uppercase text-slate-400 tracking-[0.15em]">
-                            <th class="py-2 px-2 sticky left-0 bg-slate-900 z-10 border-b border-slate-700 text-white">Data</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right text-slate-300" title="Estoque de abertura do dia">Est. Inicial</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right text-emerald-400 border-r border-slate-700" title="Entradas LMC · badge ⚠ quando NF-e difere">Entradas <span class="text-yellow-400">⚠NF</span></th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right text-cyan-400 border-r border-slate-700" title="Est. Inicial + Entradas">Estq. Disponível</th>
-                            <th class="py-2 px-2 border-b border-slate-700 bg-orange-900/20 border-r border-slate-700 text-center text-orange-400">Saídas</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-right bg-slate-800 border-r border-slate-700 text-slate-300">Escritural</th>
-                            <th class="py-2 px-2 border-b border-slate-700 bg-indigo-900/20 text-center text-indigo-400 border-r border-slate-700">Est. Físico</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-center border-r border-slate-700">Perda / Ganho</th>
-                            <th class="py-2 px-2 border-b border-slate-700 text-center border-l border-slate-700">% ANP</th>
+                        <tr class="bg-graphite text-[10px] font-medium uppercase text-muted tracking-wide">
+                            <th class="py-2 px-2 sticky left-0 bg-graphite z-10 border-b border-graphite-4 text-white">Data</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-right text-line" title="Estoque de abertura do dia">Est. Inicial</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-right text-conforme border-r border-graphite-4" title="Entradas LMC · badge ⚠ quando NF-e difere">Entradas <span class="text-variacao">⚠NF</span></th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-right text-line border-r border-graphite-4" title="Est. Inicial + Entradas">Estq. Disponível</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 border-r border-graphite-4 text-center text-line">Saídas</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-right bg-graphite-2 border-r border-graphite-4 text-line">Escritural</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-center text-bronze border-r border-graphite-4">Est. Físico</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-center border-r border-graphite-4">Perda / Ganho</th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-center border-l border-graphite-4">% ANP</th>
                         </tr>
                     </thead>
-                    <tbody class="text-sm font-medium text-slate-600 divide-y divide-slate-100">
+                    <tbody class="text-[13px] text-risco divide-y divide-line">
                         <template v-for="row in movimentacaoAtiva" :key="row.data_movimento">
                             <!-- Linha Principal -->
-                            <tr class="hover:bg-slate-50/80 transition-colors" v-if="row.raiox && row.raiox.estq_abert !== undefined"
+                            <tr class="hover:bg-paper transition-colors" v-if="row.raiox && row.raiox.estq_abert !== undefined"
                                 :class="{
-                                    'bg-purple-50 hover:bg-purple-100/80': row[viewMode].is_negativo,
-                                    'bg-red-50 hover:bg-red-100/80': row[viewMode].ultrapassou_limite && !row[viewMode].is_negativo
+                                    'bg-bronze/[0.06] hover:bg-bronze/[0.1]': row[viewMode].is_negativo,
+                                    'bg-lacre/[0.06] hover:bg-lacre/[0.1]': row[viewMode].ultrapassou_limite && !row[viewMode].is_negativo
                                 }">
 
-                                <td class="py-1.5 px-2 sticky left-0 z-10 border-r border-slate-100 font-bold"
-                                    :class="row[viewMode].is_negativo ? 'bg-purple-50 text-purple-700' : row[viewMode].ultrapassou_limite ? 'bg-red-50 text-red-600' : 'bg-white text-slate-800'">
+                                <td class="py-1.5 px-2 sticky left-0 z-10 border-r border-line font-mono font-medium"
+                                    :class="row[viewMode].is_negativo ? 'bg-bronze/[0.06] text-bronze' : row[viewMode].ultrapassou_limite ? 'bg-lacre/[0.06] text-lacre' : 'bg-sheet text-ink'">
                                     {{ fDate(row.data_movimento) }}
                                 </td>
 
-                                <td class="py-1.5 px-2 text-right font-mono text-slate-500 font-semibold bg-slate-50/30">
+                                <td class="py-1.5 px-2 text-right font-mono text-risco bg-paper/40">
                                     {{ fNum(row[viewMode].estq_abert) }}
                                     <span v-if="viewMode === 'lab' && parseFloat(row.lab.estq_abert) !== parseFloat(row.estq_abert)"
-                                          class="text-[9px] text-orange-400 block -mt-0.5 leading-none" title="Diferente da abertura original">
+                                          class="text-[9px] text-variacao block -mt-0.5 leading-none" title="Diferente da abertura original">
                                           Real: {{ fNum(row.estq_abert) }}
                                     </span>
                                 </td>
 
-                                <td class="py-1.5 px-2 text-right font-mono text-emerald-600 font-semibold border-r border-slate-100">
+                                <td class="py-1.5 px-2 text-right font-mono text-conforme border-r border-line">
                                     <div class="flex flex-col items-end gap-0.5">
                                         <span>{{ fNum(row[viewMode].vol_entr) }}</span>
                                         <!-- Badge ⚠ quando NF-e difere do LMC -->
                                         <span v-if="parseFloat(row.vol_entr_lmc) !== parseFloat(row.volume_nota)"
-                                              class="text-[8px] font-black text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 leading-tight"
+                                              class="text-[8px] font-medium text-variacao bg-variacao/10 border border-variacao/25 rounded px-1 leading-tight"
                                               :title="`NF-e: ${fNum(row.volume_nota)} L — LMC: ${fNum(row.vol_entr_lmc)} L`">
                                             ⚠ NF: {{ fNum(row.volume_nota) }} L
                                         </span>
                                         <button v-if="row.nfs_detalhadas && row.nfs_detalhadas.length > 0"
                                                 @click="toggleDay(row.data_movimento)"
-                                                class="px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-all text-[9px] font-bold self-center mt-0.5">
+                                                class="px-2 py-0.5 rounded bg-bronze/10 text-bronze hover:bg-bronze/15 transition-colors text-[9px] font-medium self-center mt-0.5">
                                             {{ expandedDays.has(row.data_movimento) ? '⬆ NFs' : '⬇ NFs' }}
                                         </button>
                                     </div>
                                 </td>
 
                                 <!-- Estoque Disponível = Inicial + Entradas -->
-                                <td class="py-1.5 px-2 text-right font-mono text-cyan-700 font-semibold border-r border-cyan-100 bg-cyan-50/20">
+                                <td class="py-1.5 px-2 text-right font-mono text-ink border-r border-line bg-paper/30">
                                     {{ fNum(row[viewMode].estq_abert + row[viewMode].vol_entr) }}
                                 </td>
 
                                 <!-- Input Editável de SAÍDA -->
-                                <td class="py-1.5 px-2 bg-orange-50/20 border-r border-orange-100 align-middle">
-                                    <div v-if="viewMode === 'raiox'" class="text-right font-mono font-bold text-slate-600">
+                                <td class="py-1.5 px-2 bg-paper/30 border-r border-line align-middle">
+                                    <div v-if="viewMode === 'raiox'" class="text-right font-mono text-ink">
                                         {{ fNum(row.raiox.vol_saidas) }}
                                     </div>
                                     <div v-else class="flex flex-col gap-1 items-center justify-center">
-                                        <div class="flex items-center bg-white border rounded-lg overflow-hidden transition-colors shadow-inner"
-                                            :class="row.lab.is_saida_edited ? 'border-orange-400' : 'border-slate-300'">
+                                        <div class="flex items-center bg-sheet border rounded-md overflow-hidden transition-colors"
+                                            :class="row.lab.is_saida_edited ? 'border-bronze' : 'border-line'">
                                             <input type="number"
                                                 @input="recalcularTudo"
                                                 v-model="row.edit_value"
-                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono font-bold bg-transparent outline-none"
-                                                :class="row.lab.is_saida_edited ? 'text-orange-500' : 'text-slate-700'"
+                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono bg-transparent outline-none"
+                                                :class="row.lab.is_saida_edited ? 'text-bronze' : 'text-ink'"
                                                 step="0.001"
                                             />
                                             <button @click="salvarSaidaComCascata(row)"
                                                 :disabled="savingDate === row.data_movimento"
-                                                class="bg-orange-100 hover:bg-orange-200 text-orange-700 px-2 py-1 text-[10px] font-black h-full border-l border-orange-200 transition-colors disabled:opacity-50"
+                                                class="bg-bronze/10 hover:bg-bronze/15 text-bronze px-2 py-1 text-[10px] font-medium h-full border-l border-line transition-colors disabled:opacity-50"
                                                 title="Salvar venda e atualizar cascata dos dias seguintes">
                                                 {{ savingDate === row.data_movimento ? '...' : '✔' }}
                                             </button>
                                         </div>
                                         <template v-if="row.lab.is_saida_edited">
-                                            <span class="text-[9px] text-slate-400 block font-bold leading-none">
+                                            <span class="text-[9px] text-risco block leading-none">
                                                 Orig: {{ fNum(row.vol_saidas) }}
                                             </span>
-                                            <span class="text-[9px] font-bold leading-none"
-                                                :class="(row.edit_value - row.vol_saidas) >= 0 ? 'text-emerald-500' : 'text-red-500'">
+                                            <span class="text-[9px] font-medium leading-none"
+                                                :class="(row.edit_value - row.vol_saidas) >= 0 ? 'text-conforme' : 'text-lacre'">
                                                 Δ {{ (row.edit_value - row.vol_saidas) >= 0 ? '+' : '' }}{{ fNum(row.edit_value - row.vol_saidas) }}
                                             </span>
                                         </template>
                                     </div>
                                 </td>
-                                                                <td class="py-1.5 px-2 text-right font-mono bg-slate-100/50 border-r border-slate-100" title="Escritural">
-                                    <span :class="viewMode === 'lab' ? 'text-slate-700 font-bold' : 'text-slate-400'">
+                                                                <td class="py-1.5 px-2 text-right font-mono bg-paper/50 border-r border-line" title="Escritural">
+                                    <span :class="viewMode === 'lab' ? 'text-ink' : 'text-risco'">
                                         {{ fNum(row[viewMode].estq_escr) }}
                                     </span>
                                 </td>
 
                                 <!-- Input Editável de FÍSICO -->
-                                <td class="py-1.5 px-2 bg-indigo-50/20 border-r border-indigo-100 align-middle">
-                                    <div v-if="viewMode === 'raiox'" class="text-right font-mono font-bold text-slate-600">
+                                <td class="py-1.5 px-2 bg-paper/30 border-r border-line align-middle">
+                                    <div v-if="viewMode === 'raiox'" class="text-right font-mono text-ink">
                                         {{ fNum(row.raiox.fech_fisico) }}
                                     </div>
                                     <div v-else class="flex flex-col gap-1 items-center justify-center">
-                                        <div class="flex items-center bg-white border rounded-lg overflow-hidden transition-colors shadow-inner"
-                                            :class="row.lab.is_fisico_edited ? 'border-indigo-400' : 'border-slate-300'">
+                                        <div class="flex items-center bg-sheet border rounded-md overflow-hidden transition-colors"
+                                            :class="row.lab.is_fisico_edited ? 'border-bronze' : 'border-line'">
                                             <input type="number"
                                                 @input="recalcularTudo"
                                                 v-model="row.fisico_edit_value"
-                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono font-bold bg-transparent outline-none"
-                                                :class="row.lab.is_fisico_edited ? 'text-indigo-500' : 'text-slate-700'"
+                                                class="w-20 px-1.5 py-0.5 text-right text-xs font-mono bg-transparent outline-none"
+                                                :class="row.lab.is_fisico_edited ? 'text-bronze' : 'text-ink'"
                                                 step="0.001"
                                                 title="Altera o tanque real deste dia para regularizar a ANP"
                                             />
                                             <!-- Botão individual salvar -->
                                             <button @click="salvarAjuste(row)" :disabled="savingDate === row.data_movimento"
-                                                class="bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 text-[10px] font-black h-full border-l transition-colors disabled:opacity-50">
+                                                class="bg-paper hover:bg-line/60 text-risco px-2 py-1 text-[10px] font-medium h-full border-l border-line transition-colors disabled:opacity-50">
                                                 {{ savingDate === row.data_movimento ? '...' : '✔' }}
                                             </button>
                                         </div>
-                                        <span v-if="row.lab.is_fisico_edited" class="text-[9px] text-slate-400 block font-bold leading-none">
+                                        <span v-if="row.lab.is_fisico_edited" class="text-[9px] text-risco block leading-none">
                                             Lido: {{ fNum(row.fech_fisico) }}
                                         </span>
                                     </div>
                                 </td>
 
-                                <td class="py-1.5 px-2 text-center border-r border-slate-100">
+                                <td class="py-1.5 px-2 text-center border-r border-line">
                                     <template v-if="Math.abs(row[viewMode].dif) < 0.001">
-                                        <span class="text-slate-300 font-mono text-xs">---</span>
+                                        <span class="text-line font-mono text-xs">---</span>
                                     </template>
                                     <template v-else-if="row[viewMode].dif < 0">
-                                        <div class="text-xs text-red-500 font-black font-mono">-{{ fNum(Math.abs(row[viewMode].dif)) }} L</div>
-                                        <div class="text-[8px] text-red-400 font-bold uppercase leading-tight">Perda</div>
+                                        <div class="text-xs text-lacre font-medium font-mono">-{{ fNum(Math.abs(row[viewMode].dif)) }} L</div>
+                                        <div class="text-[8px] text-lacre/80 font-medium uppercase leading-tight">Perda</div>
                                     </template>
                                     <template v-else>
-                                        <div class="text-xs text-emerald-600 font-black font-mono">+{{ fNum(row[viewMode].dif) }} L</div>
-                                        <div class="text-[8px] text-emerald-500 font-bold uppercase leading-tight">Ganho</div>
+                                        <div class="text-xs text-conforme font-medium font-mono">+{{ fNum(row[viewMode].dif) }} L</div>
+                                        <div class="text-[8px] text-conforme/80 font-medium uppercase leading-tight">Ganho</div>
                                     </template>
                                 </td>
-                                
-                                <td class="py-1.5 px-2 text-center border-l-2 border-slate-200">
+
+                                <td class="py-1.5 px-2 text-center border-l border-line">
                                     <span v-if="row[viewMode].is_negativo"
-                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black tracking-widest bg-purple-100 text-purple-700 border border-purple-300 shadow-sm animate-pulse">
+                                        class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium font-mono tracking-wide bg-bronze/10 text-bronze border border-bronze/30">
                                         NEGATIVO
                                     </span>
-                                    <span v-else class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black tracking-widest"
+                                    <span v-else class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium font-mono tracking-wide"
                                         :class="row[viewMode].ultrapassou_limite
-                                            ? 'bg-red-100 text-red-600 border border-red-200 shadow-sm'
-                                            : 'bg-emerald-100 text-emerald-600 shadow-sm'">
+                                            ? 'bg-lacre/10 text-lacre border border-lacre/25'
+                                            : 'bg-conforme/10 text-conforme border border-conforme/25'">
                                         <span class="text-[11px] leading-none">{{ row[viewMode].ultrapassou_limite ? '✗' : '✓' }}</span>
                                         {{ fNum(row[viewMode].percentual) }}%
                                     </span>
@@ -1160,22 +1156,22 @@ async function exportarSped() {
                             
                             <!-- Master-Detail Notas Fiscais -->
                             <tr v-if="expandedDays.has(row.data_movimento) && row.nfs_detalhadas && row.nfs_detalhadas.length > 0">
-                                <td colspan="9" class="p-0 bg-slate-100 border-b border-slate-300 shadow-inner">
-                                    <div class="px-8 py-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9IiNjYmQ1ZTEiLz48L3N2Zz4=')]">
-                                        <p class="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-2">Composição Tributária de Entrada (NF-e C100)</p>
+                                <td colspan="9" class="p-0 bg-paper border-b border-line">
+                                    <div class="px-8 py-4">
+                                        <p class="text-[10px] uppercase font-medium tracking-wide text-risco mb-2">Composição Tributária de Entrada (NF-e C100)</p>
                                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            <div v-for="nf in row.nfs_detalhadas" :key="nf.num_doc" class="bg-white border text-left border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow">
+                                            <div v-for="nf in row.nfs_detalhadas" :key="nf.num_doc" class="bg-sheet border text-left border-line rounded-md p-3 transition-colors hover:border-bronze/40">
                                                 <div class="flex justify-between items-start mb-2">
-                                                    <span class="text-[11px] font-black text-slate-400">NF-e Número</span>
-                                                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold font-mono">#{{ nf.num_doc }}</span>
+                                                    <span class="text-[11px] font-medium text-risco">NF-e Número</span>
+                                                    <span class="px-2 py-0.5 bg-bronze/10 text-bronze rounded text-xs font-medium font-mono">#{{ nf.num_doc }}</span>
                                                 </div>
-                                                <p class="text-sm font-black text-slate-700 truncate" :title="nf.fornecedor">{{ nf.fornecedor }}</p>
-                                                <div class="flex justify-between items-end mt-2 pt-2 border-t border-slate-100">
+                                                <p class="text-[13px] font-medium text-ink truncate" :title="nf.fornecedor">{{ nf.fornecedor }}</p>
+                                                <div class="flex justify-between items-end mt-2 pt-2 border-t border-line">
                                                     <div>
-                                                        <p class="text-[9px] text-slate-400 uppercase font-bold">Volume / Quantidade</p>
-                                                        <p class="text-xs font-mono font-bold text-brand-accent">{{ fNum(nf.qtd) }} L</p>
+                                                        <p class="text-[9px] text-risco uppercase font-medium">Volume / Quantidade</p>
+                                                        <p class="text-xs font-mono text-bronze">{{ fNum(nf.qtd) }} L</p>
                                                     </div>
-                                                    <p class="text-[10px] text-slate-400 font-mono">{{ fDate(nf.dt_doc) }}</p>
+                                                    <p class="text-[10px] text-risco font-mono">{{ fDate(nf.dt_doc) }}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -1186,9 +1182,9 @@ async function exportarSped() {
                     </tbody>
                 </table>
             </div>
-            <div class="bg-slate-800 p-4 text-xs text-slate-300 flex items-center justify-between">
+            <div class="bg-graphite p-4 text-[12px] text-muted flex items-center justify-between">
                 <div>
-                    <strong>Engenharia Tributária:</strong> O Macro Distribuidor de Vendas recálcula todo o Estoque Físico gerando falso-positivos indetectáveis aprovados para passar na ANP (Quebra natural entre -0.35% a +0.35%). O Fechamento sempre alimenta a Abertura consecutiva.
+                    <strong class="text-line font-medium">Engenharia Tributária:</strong> O Macro Distribuidor de Vendas recálcula todo o Estoque Físico gerando falso-positivos indetectáveis aprovados para passar na ANP (Quebra natural entre -0.35% a +0.35%). O Fechamento sempre alimenta a Abertura consecutiva.
                 </div>
             </div>
         </div>
@@ -1203,28 +1199,28 @@ async function exportarSped() {
            @click.self="!syncConfirmando && (showSyncModal = false)">
 
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="absolute inset-0 bg-ink/50"></div>
 
         <!-- Card -->
-        <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div class="relative bg-sheet rounded-md border border-line card-shadow w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
 
           <!-- Loading State -->
           <div v-if="syncPreviewLoading" class="flex flex-col items-center justify-center py-20 gap-4">
-            <Loader2 class="w-10 h-10 text-brand-accent animate-spin" />
-            <p class="text-sm font-bold text-slate-500 uppercase tracking-widest">Calculando distribuição...</p>
+            <Loader2 class="w-9 h-9 text-bronze animate-spin" :stroke-width="1.7" />
+            <p class="text-[13px] text-risco uppercase tracking-wide">Calculando distribuição...</p>
           </div>
 
           <template v-else-if="syncPreviews.length">
             <!-- Header -->
-            <div class="px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
+            <div class="px-6 pt-5 pb-4 border-b border-line shrink-0">
               <div class="flex items-start justify-between gap-4">
                 <div>
-                  <h2 class="text-lg font-black text-slate-800 tracking-tight">Prévia da Sincronização</h2>
-                  <p class="text-xs text-slate-400 mt-0.5">Revise as alterações antes de confirmar. Esta ação redistribuirá as vendas do mês.</p>
+                  <h2 class="font-display text-[16px] font-semibold text-ink">Prévia da Sincronização</h2>
+                  <p class="text-[12px] text-risco mt-0.5">Revise as alterações antes de confirmar. Esta ação redistribuirá as vendas do mês.</p>
                 </div>
                 <button @click="showSyncModal = false" :disabled="syncConfirmando"
-                        class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-all shrink-0">
-                  <XCircle class="w-4 h-4" />
+                        class="w-8 h-8 rounded-md bg-paper hover:bg-line/60 flex items-center justify-center text-risco transition-colors shrink-0">
+                  <XCircle class="w-4 h-4" :stroke-width="1.8" />
                 </button>
               </div>
 
@@ -1232,10 +1228,10 @@ async function exportarSped() {
               <div v-if="syncPreviews.length > 1" class="flex gap-1.5 mt-4 overflow-x-auto pb-0.5">
                 <button v-for="(p, i) in syncPreviews" :key="p.cod_item"
                         @click="syncAbaAtiva = i; syncDiasExpandido = false"
-                        class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border whitespace-nowrap"
+                        class="px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wide transition-colors border whitespace-nowrap"
                         :class="syncAbaAtiva === i
-                          ? 'bg-brand-accent text-white border-brand-accent'
-                          : 'bg-white text-slate-400 border-slate-200 hover:border-brand-accent hover:text-brand-accent'">
+                          ? 'bg-bronze text-white border-bronze'
+                          : 'bg-sheet text-risco border-line hover:border-bronze hover:text-bronze'">
                   {{ p.nome }}
                 </button>
               </div>
@@ -1247,35 +1243,35 @@ async function exportarSped() {
               <div :key="syncAbaAtiva">
 
                 <!-- Tabela Antes × Depois -->
-                <div class="rounded-2xl border border-slate-200 overflow-hidden">
+                <div class="rounded-md border border-line overflow-hidden">
                   <table class="w-full text-sm">
                     <thead>
-                      <tr class="bg-slate-50 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                      <tr class="bg-paper text-[10px] font-medium uppercase text-risco tracking-wide">
                         <th class="px-4 py-3 text-left"></th>
-                        <th class="px-4 py-3 text-right text-slate-500">ANTES</th>
-                        <th class="px-4 py-3 text-right text-brand-accent">DEPOIS</th>
+                        <th class="px-4 py-3 text-right text-risco">ANTES</th>
+                        <th class="px-4 py-3 text-right text-bronze">DEPOIS</th>
                         <th class="px-4 py-3 text-right">Δ</th>
                       </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
+                    <tbody class="divide-y divide-line">
                       <tr v-for="linha in [
                         { label: 'Abertura do mês',   antes: syncPreviews[syncAbaAtiva].resumo.abertura_antes,   depois: syncPreviews[syncAbaAtiva].resumo.abertura_depois },
                         { label: 'Total de vendas',   antes: syncPreviews[syncAbaAtiva].resumo.vendas_antes,     depois: syncPreviews[syncAbaAtiva].resumo.vendas_depois },
                         { label: 'Fechamento do mês', antes: syncPreviews[syncAbaAtiva].resumo.fechamento_antes, depois: syncPreviews[syncAbaAtiva].resumo.fechamento_depois },
                       ]" :key="linha.label">
-                        <td class="px-4 py-2.5 text-xs font-bold text-slate-600">{{ linha.label }}</td>
-                        <td class="px-4 py-2.5 text-right font-mono text-xs text-slate-400 line-through">{{ fNum(linha.antes) }} L</td>
-                        <td class="px-4 py-2.5 text-right font-mono text-xs font-black text-slate-800">{{ fNum(linha.depois) }} L</td>
-                        <td class="px-4 py-2.5 text-right font-mono text-[11px] font-black"
-                            :class="(linha.depois - linha.antes) === 0 ? 'text-slate-300'
-                                  : (linha.depois - linha.antes) > 0 ? 'text-emerald-600' : 'text-red-500'">
+                        <td class="px-4 py-2.5 text-xs font-medium text-ink">{{ linha.label }}</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs text-risco line-through">{{ fNum(linha.antes) }} L</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-xs text-ink">{{ fNum(linha.depois) }} L</td>
+                        <td class="px-4 py-2.5 text-right font-mono text-[11px] font-medium"
+                            :class="(linha.depois - linha.antes) === 0 ? 'text-line'
+                                  : (linha.depois - linha.antes) > 0 ? 'text-conforme' : 'text-lacre'">
                           {{ (linha.depois - linha.antes) === 0 ? '—'
                            : ((linha.depois - linha.antes) > 0 ? '+' : '') + fNum(linha.depois - linha.antes) + ' L' }}
                         </td>
                       </tr>
-                      <tr v-if="syncPreviews[syncAbaAtiva].resumo.capacidade > 0" class="bg-slate-50/50">
-                        <td class="px-4 py-2 text-[10px] text-slate-400">Capacidade do tanque</td>
-                        <td colspan="3" class="px-4 py-2 text-right font-mono text-[10px] text-slate-400">{{ fNum(syncPreviews[syncAbaAtiva].resumo.capacidade) }} L</td>
+                      <tr v-if="syncPreviews[syncAbaAtiva].resumo.capacidade > 0" class="bg-paper/50">
+                        <td class="px-4 py-2 text-[10px] text-risco">Capacidade do tanque</td>
+                        <td colspan="3" class="px-4 py-2 text-right font-mono text-[10px] text-risco">{{ fNum(syncPreviews[syncAbaAtiva].resumo.capacidade) }} L</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1283,50 +1279,50 @@ async function exportarSped() {
 
                 <!-- Avisos de ajuste automático -->
                 <div v-if="syncPreviews[syncAbaAtiva].ajustes.length"
-                     class="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-1.5">
-                  <p class="text-[10px] font-black text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <AlertTriangle class="w-3.5 h-3.5" /> Ajustes automáticos aplicados
+                     class="bg-variacao/[0.08] border border-variacao/25 rounded-md p-4 space-y-1.5">
+                  <p class="text-[10px] font-medium text-variacao uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle class="w-3.5 h-3.5" :stroke-width="1.8" /> Ajustes automáticos aplicados
                   </p>
                   <p v-for="a in syncPreviews[syncAbaAtiva].ajustes" :key="a"
-                     class="text-xs text-amber-700 pl-5">• {{ a }}</p>
+                     class="text-xs text-variacao pl-5">• {{ a }}</p>
                 </div>
-                <div v-else class="flex items-center gap-2 text-xs text-emerald-600 font-bold px-1">
-                  <CheckCircle2 class="w-4 h-4" />
+                <div v-else class="flex items-center gap-2 text-xs text-conforme font-medium px-1">
+                  <CheckCircle2 class="w-4 h-4" :stroke-width="1.8" />
                   Distribuição viável — nenhum ajuste necessário.
                 </div>
 
                 <!-- Detalhes por dia (colapsável) -->
-                <div class="border border-slate-200 rounded-2xl overflow-hidden">
+                <div class="border border-line rounded-md overflow-hidden">
                   <button @click="syncDiasExpandido = !syncDiasExpandido"
-                          class="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                          class="w-full flex items-center justify-between px-4 py-3 text-xs font-medium text-ink hover:bg-paper transition-colors">
                     <span>Ver distribuição por dia ({{ syncPreviews[syncAbaAtiva].dias.length }} registros)</span>
-                    <ChevronDown v-if="!syncDiasExpandido" class="w-4 h-4 text-slate-400" />
-                    <ChevronUp v-else class="w-4 h-4 text-slate-400" />
+                    <ChevronDown v-if="!syncDiasExpandido" class="w-4 h-4 text-risco" :stroke-width="1.8" />
+                    <ChevronUp v-else class="w-4 h-4 text-risco" :stroke-width="1.8" />
                   </button>
-                  <div v-if="syncDiasExpandido" class="overflow-x-auto border-t border-slate-100">
+                  <div v-if="syncDiasExpandido" class="overflow-x-auto border-t border-line">
                     <table class="w-full text-[11px]">
                       <thead>
-                        <tr class="bg-slate-50 text-[9px] font-black uppercase text-slate-400 tracking-widest">
+                        <tr class="bg-paper text-[9px] font-medium uppercase text-risco tracking-wide">
                           <th class="px-3 py-2 text-left">Data</th>
                           <th class="px-3 py-2 text-right">Vendas Antes</th>
-                          <th class="px-3 py-2 text-right text-brand-accent">Vendas Depois</th>
+                          <th class="px-3 py-2 text-right text-bronze">Vendas Depois</th>
                           <th class="px-3 py-2 text-right">Estq. Antes</th>
-                          <th class="px-3 py-2 text-right text-brand-accent">Estq. Depois</th>
+                          <th class="px-3 py-2 text-right text-bronze">Estq. Depois</th>
                         </tr>
                       </thead>
-                      <tbody class="divide-y divide-slate-50">
+                      <tbody class="divide-y divide-line">
                         <tr v-for="dia in syncPreviews[syncAbaAtiva].dias" :key="dia.data"
-                            :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'bg-amber-50/40' : ''">
-                          <td class="px-3 py-1.5 font-mono text-slate-500">
+                            :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'bg-variacao/[0.06]' : ''">
+                          <td class="px-3 py-1.5 font-mono text-risco">
                             {{ new Date(dia.data).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit' }) }}
                           </td>
-                          <td class="px-3 py-1.5 text-right font-mono text-slate-400">{{ fNum(dia.vendas_antes) }}</td>
-                          <td class="px-3 py-1.5 text-right font-mono font-bold"
-                              :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'text-amber-600' : 'text-slate-600'">
+                          <td class="px-3 py-1.5 text-right font-mono text-risco">{{ fNum(dia.vendas_antes) }}</td>
+                          <td class="px-3 py-1.5 text-right font-mono"
+                              :class="Math.abs(dia.vendas_depois - dia.vendas_antes) > 0.01 ? 'text-variacao' : 'text-ink'">
                             {{ fNum(dia.vendas_depois) }}
                           </td>
-                          <td class="px-3 py-1.5 text-right font-mono text-slate-400">{{ fNum(dia.estoque_antes) }}</td>
-                          <td class="px-3 py-1.5 text-right font-mono font-bold text-slate-700">{{ fNum(dia.estoque_depois) }}</td>
+                          <td class="px-3 py-1.5 text-right font-mono text-risco">{{ fNum(dia.estoque_antes) }}</td>
+                          <td class="px-3 py-1.5 text-right font-mono text-ink">{{ fNum(dia.estoque_depois) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1337,19 +1333,19 @@ async function exportarSped() {
             </div>
 
             <!-- Footer -->
-            <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-4 shrink-0 bg-slate-50/50">
-              <p class="text-[10px] text-slate-400 font-medium">
+            <div class="px-6 py-4 border-t border-line flex items-center justify-between gap-4 shrink-0 bg-paper">
+              <p class="text-[10px] text-risco font-medium">
                 {{ syncPreviews.length > 1 ? `${syncPreviews.length} produtos serão sincronizados.` : '' }}
               </p>
               <div class="flex items-center gap-3">
                 <button @click="showSyncModal = false" :disabled="syncConfirmando"
-                        class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all disabled:opacity-50">
+                        class="px-5 py-2 rounded-md border border-line text-[13px] font-medium text-risco hover:bg-line/50 transition-colors disabled:opacity-50">
                   Cancelar
                 </button>
                 <button @click="confirmarSincronizacao" :disabled="syncConfirmando"
-                        class="px-6 py-2.5 rounded-xl bg-brand-accent text-white text-sm font-black hover:scale-[1.02] transition-all shadow-lg shadow-brand-accent/20 disabled:opacity-50 flex items-center gap-2">
+                        class="px-6 py-2 rounded-md bg-bronze text-white text-[13px] font-medium hover:opacity-85 transition-opacity disabled:opacity-50 flex items-center gap-2">
                   <Loader2 v-if="syncConfirmando" class="w-4 h-4 animate-spin" />
-                  <CheckCircle2 v-else class="w-4 h-4" />
+                  <CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" />
                   {{ syncConfirmando ? 'Aplicando...' : 'Confirmar Sincronização' }}
                 </button>
               </div>
@@ -1367,6 +1363,9 @@ async function exportarSped() {
 </style>
 
 <style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out;
 }

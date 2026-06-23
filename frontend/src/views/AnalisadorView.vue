@@ -11,6 +11,8 @@ import MetricRuler from '../components/analisador/MetricRuler.vue'
 import BlockCoverage from '../components/analisador/BlockCoverage.vue'
 import OccurrenceTable from '../components/analisador/OccurrenceTable.vue'
 import TotalizerGauge from '../components/analisador/TotalizerGauge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiSelo from '@/components/ui/UiSelo.vue'
 
 const route = useRoute();
 const router = useRouter();
@@ -1300,9 +1302,9 @@ const economiaEstimada = computed(() => {
 });
 
 const getStatusColor = (score) => {
-    if (score < 30) return 'text-emerald-600';
-    if (score < 70) return 'text-amber-500';
-    return 'text-red-500';
+    if (score < 30) return 'text-conforme';
+    if (score < 70) return 'text-variacao';
+    return 'text-lacre';
 };
 
 // --- Arquivos recentes da empresa (alimenta painel lateral do Upload + linha do tempo) ---
@@ -1485,164 +1487,162 @@ const afericaoGauge = computed(() => {
       leave-from-class="opacity-100"
       leave-to-class="opacity-0"
     >
-      <div v-if="showSuccessToast" class="fixed top-4 right-4 z-[100] w-full max-w-xs bg-white rounded-2xl shadow-xl border border-emerald-100 p-4 flex items-center gap-3 ring-1 ring-black/5">
-        <div class="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-500 shrink-0">✨</div>
+      <div v-if="showSuccessToast" class="fixed top-4 right-4 z-[100] w-full max-w-xs bg-sheet rounded-md card-shadow border border-line p-4 flex items-center gap-3">
+        <div class="w-8 h-8 bg-conforme/10 rounded-md flex items-center justify-center text-conforme shrink-0">✓</div>
         <div>
-          <h4 class="text-xs font-black text-slate-900 uppercase tracking-tight">Auditoria Concluída!</h4>
-          <p class="text-[10px] text-slate-400 font-medium">Cruzamentos processados com sucesso.</p>
+          <h4 class="text-[11px] uppercase tracking-wide text-ink font-medium">Auditoria Concluída!</h4>
+          <p class="text-[10px] text-risco">Cruzamentos processados com sucesso.</p>
         </div>
-        <button @click="showSuccessToast = false" class="text-slate-300 hover:text-slate-500 transition-colors ml-auto text-lg leading-none">&times;</button>
+        <button @click="showSuccessToast = false" class="text-risco hover:text-ink transition-colors ml-auto text-lg leading-none">&times;</button>
       </div>
     </Transition>
 
     <!-- Header de Contexto -->
     <header class="flex flex-col md:flex-row md:items-center justify-between gap-3">
       <div>
-        <h2 class="text-xl font-extrabold text-slate-800 tracking-tight">
-          Motor de <span class="text-brand-accent">Auditoria</span>
+        <h2 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">
+          Motor de Auditoria
         </h2>
         <div v-if="empresaSelecionada" class="flex flex-wrap items-center gap-2 mt-1.5">
-          <span class="inline-flex items-center gap-1.5 bg-brand-accent/10 text-brand-accent px-2.5 py-1 rounded-lg text-xs font-bold max-w-[340px] truncate" :title="empresaSelecionada.nome_empresa">
-            🏢 {{ empresaSelecionada.nome_empresa }}
+          <span class="inline-flex items-center gap-1.5 bg-bronze/10 text-bronze px-2.5 py-1 rounded-md text-[12px] font-medium max-w-[340px] truncate" :title="empresaSelecionada.nome_empresa">
+            {{ empresaSelecionada.nome_empresa }}
           </span>
-          <span v-if="empresaSelecionada.cnpj" class="inline-flex items-center bg-slate-800 text-white px-2.5 py-1 rounded-lg text-xs font-mono font-bold tracking-tight" title="CNPJ da empresa">
-            <span class="opacity-50 text-[9px] uppercase tracking-widest mr-1.5">CNPJ</span>{{ formatCnpj(empresaSelecionada.cnpj) }}
+          <span v-if="empresaSelecionada.cnpj" class="inline-flex items-center bg-graphite text-white px-2.5 py-1 rounded-md text-[12px] font-mono tracking-[-0.01em]" title="CNPJ da empresa">
+            <span class="opacity-60 text-[9px] uppercase tracking-wide mr-1.5">CNPJ</span>{{ formatCnpj(empresaSelecionada.cnpj) }}
           </span>
-          <button @click="trocarEmpresa" class="text-[10px] text-slate-400 hover:text-slate-600 font-bold underline underline-offset-2">trocar</button>
+          <button @click="trocarEmpresa" class="text-[11px] text-risco hover:text-bronze font-medium underline underline-offset-2">trocar</button>
         </div>
       </div>
 
       <div v-if="arquivoInfo" class="flex items-center gap-2">
         <div class="flex gap-1.5">
-          <button @click="downloadDossie" class="px-3 py-1.5 bg-white text-brand-accent border border-brand-accent/20 rounded-lg text-xs font-bold hover:bg-brand-accent/5 transition-all flex items-center gap-1.5 shadow-sm">
+          <UiButton variant="ghost" @click="downloadDossie">
             📥 Dossiê PDF
-          </button>
-          <button @click="downloadExcel" class="px-3 py-1.5 bg-emerald-600/10 text-emerald-600 border border-emerald-600/20 rounded-lg text-xs font-bold hover:bg-emerald-600/20 transition-all flex items-center gap-1.5 shadow-sm">
+          </UiButton>
+          <UiButton variant="ghost" @click="downloadExcel">
             📊 Excel
-          </button>
-          <button @click="downloadSpedRetificado" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-900 transition-all flex items-center gap-1.5 shadow-sm">
+          </UiButton>
+          <UiButton @click="downloadSpedRetificado">
             🛠️ Exportar SPED
-          </button>
+          </UiButton>
         </div>
-        <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-slate-100">
-          <div class="w-7 h-7 rounded-lg bg-brand-accent/10 flex items-center justify-center text-brand-accent text-sm shrink-0">📄</div>
+        <div class="flex items-center gap-2 bg-sheet px-3 py-1.5 rounded-md border border-line">
+          <div class="w-7 h-7 rounded-md bg-bronze/10 flex items-center justify-center text-bronze text-sm shrink-0">📄</div>
           <div>
-            <p class="text-xs font-bold leading-none">{{ arquivoInfo.periodo }}</p>
-            <p class="text-[10px] text-slate-400 font-mono mt-0.5 truncate max-w-[160px]">{{ arquivoInfo.nome }}</p>
+            <p class="text-[12px] font-medium text-ink leading-none">{{ arquivoInfo.periodo }}</p>
+            <p class="text-[10px] text-risco font-mono mt-0.5 truncate max-w-[160px]">{{ arquivoInfo.nome }}</p>
           </div>
         </div>
       </div>
     </header>
 
     <!-- Banner persistente: sequência de meses quebrada -->
-    <div v-if="sequenciaAlerta && sequenciaAlerta.faltantes.length" class="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
-      <span class="text-amber-500 text-lg leading-none mt-0.5">⚠</span>
+    <div v-if="sequenciaAlerta && sequenciaAlerta.faltantes.length" class="bg-variacao/10 border border-variacao/30 rounded-md px-4 py-3 flex items-start gap-3">
+      <span class="text-variacao text-lg leading-none mt-0.5">⚠</span>
       <div class="flex-1">
-        <p class="text-xs font-black text-amber-800 uppercase tracking-wide">Sequência de períodos quebrada</p>
-        <p class="text-[11px] text-amber-700 mt-0.5">
-          Faltam os meses <strong>{{ sequenciaAlerta.faltantes.map(fmtMes).join(', ') }}</strong> desta empresa.
+        <p class="text-[11px] uppercase tracking-wide text-variacao font-medium">Sequência de períodos quebrada</p>
+        <p class="text-[11px] text-ink mt-0.5">
+          Faltam os meses <strong class="font-mono">{{ sequenciaAlerta.faltantes.map(fmtMes).join(', ') }}</strong> desta empresa.
           Auditar/exportar fora da ordem cronológica pode gerar estoque de abertura e encerrantes inconsistentes.
         </p>
       </div>
-      <button @click="activeTab = 'novo'" class="text-[10px] font-bold text-amber-700 hover:text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg whitespace-nowrap shrink-0">Ver arquivos</button>
+      <button @click="activeTab = 'novo'" class="text-[10px] font-medium text-variacao hover:opacity-80 bg-variacao/15 px-2.5 py-1 rounded-md whitespace-nowrap shrink-0">Ver arquivos</button>
     </div>
 
     <!-- Tabs Estilizadas -->
-    <div class="flex flex-wrap gap-1 p-1 bg-slate-200/50 rounded-xl w-fit">
+    <div class="flex flex-wrap gap-1 p-1 bg-paper border border-line rounded-md w-fit">
       <button
         @click="activeTab = 'dashboard'"
-        :class="activeTab === 'dashboard' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        :class="activeTab === 'dashboard' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">
         Dashboard
       </button>
       <button
         @click="activeTab = 'notas'"
-        :class="activeTab === 'notas' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        :class="activeTab === 'notas' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">
         Notas
       </button>
       <button
         @click="activeTab = 'saidas'"
-        :class="activeTab === 'saidas' ? 'bg-white shadow text-emerald-600' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        :class="activeTab === 'saidas' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">
         Saídas NF
       </button>
       <button
         @click="activeTab = 'conciliacao'"
-        :class="activeTab === 'conciliacao' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        :class="activeTab === 'conciliacao' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all relative">
         Conciliação SEFAZ
-        <span v-if="concilResult && concilResult.totais.faltantes" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
+        <span v-if="concilResult && concilResult.totais.faltantes" class="absolute -top-1 -right-1 w-4 h-4 bg-lacre text-white text-[9px] flex items-center justify-center rounded-full border-2 border-paper">
           {{ concilResult.totais.faltantes }}
         </span>
       </button>
       <button
         @click="activeTab = 'lmc'"
-        :class="activeTab === 'lmc' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        :class="activeTab === 'lmc' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">
         Auditoria LMC
       </button>
       <button
         @click="activeTab = 'erros'"
-        :class="activeTab === 'erros' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        :class="activeTab === 'erros' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all relative">
         Alertas
-        <span v-if="auditErros.length" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
+        <span v-if="auditErros.length" class="absolute -top-1 -right-1 w-4 h-4 bg-lacre text-white text-[9px] flex items-center justify-center rounded-full border-2 border-paper">
           {{ auditErros.length }}
         </span>
       </button>
       <button
         @click="activeTab = 'sintaxe'"
-        :class="activeTab === 'sintaxe' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all relative">
+        :class="activeTab === 'sintaxe' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all relative">
         Malha Fina
-        <span v-if="totalInfractions" class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[9px] flex items-center justify-center rounded-full border-2 border-slate-100">
+        <span v-if="totalInfractions" class="absolute -top-1 -right-1 w-4 h-4 bg-variacao text-white text-[9px] flex items-center justify-center rounded-full border-2 border-paper">
           {{ totalInfractions }}
         </span>
       </button>
       <button
         @click="activeTab = 'novo'"
-        :class="activeTab === 'novo' ? 'bg-white shadow text-brand-accent' : 'text-slate-500 hover:text-slate-700'"
-        class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">
+        :class="activeTab === 'novo' ? 'bg-bronze text-white' : 'text-risco hover:text-ink'"
+        class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">
         Upload
       </button>
     </div>
 
     <!-- Conteúdo: Conciliação SEFAZ (CSV) -->
     <div v-if="activeTab === 'conciliacao'" class="space-y-6">
-      <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-        <h3 class="text-base font-bold text-slate-700">Conciliação SEFAZ × Escrituração</h3>
-        <p class="text-xs text-slate-500 mt-1 max-w-2xl">Suba a "Relação de NF-e" (CSV) da SEFAZ. O sistema cruza com as notas de <b>entrada</b> já no banco desta empresa (CNPJ {{ empresaSelecionada?.cnpj || arquivoInfo?.cnpj || '—' }}) e aponta o que está na SEFAZ e falta na sua escrituração. O período é detectado automaticamente pelas datas do CSV.</p>
+      <div class="bg-sheet p-6 rounded-md border border-line card-shadow">
+        <h3 class="font-display text-[16px] font-semibold text-ink">Conciliação SEFAZ × Escrituração</h3>
+        <p class="text-[13px] text-risco mt-1 max-w-2xl">Suba a "Relação de NF-e" (CSV) da SEFAZ. O sistema cruza com as notas de <b>entrada</b> já no banco desta empresa (CNPJ {{ empresaSelecionada?.cnpj || arquivoInfo?.cnpj || '—' }}) e aponta o que está na SEFAZ e falta na sua escrituração. O período é detectado automaticamente pelas datas do CSV.</p>
         <div class="mt-4 flex flex-wrap items-center gap-3">
-          <label class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600 cursor-pointer transition-all">
+          <label class="px-4 py-2 rounded-md bg-paper hover:bg-line/50 text-[12px] font-medium text-ink border border-line cursor-pointer transition-all">
             <input type="file" accept=".csv,.CSV" class="hidden" @change="onConcilCsvSelected">
             {{ concilCsvName || 'Selecionar CSV da SEFAZ' }}
           </label>
-          <button @click="conciliarSefaz" :disabled="concilLoading || !concilCsvFile"
-            class="px-5 py-2 rounded-xl text-xs font-bold text-white transition-all"
-            :class="(concilLoading || !concilCsvFile) ? 'bg-slate-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'">
+          <UiButton @click="conciliarSefaz" :disabled="concilLoading || !concilCsvFile" :class="(concilLoading || !concilCsvFile) ? 'opacity-50 cursor-not-allowed' : ''">
             {{ concilLoading ? 'Conciliando…' : 'Conciliar' }}
-          </button>
-          <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-            <input type="checkbox" v-model="concilDesconsiderarCanceladas" @change="onToggleCanceladas" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+          </UiButton>
+          <label class="flex items-center gap-1.5 text-[12px] font-medium text-risco cursor-pointer select-none">
+            <input type="checkbox" v-model="concilDesconsiderarCanceladas" @change="onToggleCanceladas" class="rounded border-line text-bronze focus:ring-bronze">
             Desconsiderar canceladas
           </label>
-          <span v-if="concilError" class="text-xs font-semibold text-red-600">{{ concilError }}</span>
+          <span v-if="concilError" class="text-[12px] font-medium text-lacre">{{ concilError }}</span>
         </div>
       </div>
 
       <div v-if="concilResult" class="space-y-5">
         <!-- Aviso: período do CSV sem SPED importado -->
         <div v-if="concilResult.meses_sem_sped && concilResult.meses_sem_sped.length"
-             class="rounded-3xl border p-4 flex items-start gap-3"
-             :class="concilResult.sem_sped_total ? 'bg-amber-100 border-amber-300' : 'bg-amber-50 border-amber-200'">
+             class="rounded-md border p-4 flex items-start gap-3"
+             :class="concilResult.sem_sped_total ? 'bg-variacao/15 border-variacao/40' : 'bg-variacao/10 border-variacao/30'">
           <span class="text-xl leading-none">⚠️</span>
-          <div class="text-sm">
-            <p class="font-bold text-amber-800">
+          <div class="text-[13px]">
+            <p class="font-medium text-variacao">
               {{ concilResult.sem_sped_total ? 'Não há SPED importado para o período deste CSV.' : 'Alguns meses do CSV não têm SPED importado.' }}
             </p>
-            <p class="text-amber-700 mt-0.5">
-              Sem SPED para: <b>{{ concilResult.meses_sem_sped.join(', ') }}</b>.
+            <p class="text-ink mt-0.5">
+              Sem SPED para: <b class="font-mono">{{ concilResult.meses_sem_sped.join(', ') }}</b>.
               {{ concilResult.totais.sem_sped }} nota(s) desse(s) mês(es) <b>não foram conferidas</b> e não entram em "faltantes".
               Importe o SPED do período e concilie novamente.
             </p>
@@ -1650,49 +1650,49 @@ const afericaoGauge = computed(() => {
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p class="text-[10px] uppercase font-bold text-slate-400">Período (CSV)</p>
-            <p class="text-sm font-bold text-slate-700">{{ concilResult.periodo || '—' }}</p>
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Período (CSV)</p>
+            <p class="text-[13px] font-mono text-ink">{{ concilResult.periodo || '—' }}</p>
           </div>
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p class="text-[10px] uppercase font-bold text-slate-400">Notas SEFAZ</p>
-            <p class="text-lg font-bold text-slate-700">{{ concilResult.totais.sefaz_valido }}</p>
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Notas SEFAZ</p>
+            <p class="text-lg font-mono text-ink">{{ concilResult.totais.sefaz_valido }}</p>
           </div>
-          <div class="p-4 rounded-2xl border shadow-sm text-center" :class="concilResult.totais.faltantes ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-white'">
-            <p class="text-[10px] uppercase font-bold text-slate-400">Faltantes</p>
-            <p class="text-lg font-bold" :class="concilResult.totais.faltantes ? 'text-red-600' : 'text-slate-700'">{{ concilResult.totais.faltantes }}</p>
+          <div class="p-4 rounded-md border card-shadow text-center" :class="concilResult.totais.faltantes ? 'border-lacre/30 bg-lacre/10' : 'border-line bg-sheet'">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Faltantes</p>
+            <p class="text-lg font-mono" :class="concilResult.totais.faltantes ? 'text-lacre' : 'text-ink'">{{ concilResult.totais.faltantes }}</p>
           </div>
-          <div class="p-4 rounded-2xl border shadow-sm text-center" :class="(concilResult.totais.divergencia_valor || concilResult.totais.divergencia_competencia) ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-white'">
-            <p class="text-[10px] uppercase font-bold text-slate-400">Divergências</p>
-            <p class="text-lg font-bold text-amber-600">{{ concilResult.totais.divergencia_valor + concilResult.totais.divergencia_competencia }}</p>
+          <div class="p-4 rounded-md border card-shadow text-center" :class="(concilResult.totais.divergencia_valor || concilResult.totais.divergencia_competencia) ? 'border-variacao/30 bg-variacao/10' : 'border-line bg-sheet'">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Divergências</p>
+            <p class="text-lg font-mono text-variacao">{{ concilResult.totais.divergencia_valor + concilResult.totais.divergencia_competencia }}</p>
           </div>
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p class="text-[10px] uppercase font-bold text-slate-400">Extras no SPED</p>
-            <p class="text-lg font-bold text-slate-700">{{ concilResult.totais.extras }}</p>
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Extras no SPED</p>
+            <p class="text-lg font-mono text-ink">{{ concilResult.totais.extras }}</p>
           </div>
         </div>
 
-        <div class="flex items-center gap-3 flex-wrap text-[11px] text-slate-500">
-          <span v-if="concilResult.periodo_escopo" class="text-sky-700 font-semibold">📅 Conferindo só o período do SPED aberto: {{ concilResult.periodo_escopo }}<template v-if="concilResult.totais.fora_escopo"> · {{ concilResult.totais.fora_escopo }} nota(s) de outros meses do CSV ignorada(s)</template></span>
+        <div class="flex items-center gap-3 flex-wrap text-[11px] text-risco">
+          <span v-if="concilResult.periodo_escopo" class="text-bronze font-medium">📅 Conferindo só o período do SPED aberto: {{ concilResult.periodo_escopo }}<template v-if="concilResult.totais.fora_escopo"> · {{ concilResult.totais.fora_escopo }} nota(s) de outros meses do CSV ignorada(s)</template></span>
           <button v-if="concilResult.totais.canceladas" @click="concilVerCanceladas = !concilVerCanceladas"
-            class="underline decoration-dotted hover:text-slate-700">
+            class="underline decoration-dotted hover:text-ink">
             ⚪ {{ concilResult.totais.canceladas }} cancelada(s) {{ concilResult.incluiu_canceladas ? 'incluída(s)' : 'desconsiderada(s)' }} ({{ concilVerCanceladas ? 'ocultar' : 'ver' }})
           </button>
-          <span v-if="concilResult.totais.uso_consumo" class="text-indigo-600 font-semibold">🔁 {{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
-          <span v-if="concilResult.sem_escrituracao" class="text-amber-600 font-semibold">⚠️ Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
-          <button @click="exportConcilCsv" class="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold">📥 Exportar resultado (CSV)</button>
+          <span v-if="concilResult.totais.uso_consumo" class="text-bronze font-medium">🔁 {{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
+          <span v-if="concilResult.sem_escrituracao" class="text-variacao font-medium">⚠️ Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
+          <UiButton @click="exportConcilCsv" class="ml-auto">📥 Exportar resultado (CSV)</UiButton>
         </div>
 
         <!-- Faltantes -->
-        <div v-if="concilResult.faltantes.length" class="bg-white rounded-3xl border border-red-100 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-red-50 border-b border-red-100 font-bold text-red-700 text-sm">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</div>
+        <div v-if="concilResult.faltantes.length" class="bg-sheet rounded-md border border-lacre/20 card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-lacre/10 border-b border-lacre/20 font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
               <tbody>
-                <tr v-for="(f,i) in concilResult.faltantes" :key="'f'+i" class="border-t border-slate-50 hover:bg-slate-50">
-                  <td class="p-2">{{ f.numero }}</td><td class="p-2 font-mono text-[10px]">{{ f.chave }}</td><td class="p-2">{{ f.comp }}</td><td class="p-2 text-right">{{ fmtBRL(f.valor) }}</td><td class="p-2 whitespace-nowrap">{{ f.data }}</td>
-                  <td class="p-2">{{ f.fornecedor }}<span v-if="f.uso_consumo" class="ml-1 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[9px] font-bold whitespace-nowrap">uso/consumo</span></td>
+                <tr v-for="(f,i) in concilResult.faltantes" :key="'f'+i" class="border-t border-line hover:bg-paper">
+                  <td class="p-2 font-mono text-ink">{{ f.numero }}</td><td class="p-2 font-mono text-[10px] text-ink">{{ f.chave }}</td><td class="p-2 font-mono">{{ f.comp }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(f.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ f.data }}</td>
+                  <td class="p-2">{{ f.fornecedor }}<span v-if="f.uso_consumo" class="ml-1 px-1.5 py-0.5 rounded bg-bronze/10 text-bronze text-[9px] font-medium whitespace-nowrap">uso/consumo</span></td>
                 </tr>
               </tbody>
             </table>
@@ -1700,16 +1700,16 @@ const afericaoGauge = computed(() => {
         </div>
 
         <!-- Divergência de valor -->
-        <div v-if="concilResult.divergencia_valor.length" class="bg-white rounded-3xl border border-amber-100 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 font-bold text-amber-700 text-sm">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</div>
+        <div v-if="concilResult.divergencia_valor.length" class="bg-sheet rounded-md border border-variacao/20 card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 font-medium text-variacao text-[13px]">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th></tr></thead>
               <tbody>
                 <template v-for="(d,i) in concilResult.divergencia_valor" :key="'dv'+i">
-                  <tr class="border-t border-slate-50 hover:bg-slate-50">
-                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
-                    <td class="p-2">{{ d.numero }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right">{{ fmtBRL(d.valorSefaz) }}</td><td class="p-2 text-right">{{ fmtBRL(d.valorSped) }}</td><td class="p-2 text-right font-bold" :class="d.dif >= 0 ? 'text-red-600' : 'text-emerald-600'">{{ fmtBRL(d.dif) }}</td>
+                  <tr class="border-t border-line hover:bg-paper">
+                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2 font-mono text-ink">{{ d.numero }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSefaz) }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSped) }}</td><td class="p-2 text-right font-mono font-medium" :class="d.dif >= 0 ? 'text-lacre' : 'text-conforme'">{{ fmtBRL(d.dif) }}</td>
                   </tr>
                   <tr v-if="nfAberta(d.chave)"><td colspan="6" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
                 </template>
@@ -1719,19 +1719,19 @@ const afericaoGauge = computed(() => {
         </div>
 
         <!-- Lançada em outro mês (sem omissão) -->
-        <div v-if="concilResult.divergencia_competencia.length" class="bg-white rounded-3xl border border-sky-100 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-sky-50 border-b border-sky-100 text-sky-700 text-sm">
-            <span class="font-bold">📅 Lançadas em outro mês — sem omissão ({{ concilResult.divergencia_competencia.length }})</span>
-            <span class="block text-[11px] text-sky-600 font-normal mt-0.5">A NF está na SEFAZ no mês emitido, mas foi escriturada em outra competência do seu SPED. <b>Não é omissão</b> — apenas lançamento em data diferente (atenção a crédito extemporâneo).</span>
+        <div v-if="concilResult.divergencia_competencia.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-paper border-b border-line text-ink text-[13px]">
+            <span class="font-medium">📅 Lançadas em outro mês — sem omissão ({{ concilResult.divergencia_competencia.length }})</span>
+            <span class="block text-[11px] text-risco font-normal mt-0.5">A NF está na SEFAZ no mês emitido, mas foi escriturada em outra competência do seu SPED. <b>Não é omissão</b> — apenas lançamento em data diferente (atenção a crédito extemporâneo).</span>
           </div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão (SEFAZ)</th><th class="text-left p-2">Lançada no SPED</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão (SEFAZ)</th><th class="text-left p-2">Lançada no SPED</th></tr></thead>
               <tbody>
                 <template v-for="(d,i) in concilResult.divergencia_competencia" :key="'dc'+i">
-                  <tr class="border-t border-slate-50 hover:bg-slate-50">
-                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
-                    <td class="p-2">{{ d.numero }}</td><td class="p-2 font-mono text-[10px]">{{ d.chave }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right">{{ fmtBRL(d.valor) }}</td><td class="p-2 whitespace-nowrap">{{ d.data }}</td><td class="p-2 whitespace-nowrap font-semibold text-sky-700">{{ d.dataSped || d.compSped }}</td>
+                  <tr class="border-t border-line hover:bg-paper">
+                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2 font-mono text-ink">{{ d.numero }}</td><td class="p-2 font-mono text-[10px] text-ink">{{ d.chave }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ d.data }}</td><td class="p-2 whitespace-nowrap font-mono font-medium text-bronze">{{ d.dataSped || d.compSped }}</td>
                   </tr>
                   <tr v-if="nfAberta(d.chave)"><td colspan="7" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
                 </template>
@@ -1741,16 +1741,16 @@ const afericaoGauge = computed(() => {
         </div>
 
         <!-- Extras -->
-        <div v-if="concilResult.extras.length" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-slate-50 border-b border-slate-200 font-bold text-slate-600 text-sm">🟡 No SPED, sem correspondência na SEFAZ ({{ concilResult.extras.length }})</div>
+        <div v-if="concilResult.extras.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">🟡 No SPED, sem correspondência na SEFAZ ({{ concilResult.extras.length }})</div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
               <tbody>
                 <template v-for="(x,i) in concilResult.extras" :key="'x'+i">
-                  <tr class="border-t border-slate-50 hover:bg-slate-50">
-                    <td class="p-2 text-center"><button @click="toggleNf(x.chave)" class="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold leading-none">{{ nfAberta(x.chave) ? '−' : '+' }}</button></td>
-                    <td class="p-2">{{ x.numero }}</td><td class="p-2 font-mono text-[10px]">{{ x.chave }}</td><td class="p-2">{{ x.comp }}</td><td class="p-2 text-right">{{ fmtBRL(x.valor) }}</td><td class="p-2 whitespace-nowrap">{{ x.data }}</td><td class="p-2">{{ x.fornecedor }}</td>
+                  <tr class="border-t border-line hover:bg-paper">
+                    <td class="p-2 text-center"><button @click="toggleNf(x.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(x.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2 font-mono text-ink">{{ x.numero }}</td><td class="p-2 font-mono text-[10px] text-ink">{{ x.chave }}</td><td class="p-2 font-mono">{{ x.comp }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(x.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ x.data }}</td><td class="p-2">{{ x.fornecedor }}</td>
                   </tr>
                   <tr v-if="nfAberta(x.chave)"><td colspan="7" class="p-0"><NfItens :chave="x.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
                 </template>
@@ -1760,14 +1760,14 @@ const afericaoGauge = computed(() => {
         </div>
 
         <!-- Notas em meses sem SPED importado (não conferidas) -->
-        <div v-if="concilResult.sem_sped && concilResult.sem_sped.length" class="bg-white rounded-3xl border border-amber-100 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-amber-50 border-b border-amber-100 font-bold text-amber-700 text-sm">⚠️ Notas em meses sem SPED importado — não conferidas ({{ concilResult.sem_sped.length }})</div>
+        <div v-if="concilResult.sem_sped && concilResult.sem_sped.length" class="bg-sheet rounded-md border border-variacao/20 card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 font-medium text-variacao text-[13px]">⚠️ Notas em meses sem SPED importado — não conferidas ({{ concilResult.sem_sped.length }})</div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
               <tbody>
-                <tr v-for="(s,i) in concilResult.sem_sped" :key="'s'+i" class="border-t border-slate-50 hover:bg-slate-50">
-                  <td class="p-2">{{ s.numero }}</td><td class="p-2 font-mono text-[10px]">{{ s.chave }}</td><td class="p-2">{{ s.comp }}</td><td class="p-2 text-right">{{ fmtBRL(s.valor) }}</td><td class="p-2 whitespace-nowrap">{{ s.data }}</td><td class="p-2">{{ s.fornecedor }}</td>
+                <tr v-for="(s,i) in concilResult.sem_sped" :key="'s'+i" class="border-t border-line hover:bg-paper">
+                  <td class="p-2 font-mono text-ink">{{ s.numero }}</td><td class="p-2 font-mono text-[10px] text-ink">{{ s.chave }}</td><td class="p-2 font-mono">{{ s.comp }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(s.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ s.data }}</td><td class="p-2">{{ s.fornecedor }}</td>
                 </tr>
               </tbody>
             </table>
@@ -1775,14 +1775,14 @@ const afericaoGauge = computed(() => {
         </div>
 
         <!-- Canceladas (visível via o link "ver") -->
-        <div v-if="concilVerCanceladas && concilResult.canceladas && concilResult.canceladas.length" class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-          <div class="px-5 py-3 bg-slate-100 border-b border-slate-200 font-bold text-slate-600 text-sm">⚪ Notas canceladas/denegadas no CSV ({{ concilResult.canceladas.length }}) — {{ concilResult.incluiu_canceladas ? 'incluídas na conciliação' : 'desconsideradas' }}</div>
+        <div v-if="concilVerCanceladas && concilResult.canceladas && concilResult.canceladas.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">⚪ Notas canceladas/denegadas no CSV ({{ concilResult.canceladas.length }}) — {{ concilResult.incluiu_canceladas ? 'incluídas na conciliação' : 'desconsideradas' }}</div>
           <div class="overflow-x-auto max-h-96">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-50 text-slate-500 sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
               <tbody>
-                <tr v-for="(c,i) in concilResult.canceladas" :key="'c'+i" class="border-t border-slate-50 hover:bg-slate-50 text-slate-400 line-through decoration-slate-300">
-                  <td class="p-2">{{ c.numero }}</td><td class="p-2 font-mono text-[10px]">{{ c.chave }}</td><td class="p-2">{{ c.comp }}</td><td class="p-2 text-right">{{ fmtBRL(c.valor) }}</td><td class="p-2 whitespace-nowrap">{{ c.data }}</td><td class="p-2 no-underline">{{ c.fornecedor }}</td>
+                <tr v-for="(c,i) in concilResult.canceladas" :key="'c'+i" class="border-t border-line hover:bg-paper text-risco line-through decoration-line">
+                  <td class="p-2 font-mono">{{ c.numero }}</td><td class="p-2 font-mono text-[10px]">{{ c.chave }}</td><td class="p-2 font-mono">{{ c.comp }}</td><td class="p-2 text-right font-mono">{{ fmtBRL(c.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ c.data }}</td><td class="p-2 no-underline">{{ c.fornecedor }}</td>
                 </tr>
               </tbody>
             </table>
@@ -1790,7 +1790,7 @@ const afericaoGauge = computed(() => {
         </div>
 
         <div v-if="!concilResult.sem_sped_total && !concilResult.faltantes.length && !concilResult.divergencia_valor.length && !concilResult.divergencia_competencia.length && !concilResult.extras.length"
-             class="bg-emerald-50 border border-emerald-100 rounded-3xl p-6 text-center text-emerald-700 font-bold">
+             class="bg-conforme/10 border border-conforme/20 rounded-md p-6 text-center text-conforme font-medium">
           ✅ Tudo conciliado — nenhuma divergência no período.
         </div>
       </div>
@@ -1800,142 +1800,142 @@ const afericaoGauge = computed(() => {
     <div v-if="activeTab === 'sintaxe'" class="space-y-6">
       <!-- Resumo Geral -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-red-500">📉</div>
+        <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-lacre/10 rounded-md flex items-center justify-center text-lacre">📉</div>
           <div>
-            <p class="text-[10px] font-black text-slate-400 uppercase">Divergência NFe</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.c100_valores_divergentes.length }}</p>
+            <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Divergência NFe</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.c100_valores_divergentes.length }}</p>
           </div>
         </div>
-        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-500">❓</div>
+        <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-variacao/10 rounded-md flex items-center justify-center text-variacao">❓</div>
           <div>
-            <p class="text-[10px] font-black text-slate-400 uppercase">Omissão (Saltos)</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.c100_saltos_enumeracao.length }}</p>
+            <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Omissão (Saltos)</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.c100_saltos_enumeracao.length }}</p>
           </div>
         </div>
-        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-500">📦</div>
+        <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">📦</div>
           <div>
-            <p class="text-[10px] font-black text-slate-400 uppercase">Erros Cadastro</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.cfop_suspeitos.length }}</p>
+            <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Erros Cadastro</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.cfop_suspeitos.length }}</p>
           </div>
         </div>
-        <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500">⛽</div>
+        <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-conforme/10 rounded-md flex items-center justify-center text-conforme">⛽</div>
           <div>
-            <p class="text-[10px] font-black text-slate-400 uppercase">LMC x Inventário</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.h010_divergente_1300.length }}</p>
+            <p class="text-[10px] font-medium text-risco uppercase tracking-wide">LMC x Inventário</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.h010_divergente_1300.length }}</p>
           </div>
         </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4" v-if="(infractions.chv_nfe_cnpj_divergente?.length || 0) + (infractions.bicos_duplicados_1320?.length || 0) > 0">
-        <div v-if="infractions.chv_nfe_cnpj_divergente?.length" class="bg-white p-6 rounded-3xl border border-orange-200 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500">🔑</div>
+        <div v-if="infractions.chv_nfe_cnpj_divergente?.length" class="bg-sheet p-6 rounded-md border border-bronze/30 card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">🔑</div>
           <div>
-            <p class="text-[10px] font-black text-orange-500 uppercase">CNPJ Chave Divergente</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.chv_nfe_cnpj_divergente.length }}</p>
+            <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">CNPJ Chave Divergente</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.chv_nfe_cnpj_divergente.length }}</p>
           </div>
         </div>
-        <div v-if="infractions.bicos_duplicados_1320?.length" class="bg-white p-6 rounded-3xl border border-purple-200 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-500">⛽</div>
+        <div v-if="infractions.bicos_duplicados_1320?.length" class="bg-sheet p-6 rounded-md border border-bronze/30 card-shadow flex items-center gap-4">
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">⛽</div>
           <div>
-            <p class="text-[10px] font-black text-purple-500 uppercase">Bicos Duplicados</p>
-            <p class="text-xl font-black text-slate-900">{{ infractions.bicos_duplicados_1320.length }}</p>
+            <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">Bicos Duplicados</p>
+            <p class="text-xl font-mono text-ink">{{ infractions.bicos_duplicados_1320.length }}</p>
           </div>
         </div>
       </div>
 
       <!-- Detalhamento das Infrações -->
-      <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        <div class="p-6 border-b border-slate-50 bg-slate-50/30 flex justify-between items-center">
-          <h3 class="text-lg font-black text-slate-800 tracking-tight uppercase">Laudo de Auditoria Sintática</h3>
-          <button @click="runSyntaxAnalysis" class="px-3 py-1 bg-brand-accent text-white rounded-lg text-[10px] font-bold" :disabled="loadingSintaxe">
+      <div class="bg-sheet rounded-md card-shadow border border-line overflow-hidden">
+        <div class="p-6 border-b border-line bg-paper flex justify-between items-center">
+          <h3 class="font-display text-[16px] font-semibold text-ink tracking-[-0.01em] uppercase">Laudo de Auditoria Sintática</h3>
+          <UiButton @click="runSyntaxAnalysis" :disabled="loadingSintaxe">
             {{ loadingSintaxe ? 'PROCESSANDO...' : 'RE-ANALISAR AGORA' }}
-          </button>
+          </UiButton>
         </div>
 
         <div v-if="loadingSintaxe" class="py-20 flex flex-col items-center justify-center">
-           <div class="animate-spin rounded-full h-10 w-10 border-4 border-brand-accent border-t-transparent mb-4"></div>
-           <p class="text-xs font-bold text-slate-400 tracking-widest uppercase">Motor em Memória: Escaneando Layout SPED...</p>
+           <div class="animate-spin rounded-full h-10 w-10 border-4 border-bronze border-t-transparent mb-4"></div>
+           <p class="text-[11px] font-medium text-risco tracking-wide uppercase">Motor em Memória: Escaneando Layout SPED...</p>
         </div>
 
-        <div v-else class="divide-y divide-slate-100">
+        <div v-else class="divide-y divide-line">
            <!-- Divergência C100 -->
-           <div v-if="infractions.c100_valores_divergentes.length" class="p-6 bg-red-50/20">
-              <h4 class="text-xs font-black text-red-600 uppercase mb-4 flex items-center gap-2">🚨 Divergência: Capa vs Itens (C190)</h4>
+           <div v-if="infractions.c100_valores_divergentes.length" class="p-6 bg-lacre/5">
+              <h4 class="text-[11px] font-medium text-lacre uppercase tracking-wide mb-4 flex items-center gap-2">🚨 Divergência: Capa vs Itens (C190)</h4>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                 <div v-for="err in infractions.c100_valores_divergentes" :key="err.linha" class="p-3 bg-white border border-red-100 rounded-xl text-[11px] flex justify-between items-center">
+                 <div v-for="err in infractions.c100_valores_divergentes" :key="err.linha" class="p-3 bg-sheet border border-lacre/20 rounded-md text-[11px] flex justify-between items-center">
                     <div>
-                      <span class="font-bold">L-{{ err.linha }}:</span> NF {{ err.num_doc }} divergente. 
-                      Capa: <span class="font-bold">{{ formatCurrency(err.valor_capa) }}</span> vs 
-                      Escriturado: <span class="font-bold">{{ formatCurrency(err.valor_calculado) }}</span>
+                      <span class="font-medium font-mono">L-{{ err.linha }}:</span> NF {{ err.num_doc }} divergente.
+                      Capa: <span class="font-mono text-ink">{{ formatCurrency(err.valor_capa) }}</span> vs
+                      Escriturado: <span class="font-mono text-ink">{{ formatCurrency(err.valor_calculado) }}</span>
                     </div>
                  </div>
               </div>
            </div>
 
            <!-- Saltos de Numeração -->
-           <div v-if="infractions.c100_saltos_enumeracao.length" class="p-6 bg-amber-50/20">
-              <h4 class="text-xs font-black text-amber-600 uppercase mb-4 flex items-center gap-2">❓ Omissão de Notas (Saltos no Sequencial)</h4>
+           <div v-if="infractions.c100_saltos_enumeracao.length" class="p-6 bg-variacao/5">
+              <h4 class="text-[11px] font-medium text-variacao uppercase tracking-wide mb-4 flex items-center gap-2">❓ Omissão de Notas (Saltos no Sequencial)</h4>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                 <div v-for="err in infractions.c100_saltos_enumeracao" :key="err.linha" class="p-3 bg-white border border-amber-100 rounded-xl text-[11px]">
-                    Detectado salto na linha {{ err.linha }}. Anterior: {{ err.num_anterior }} | Próxima: {{ err.num_atual }}. 
-                    <span class="block font-bold text-amber-500 mt-1">Possível falta de lançamento.</span>
+                 <div v-for="err in infractions.c100_saltos_enumeracao" :key="err.linha" class="p-3 bg-sheet border border-variacao/20 rounded-md text-[11px]">
+                    Detectado salto na linha {{ err.linha }}. Anterior: {{ err.num_anterior }} | Próxima: {{ err.num_atual }}.
+                    <span class="block font-medium text-variacao mt-1">Possível falta de lançamento.</span>
                  </div>
               </div>
            </div>
 
            <!-- Cadastro de Produtos -->
            <div v-if="infractions.cfop_suspeitos.length" class="p-6">
-              <h4 class="text-xs font-black text-indigo-600 uppercase mb-4 flex items-center gap-2">📦 Vícios de Cadastro de Produtos (NCM/CEST/CFOP)</h4>
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">📦 Vícios de Cadastro de Produtos (NCM/CEST/CFOP)</h4>
               <div class="space-y-2">
-                 <div v-for="err in infractions.cfop_suspeitos" :key="err.linha" class="p-3 bg-indigo-50/30 rounded-xl text-[11px] border border-indigo-50">
-                    <span class="font-bold">Linha {{ err.linha }}:</span> {{ err.alerta }}
+                 <div v-for="err in infractions.cfop_suspeitos" :key="err.linha" class="p-3 bg-paper rounded-md text-[11px] border border-line">
+                    <span class="font-medium font-mono">Linha {{ err.linha }}:</span> {{ err.alerta }}
                  </div>
               </div>
            </div>
 
            <!-- Bloco H vs 1300 -->
-           <div v-if="infractions.h010_divergente_1300.length" class="p-6 bg-emerald-50/20">
-              <h4 class="text-xs font-black text-emerald-600 uppercase mb-4 flex items-center gap-2">⛽ Descasamento Físico: LMC x Inventário</h4>
-              <div v-for="err in infractions.h010_divergente_1300" :key="err.alerta" class="p-4 bg-white border border-emerald-100 rounded-2xl text-xs">
-                 {{ err.alerta }} 
+           <div v-if="infractions.h010_divergente_1300.length" class="p-6 bg-conforme/5">
+              <h4 class="text-[11px] font-medium text-conforme uppercase tracking-wide mb-4 flex items-center gap-2">⛽ Descasamento Físico: LMC x Inventário</h4>
+              <div v-for="err in infractions.h010_divergente_1300" :key="err.alerta" class="p-4 bg-sheet border border-conforme/20 rounded-md text-[13px]">
+                 {{ err.alerta }}
                  <div class="mt-2 flex gap-4 text-[10px]">
-                    <span>LMC: <span class="font-bold">{{ formatNumber(err.lmc) }} L</span></span>
-                    <span>Inventário: <span class="font-bold">{{ formatNumber(err.inventario) }} L</span></span>
-                    <span class="text-red-500">Diferença: {{ formatNumber(err.diff) }} L</span>
+                    <span>LMC: <span class="font-mono text-ink">{{ formatNumber(err.lmc) }} L</span></span>
+                    <span>Inventário: <span class="font-mono text-ink">{{ formatNumber(err.inventario) }} L</span></span>
+                    <span class="text-lacre">Diferença: {{ formatNumber(err.diff) }} L</span>
                  </div>
               </div>
            </div>
 
            <!-- CNPJ Divergente na Chave NF-e/NFC-e -->
-           <div v-if="infractions.chv_nfe_cnpj_divergente && infractions.chv_nfe_cnpj_divergente.length" class="p-6 bg-orange-50/20">
-              <h4 class="text-xs font-black text-orange-600 uppercase mb-4 flex items-center gap-2">🔑 CNPJ Divergente na Chave NF-e/NFC-e</h4>
-              <div class="p-4 bg-white border border-orange-100 rounded-2xl text-xs mb-3">
-                <p class="font-bold text-orange-700 mb-2">
+           <div v-if="infractions.chv_nfe_cnpj_divergente && infractions.chv_nfe_cnpj_divergente.length" class="p-6 bg-bronze/5">
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">🔑 CNPJ Divergente na Chave NF-e/NFC-e</h4>
+              <div class="p-4 bg-sheet border border-bronze/20 rounded-md text-[13px] mb-3">
+                <p class="font-medium text-bronze mb-2">
                   {{ infractions.chv_nfe_cnpj_divergente.length }} documentos de emissao propria com CNPJ diferente do informante na chave de acesso.
                 </p>
-                <div class="flex gap-6 text-[10px] text-slate-600">
-                  <span>NFC-e: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NFC-e').length }}</span></span>
-                  <span>NF-e: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NF-e').length }}</span></span>
-                  <span>CNPJ na chave: <span class="font-bold">{{ [...new Set(infractions.chv_nfe_cnpj_divergente.map(e => e.cnpj_chave))].join(', ') }}</span></span>
-                  <span>CNPJ informante: <span class="font-bold">{{ infractions.chv_nfe_cnpj_divergente[0]?.cnpj_informante }}</span></span>
+                <div class="flex gap-6 text-[10px] text-risco">
+                  <span>NFC-e: <span class="font-mono text-ink">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NFC-e').length }}</span></span>
+                  <span>NF-e: <span class="font-mono text-ink">{{ infractions.chv_nfe_cnpj_divergente.filter(e => e.modelo === 'NF-e').length }}</span></span>
+                  <span>CNPJ na chave: <span class="font-mono text-ink">{{ [...new Set(infractions.chv_nfe_cnpj_divergente.map(e => e.cnpj_chave))].join(', ') }}</span></span>
+                  <span>CNPJ informante: <span class="font-mono text-ink">{{ infractions.chv_nfe_cnpj_divergente[0]?.cnpj_informante }}</span></span>
                 </div>
-                <p class="text-[10px] text-orange-500 mt-2 font-semibold">O sistema corrigira automaticamente ao exportar o SPED.</p>
+                <p class="text-[10px] text-bronze mt-2 font-medium">O sistema corrigira automaticamente ao exportar o SPED.</p>
               </div>
            </div>
 
            <!-- Bicos Duplicados entre Tanques -->
-           <div v-if="infractions.bicos_duplicados_1320 && infractions.bicos_duplicados_1320.length" class="p-6 bg-purple-50/20">
-              <h4 class="text-xs font-black text-purple-600 uppercase mb-4 flex items-center gap-2">⛽ Bico Duplicado entre Tanques (1320)</h4>
+           <div v-if="infractions.bicos_duplicados_1320 && infractions.bicos_duplicados_1320.length" class="p-6 bg-bronze/5">
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">⛽ Bico Duplicado entre Tanques (1320)</h4>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                 <div v-for="err in infractions.bicos_duplicados_1320.slice(0, 10)" :key="err.data + err.bico" class="p-3 bg-white border border-purple-100 rounded-xl text-[11px]">
-                    <span class="font-bold">{{ err.data }}</span> — {{ err.produto }} — Bico <span class="font-bold">{{ err.bico }}</span>
-                    <div class="text-[10px] text-slate-500 mt-1">Tanques: {{ err.tanques }} | Volumes: {{ err.volumes }}</div>
-                    <div class="text-[10px] text-purple-500 font-semibold mt-1">Erro no arquivo original — bico registrado em dois tanques.</div>
+                 <div v-for="err in infractions.bicos_duplicados_1320.slice(0, 10)" :key="err.data + err.bico" class="p-3 bg-sheet border border-bronze/20 rounded-md text-[11px]">
+                    <span class="font-mono text-ink">{{ err.data }}</span> — {{ err.produto }} — Bico <span class="font-mono text-ink">{{ err.bico }}</span>
+                    <div class="text-[10px] text-risco mt-1">Tanques: {{ err.tanques }} | Volumes: {{ err.volumes }}</div>
+                    <div class="text-[10px] text-bronze font-medium mt-1">Erro no arquivo original — bico registrado em dois tanques.</div>
                  </div>
-                 <div v-if="infractions.bicos_duplicados_1320.length > 10" class="p-3 bg-purple-50 rounded-xl text-[11px] text-purple-600 font-bold flex items-center justify-center">
+                 <div v-if="infractions.bicos_duplicados_1320.length > 10" class="p-3 bg-bronze/10 rounded-md text-[11px] text-bronze font-medium flex items-center justify-center">
                     ... e mais {{ infractions.bicos_duplicados_1320.length - 10 }} ocorrencias
                  </div>
               </div>
@@ -1944,8 +1944,8 @@ const afericaoGauge = computed(() => {
            <!-- Sem erros -->
            <div v-if="totalInfractions === 0" class="py-20 text-center flex flex-col items-center gap-3">
               <div class="text-4xl">💎</div>
-              <p class="text-lg font-black text-emerald-600 uppercase tracking-widest">Nenhuma Infração Estrutural Detectada</p>
-              <p class="text-xs text-slate-400">O arquivo parece íntegro nos cruzamentos de Bloco C e H.</p>
+              <p class="font-display text-[16px] font-semibold text-conforme uppercase tracking-wide">Nenhuma Infração Estrutural Detectada</p>
+              <p class="text-[13px] text-risco">O arquivo parece íntegro nos cruzamentos de Bloco C e H.</p>
            </div>
         </div>
       </div>
@@ -1953,117 +1953,117 @@ const afericaoGauge = computed(() => {
 
     <!-- Conteúdo: NFs Analíticas (C100/170/190) -->
     <div v-if="activeTab === 'notas'" class="space-y-6">
-       <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-          <div class="p-6 border-b border-slate-50 flex flex-col md:flex-row justify-between items-center bg-slate-50/50 gap-4">
+       <div class="bg-sheet rounded-md overflow-hidden card-shadow border border-line">
+          <div class="p-6 border-b border-line flex flex-col md:flex-row justify-between items-center bg-paper gap-4">
              <div>
-                <h3 class="text-lg font-bold text-slate-800">Notas Fiscais vs Produtos</h3>
-                <p class="text-xs text-slate-500">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
+                <h3 class="font-display text-[16px] font-semibold text-ink">Notas Fiscais vs Produtos</h3>
+                <p class="text-[12px] text-risco">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
              </div>
              <div class="flex items-center gap-4">
                  <div class="text-right">
-                    <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Total Entradas</p>
-                    <p class="text-lg font-black text-blue-600 leading-none mt-0.5">{{ formatCurrency(totalEntradaNotas) }}</p>
+                    <p class="text-[10px] font-medium uppercase text-risco tracking-wide">Total Entradas</p>
+                    <p class="text-lg font-mono text-ink leading-none mt-0.5">{{ formatCurrency(totalEntradaNotas) }}</p>
                  </div>
-                 <input v-model="buscaNF" type="text" placeholder="Buscar por NF ou Fornecedor" class="px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-accent w-64 shadow-sm" />
+                 <input v-model="buscaNF" type="text" placeholder="Buscar por NF ou Fornecedor" class="px-4 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink focus:outline-none focus:border-bronze w-64" />
              </div>
           </div>
-          
-          <div v-if="loadingNotas" class="py-20 flex flex-col items-center justify-center text-slate-400">
-             <div class="animate-spin text-3xl mb-4 text-brand-accent border-4 border-brand-accent/20 border-t-brand-accent rounded-full w-8 h-8"></div>
-             <p class="font-bold text-sm tracking-widest uppercase">PROCESSANDO TABELAS REGISTRO C...</p>
+
+          <div v-if="loadingNotas" class="py-20 flex flex-col items-center justify-center text-risco">
+             <div class="animate-spin text-3xl mb-4 border-4 border-bronze/20 border-t-bronze rounded-full w-8 h-8"></div>
+             <p class="font-medium text-[13px] tracking-wide uppercase">PROCESSANDO TABELAS REGISTRO C...</p>
           </div>
-          
-          <div v-else-if="filteredNotas.length === 0" class="py-20 text-center text-slate-400">
-             <p class="text-lg font-bold">Nenhuma Nota Encontrada</p>
+
+          <div v-else-if="filteredNotas.length === 0" class="py-20 text-center text-risco">
+             <p class="text-[16px] font-medium">Nenhuma Nota Encontrada</p>
           </div>
-          
+
           <div v-else class="overflow-x-auto">
               <table class="w-full text-left">
-                  <thead class="bg-white border-b border-slate-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                  <thead class="bg-paper border-b border-line text-[10px] font-medium uppercase text-risco tracking-wide">
                       <tr>
                           <th class="py-4 px-6 w-10"></th>
                           <th class="py-4 px-6">Nº NF</th>
                           <th class="py-4 px-6">Emissão</th>
                           <th class="py-4 px-6">Fornecedor</th>
                           <th class="py-4 px-6 text-right">Valor Declarado (NF)</th>
-                          <th class="py-4 px-6 text-center border-l border-slate-100 bg-indigo-50/30">Totais Analítico (C190)</th>
+                          <th class="py-4 px-6 text-center border-l border-line bg-paper">Totais Analítico (C190)</th>
                       </tr>
                   </thead>
-                  <tbody class="text-sm font-medium text-slate-600 divide-y divide-slate-100">
+                  <tbody class="text-[13px] text-risco divide-y divide-line">
                       <template v-for="nf in filteredNotas" :key="nf.id">
-                          <tr class="hover:bg-slate-50 cursor-pointer transition-colors" :class="{'bg-slate-50/80': expandedNotas.has(nf.id)}" @click="toggleNota(nf.id)">
-                              <td class="py-4 px-6 text-slate-400 font-bold">
+                          <tr class="hover:bg-paper cursor-pointer transition-colors" :class="{'bg-paper': expandedNotas.has(nf.id)}" @click="toggleNota(nf.id)">
+                              <td class="py-4 px-6 text-risco font-medium">
                                   {{ expandedNotas.has(nf.id) ? '▼' : '▶' }}
                               </td>
-                              <td class="py-4 px-6 font-mono font-bold text-slate-900">#{{ nf.num_doc }}</td>
-                              <td class="py-4 px-6">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'S/ Data' }}</td>
+                              <td class="py-4 px-6 font-mono text-ink">#{{ nf.num_doc }}</td>
+                              <td class="py-4 px-6 font-mono">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) : 'S/ Data' }}</td>
                               <td class="py-4 px-6 truncate max-w-[200px]" :title="nf.nome_fornecedor">{{ nf.nome_fornecedor || 'Desconhecido' }}</td>
-                              <td class="py-4 px-6 text-right font-mono text-slate-900 font-bold">{{ formatCurrency(nf.vl_doc) }}</td>
-                              
-                              <td class="py-3 px-6 text-right border-l border-slate-100 bg-indigo-50/10">
+                              <td class="py-4 px-6 text-right font-mono text-ink">{{ formatCurrency(nf.vl_doc) }}</td>
+
+                              <td class="py-3 px-6 text-right border-l border-line bg-paper">
                                   <div v-if="nf.consolidacao_c190 && nf.consolidacao_c190.length" class="flex flex-col gap-1 items-end">
                                       <div v-for="(c190, idx) in nf.consolidacao_c190" :key="idx" class="flex items-center gap-2 text-[10px]">
-                                          <span class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold" title="CFOP predominante">{{ c190.cfop }}</span>
-                                          <span class="text-slate-500">Opr: {{ formatCurrency(c190.vl_opr) }}</span>
-                                          <span class="font-black text-indigo-900 border-l border-indigo-200 pl-2">ICMS: {{ formatCurrency(c190.vl_icms) }}</span>
+                                          <span class="bg-bronze/10 text-bronze px-1.5 py-0.5 rounded font-mono" title="CFOP predominante">{{ c190.cfop }}</span>
+                                          <span class="text-risco">Opr: {{ formatCurrency(c190.vl_opr) }}</span>
+                                          <span class="font-mono text-ink border-l border-line pl-2">ICMS: {{ formatCurrency(c190.vl_icms) }}</span>
                                       </div>
                                   </div>
-                                  <span v-else class="text-xs text-slate-400">Sem C190</span>
+                                  <span v-else class="text-[12px] text-risco">Sem C190</span>
                               </td>
                           </tr>
                           
                           <!-- DETALHE C170 -->
                           <tr v-if="expandedNotas.has(nf.id)">
-                              <td colspan="6" class="p-0 bg-slate-100/50 border-b-2 border-slate-200 shadow-inner">
-                                  <div class="px-14 py-6 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9IiNjYmQ1ZTEiLz48L3N2Zz4=')]">
+                              <td colspan="6" class="p-0 bg-paper border-b-2 border-line">
+                                  <div class="px-14 py-6">
                                       <div class="flex items-center gap-3 mb-4">
-                                          <span class="text-[10px] uppercase font-black tracking-widest text-slate-500 bg-white px-3 py-1 rounded-md shadow-sm border border-slate-200">Itens da Nota (C170)</span>
-                                          <span class="text-xs font-bold text-slate-400">Encontrados {{ nf.itens_c170?.length || 0 }} produtos</span>
+                                          <span class="text-[10px] uppercase font-medium tracking-wide text-risco bg-sheet px-3 py-1 rounded-md border border-line">Itens da Nota (C170)</span>
+                                          <span class="text-[12px] font-medium text-risco">Encontrados {{ nf.itens_c170?.length || 0 }} produtos</span>
                                       </div>
-                                      
-                                      <div v-if="nf.itens_c170 && nf.itens_c170.length > 0" class="bg-white border text-left border-slate-200 rounded-xl shadow-sm overflow-hidden w-full max-w-5xl">
+
+                                      <div v-if="nf.itens_c170 && nf.itens_c170.length > 0" class="bg-sheet border text-left border-line rounded-md overflow-hidden w-full max-w-5xl">
                                           <table class="w-full">
-                                              <thead class="bg-slate-50 text-[9px] uppercase tracking-widest text-slate-400 border-b border-slate-200">
+                                              <thead class="bg-paper text-[9px] uppercase tracking-wide text-risco border-b border-line">
                                                   <tr>
                                                       <th class="py-2 px-4 text-center">Item</th>
                                                       <th class="py-2 px-4">Produto</th>
                                                       <th class="py-2 px-4 text-center">CFOP</th>
                                                       <th class="py-2 px-4 text-center">CST</th>
                                                       <th class="py-2 px-4 text-right">Qtd</th>
-                                                      <th class="py-2 px-4 text-right border-l border-slate-100">Total Produto</th>
+                                                      <th class="py-2 px-4 text-right border-l border-line">Total Produto</th>
                                                   </tr>
                                               </thead>
-                                              <tbody class="divide-y divide-slate-50">
-                                                  <tr v-for="item in nf.itens_c170" :key="item.num_item" class="hover:bg-slate-50">
-                                                      <td class="py-2 px-4 text-center text-xs font-bold text-slate-400">{{ item.num_item }}</td>
-                                                      <td class="py-2 px-4 text-xs font-bold text-slate-700">
-                                                          {{ item.descr_item || 'S/N' }} <span class="text-[9px] text-slate-400 font-mono block">{{ item.cod_item }}</span>
+                                              <tbody class="divide-y divide-line">
+                                                  <tr v-for="item in nf.itens_c170" :key="item.num_item" class="hover:bg-paper">
+                                                      <td class="py-2 px-4 text-center text-[12px] font-mono text-risco">{{ item.num_item }}</td>
+                                                      <td class="py-2 px-4 text-[12px] font-medium text-ink">
+                                                          {{ item.descr_item || 'S/N' }} <span class="text-[9px] text-risco font-mono block">{{ item.cod_item }}</span>
                                                       </td>
-                                                      <td class="py-2 px-4 text-center text-xs font-mono font-bold text-slate-500">{{ item.cfop }}</td>
+                                                      <td class="py-2 px-4 text-center text-[12px] font-mono text-risco">{{ item.cfop }}</td>
                                                       <td class="py-2 px-4 text-center">
-                                                          <span class="text-[10px] px-2 py-0.5 rounded font-black bg-slate-100 text-slate-600">{{ item.cst_icms }}</span>
+                                                          <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-paper border border-line text-risco">{{ item.cst_icms }}</span>
                                                       </td>
-                                                      <td class="py-2 px-4 text-right text-xs font-bold font-mono">{{ formatNumber(item.qtd) }} {{ item.unid }}</td>
-                                                      <td class="py-2 px-4 text-right border-l border-slate-100 font-mono font-bold text-brand-accent text-xs">{{ formatCurrency(item.vl_item) }}</td>
+                                                      <td class="py-2 px-4 text-right text-[12px] font-mono text-ink">{{ formatNumber(item.qtd) }} {{ item.unid }}</td>
+                                                      <td class="py-2 px-4 text-right border-l border-line font-mono text-bronze text-[12px]">{{ formatCurrency(item.vl_item) }}</td>
                                                   </tr>
                                               </tbody>
                                           </table>
                                       </div>
-                                      <p v-else class="text-sm text-slate-500 italic">Esta nota não possui detalhes C170 vinculados neste arquivo.</p>
+                                      <p v-else class="text-[13px] text-risco italic">Esta nota não possui detalhes C170 vinculados neste arquivo.</p>
 
                                       <!-- ===== NFe COMPLETA — Cálculo do Imposto + todos os campos ===== -->
                                       <div v-if="nf.chv_nfe" class="mt-7">
                                           <div class="flex items-center flex-wrap gap-3 mb-4">
-                                              <span class="text-[10px] uppercase font-black tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-md shadow-sm border border-emerald-200">NFe Completa — Cálculo do Imposto</span>
-                                              <span v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].fonte" class="text-[9px] font-bold px-2 py-0.5 rounded-full" :class="nfeCompletaCache[nf.id].fonte === 'sped' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">fonte: {{ FONTE_LABEL[nfeCompletaCache[nf.id].fonte] || nfeCompletaCache[nf.id].fonte }}</span>
-                                              <span class="text-[9px] font-mono text-slate-400">{{ nf.chv_nfe }}</span>
+                                              <span class="text-[10px] uppercase font-medium tracking-wide text-conforme bg-conforme/10 px-3 py-1 rounded-md border border-conforme/20">NFe Completa — Cálculo do Imposto</span>
+                                              <span v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].fonte" class="text-[9px] font-medium px-2 py-0.5 rounded-full" :class="nfeCompletaCache[nf.id].fonte === 'sped' ? 'bg-variacao/15 text-variacao' : 'bg-conforme/15 text-conforme'">fonte: {{ FONTE_LABEL[nfeCompletaCache[nf.id].fonte] || nfeCompletaCache[nf.id].fonte }}</span>
+                                              <span class="text-[9px] font-mono text-risco">{{ nf.chv_nfe }}</span>
                                           </div>
 
-                                          <div v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].loading" class="text-sm text-slate-500 italic">Carregando NFe completa…</div>
-                                          <div v-else-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].erro" class="text-sm text-rose-600">Erro ao carregar a NFe: {{ nfeCompletaCache[nf.id].erro }}</div>
+                                          <div v-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].loading" class="text-[13px] text-risco italic">Carregando NFe completa…</div>
+                                          <div v-else-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].erro" class="text-[13px] text-lacre">Erro ao carregar a NFe: {{ nfeCompletaCache[nf.id].erro }}</div>
 
                                           <!-- sem XML disponível (nota só do SPED) -->
-                                          <div v-else-if="nfeCompletaCache[nf.id] && !nfeCompletaCache[nf.id].nfe" class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 max-w-3xl">
+                                          <div v-else-if="nfeCompletaCache[nf.id] && !nfeCompletaCache[nf.id].nfe" class="bg-variacao/10 border border-variacao/20 rounded-md p-4 text-[12px] text-ink max-w-3xl">
                                               <b>XML desta NF-e não disponível</b> ({{ nfeCompletaCache[nf.id].motivo || 'nota proveniente apenas do SPED' }}). Campos exclusivos do XML — monofásico (qBCMonoRet/vICMSMonoRet), ICMS desonerado, FCP, DIFAL — não existem no SPED Fiscal. Reinjete o XML desta nota para ver o Cálculo do Imposto completo.
                                           </div>
 
@@ -2071,18 +2071,18 @@ const afericaoGauge = computed(() => {
                                           <template v-else-if="nfeCompletaCache[nf.id] && nfeCompletaCache[nf.id].nfe">
                                               <!-- destaques (leitura rápida) -->
                                               <div v-if="nfeCompletaCache[nf.id].nfe.destaques && nfeCompletaCache[nf.id].nfe.destaques.length" class="mb-4 max-w-4xl space-y-1">
-                                                  <div v-for="(d, di) in nfeCompletaCache[nf.id].nfe.destaques" :key="di" class="text-[11px] text-slate-600 flex gap-2"><span class="text-emerald-500 font-black">▸</span><span>{{ d }}</span></div>
+                                                  <div v-for="(d, di) in nfeCompletaCache[nf.id].nfe.destaques" :key="di" class="text-[11px] text-risco flex gap-2"><span class="text-conforme font-medium">▸</span><span>{{ d }}</span></div>
                                               </div>
 
                                               <!-- ICMSTot em destaque -->
                                               <template v-for="g in nfeCompletaCache[nf.id].nfe.grupos" :key="g.grupo">
-                                                  <div v-if="g.grupo.includes('ICMSTot')" class="bg-white border-2 border-emerald-200 rounded-xl shadow-sm p-4 mb-4 max-w-5xl">
-                                                      <h4 class="text-xs font-black uppercase tracking-wider text-emerald-700 mb-3">💰 {{ g.grupo }}</h4>
+                                                  <div v-if="g.grupo.includes('ICMSTot')" class="bg-sheet border border-conforme/30 rounded-md p-4 mb-4 max-w-5xl">
+                                                      <h4 class="text-[11px] font-medium uppercase tracking-wide text-conforme mb-3">💰 {{ g.grupo }}</h4>
                                                       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2">
-                                                          <div v-for="(c, ci) in g.campos" :key="ci" class="flex flex-col border-b border-slate-50 py-1">
-                                                              <span class="text-[9px] uppercase tracking-wide text-slate-400">{{ c.label_pt }} <span class="font-mono normal-case text-slate-300">{{ c.tag }}</span></span>
-                                                              <span class="text-sm font-bold font-mono" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-purple-600' : 'text-slate-700'">{{ fmtValorNfe(c.valor) }}</span>
-                                                              <span v-if="c.obs" class="text-[9px] text-purple-400">{{ c.obs }}</span>
+                                                          <div v-for="(c, ci) in g.campos" :key="ci" class="flex flex-col border-b border-line py-1">
+                                                              <span class="text-[9px] uppercase tracking-wide text-risco">{{ c.label_pt }} <span class="font-mono normal-case text-risco/70">{{ c.tag }}</span></span>
+                                                              <span class="text-[13px] font-mono" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-bronze' : 'text-ink'">{{ fmtValorNfe(c.valor) }}</span>
+                                                              <span v-if="c.obs" class="text-[9px] text-bronze">{{ c.obs }}</span>
                                                           </div>
                                                       </div>
                                                   </div>
@@ -2091,18 +2091,18 @@ const afericaoGauge = computed(() => {
                                               <!-- demais grupos (recolhíveis) -->
                                               <div class="max-w-5xl space-y-2">
                                                   <template v-for="g in nfeCompletaCache[nf.id].nfe.grupos" :key="'sec-' + g.grupo">
-                                                      <div v-if="!g.grupo.includes('ICMSTot')" class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                                                          <button @click="toggleGrupoNfe(nf.id, g.grupo)" class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors text-left">
-                                                              <span class="text-[11px] font-bold text-slate-700">{{ g.grupo }} <span class="text-slate-400 font-normal">({{ g.campos.length }})</span></span>
-                                                              <span class="text-slate-400 text-xs">{{ grupoNfeAberto(nf.id, g.grupo) ? '▼' : '▶' }}</span>
+                                                      <div v-if="!g.grupo.includes('ICMSTot')" class="bg-sheet border border-line rounded-md overflow-hidden">
+                                                          <button @click="toggleGrupoNfe(nf.id, g.grupo)" class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-paper transition-colors text-left">
+                                                              <span class="text-[11px] font-medium text-ink">{{ g.grupo }} <span class="text-risco font-normal">({{ g.campos.length }})</span></span>
+                                                              <span class="text-risco text-[12px]">{{ grupoNfeAberto(nf.id, g.grupo) ? '▼' : '▶' }}</span>
                                                           </button>
-                                                          <div v-if="grupoNfeAberto(nf.id, g.grupo)" class="px-4 pb-3 pt-1 border-t border-slate-100">
+                                                          <div v-if="grupoNfeAberto(nf.id, g.grupo)" class="px-4 pb-3 pt-1 border-t border-line">
                                                               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
                                                                   <template v-for="(c, ci) in g.campos" :key="ci">
-                                                                      <div v-if="c._header" class="md:col-span-2 lg:col-span-3 mt-2 mb-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-0.5">{{ c.label_pt }}</div>
-                                                                      <div v-else class="flex items-baseline justify-between gap-2 border-b border-slate-50 py-0.5">
-                                                                          <span class="text-[10px] text-slate-500 truncate" :title="c.tag">{{ c.label_pt }}</span>
-                                                                          <span class="text-[11px] font-mono font-semibold text-right whitespace-nowrap" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-purple-600' : 'text-slate-700'">{{ fmtValorNfe(c.valor) }}</span>
+                                                                      <div v-if="c._header" class="md:col-span-2 lg:col-span-3 mt-2 mb-0.5 text-[10px] font-medium uppercase tracking-wide text-risco border-b border-line pb-0.5">{{ c.label_pt }}</div>
+                                                                      <div v-else class="flex items-baseline justify-between gap-2 border-b border-line py-0.5">
+                                                                          <span class="text-[10px] text-risco truncate" :title="c.tag">{{ c.label_pt }}</span>
+                                                                          <span class="text-[11px] font-mono text-right whitespace-nowrap" :class="c.obs && c.obs.indexOf('Monofásico') >= 0 ? 'text-bronze' : 'text-ink'">{{ fmtValorNfe(c.valor) }}</span>
                                                                       </div>
                                                                   </template>
                                                               </div>
@@ -2125,36 +2125,36 @@ const afericaoGauge = computed(() => {
 
     <!-- Conteúdo: NF de Saída (Modelo 55 e 65) -->
     <div v-if="activeTab === 'saidas'" class="space-y-4">
-      <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+      <div class="bg-sheet rounded-md overflow-hidden card-shadow border border-line">
         <!-- Header + Sub-abas -->
-        <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="p-6 border-b border-line bg-paper flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
-            <h3 class="text-lg font-bold text-slate-800">Notas Fiscais de Saída</h3>
-            <p class="text-xs text-slate-500">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
-            <p class="text-sm font-black text-emerald-600 mt-1">Total Saídas: {{ formatCurrency(totalSaidaNotas) }}</p>
+            <h3 class="font-display text-[16px] font-semibold text-ink">Notas Fiscais de Saída</h3>
+            <p class="text-[12px] text-risco">Conciliação C100 (Capa), C190 (Resumo) e C170 (Detalhes)</p>
+            <p class="text-[13px] font-mono text-conforme mt-1">Total Saídas: {{ formatCurrency(totalSaidaNotas) }}</p>
           </div>
           <div class="flex items-center gap-3">
-            <div class="flex gap-1 p-1 bg-slate-200/50 rounded-xl">
-              <button @click="activeSaidasSubTab = '65'" :class="activeSaidasSubTab === '65' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">🛒 Resumo p/ CFOP (Consumidor)</button>
-              <button @click="activeSaidasSubTab = '55'" :class="activeSaidasSubTab === '55' ? 'bg-white shadow text-brand-accent' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">📄 NF-e (Modelo 55)</button>
+            <div class="flex gap-1 p-1 bg-paper border border-line rounded-md">
+              <button @click="activeSaidasSubTab = '65'" :class="activeSaidasSubTab === '65' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">🛒 Resumo p/ CFOP (Consumidor)</button>
+              <button @click="activeSaidasSubTab = '55'" :class="activeSaidasSubTab === '55' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">📄 NF-e (Modelo 55)</button>
             </div>
-            <input v-if="activeSaidasSubTab === '55'" v-model="buscaSaidas" type="text" placeholder="Buscar NF ou Cliente..." class="px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-accent w-56 shadow-sm" />
+            <input v-if="activeSaidasSubTab === '55'" v-model="buscaSaidas" type="text" placeholder="Buscar NF ou Cliente..." class="px-4 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink focus:outline-none focus:border-bronze w-56" />
           </div>
         </div>
 
         <!-- SUB-ABA: MODELO 65 (NFC-e) — Agrupado por CFOP -->
         <div v-if="activeSaidasSubTab === '65'">
-          <div v-if="loadingSaidas65" class="py-20 flex flex-col items-center justify-center text-slate-400">
-            <div class="animate-spin text-3xl mb-4 text-emerald-500 border-4 border-emerald-200 border-t-emerald-500 rounded-full w-8 h-8"></div>
-            <p class="font-bold text-sm tracking-widest uppercase">Carregando NFC-es...</p>
+          <div v-if="loadingSaidas65" class="py-20 flex flex-col items-center justify-center text-risco">
+            <div class="animate-spin text-3xl mb-4 border-4 border-conforme/20 border-t-conforme rounded-full w-8 h-8"></div>
+            <p class="font-medium text-[13px] tracking-wide uppercase">Carregando NFC-es...</p>
           </div>
-          <div v-else-if="saidasMod65.length === 0" class="py-20 text-center text-slate-400">
-            <p class="text-lg font-bold">Resumo por CFOP Vazio</p>
-            <p class="text-sm mt-1">Não há registros de Saída agrupados (Mod 65 ou 55/5929) neste arquivo.</p>
+          <div v-else-if="saidasMod65.length === 0" class="py-20 text-center text-risco">
+            <p class="text-[16px] font-medium">Resumo por CFOP Vazio</p>
+            <p class="text-[13px] mt-1">Não há registros de Saída agrupados (Mod 65 ou 55/5929) neste arquivo.</p>
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-left">
-              <thead class="bg-white border-b border-slate-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <thead class="bg-paper border-b border-line text-[10px] font-medium uppercase text-risco tracking-wide">
                 <tr>
                   <th class="py-4 px-6 w-10"></th>
                   <th class="py-4 px-6">CFOP</th>
@@ -2165,30 +2165,30 @@ const afericaoGauge = computed(() => {
                   <th class="py-4 px-6 text-right">Total ICMS</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-50">
+              <tbody class="divide-y divide-line">
                 <template v-for="grupo in saidasMod65" :key="grupo.cfop + '-' + grupo.cst_icms">
                   <!-- Linha Master: CFOP -->
-                  <tr @click="toggleCfop(grupo.cfop + grupo.cst_icms)" class="hover:bg-emerald-50/50 cursor-pointer transition-colors">
-                    <td class="py-4 px-6 text-slate-400 font-bold text-lg">{{ expandedCfops.has(grupo.cfop + grupo.cst_icms) ? '▼' : '▶' }}</td>
+                  <tr @click="toggleCfop(grupo.cfop + grupo.cst_icms)" class="hover:bg-paper cursor-pointer transition-colors">
+                    <td class="py-4 px-6 text-risco font-medium text-lg">{{ expandedCfops.has(grupo.cfop + grupo.cst_icms) ? '▼' : '▶' }}</td>
                     <td class="py-4 px-6">
-                      <span class="text-sm font-black bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg border border-emerald-100">{{ grupo.cfop }}</span>
+                      <span class="text-[13px] font-mono bg-conforme/10 text-conforme px-3 py-1 rounded-md border border-conforme/20">{{ grupo.cfop }}</span>
                     </td>
                     <td class="py-4 px-6">
-                      <span class="text-[10px] px-2 py-0.5 rounded font-black bg-slate-100 text-slate-600">{{ grupo.cst_icms }}</span>
+                      <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-paper border border-line text-risco">{{ grupo.cst_icms }}</span>
                     </td>
-                    <td class="py-4 px-6 text-right font-bold text-slate-700">{{ grupo.total_notas }}</td>
-                    <td class="py-4 px-6 text-right font-mono font-bold text-slate-900">{{ formatCurrency(grupo.total_vl_opr) }}</td>
-                    <td class="py-4 px-6 text-right font-mono text-slate-600">{{ formatCurrency(grupo.total_vl_bc_icms) }}</td>
-                    <td class="py-4 px-6 text-right font-mono text-brand-accent font-bold">{{ formatCurrency(grupo.total_vl_icms) }}</td>
+                    <td class="py-4 px-6 text-right font-mono text-ink">{{ grupo.total_notas }}</td>
+                    <td class="py-4 px-6 text-right font-mono text-ink">{{ formatCurrency(grupo.total_vl_opr) }}</td>
+                    <td class="py-4 px-6 text-right font-mono text-risco">{{ formatCurrency(grupo.total_vl_bc_icms) }}</td>
+                    <td class="py-4 px-6 text-right font-mono text-bronze">{{ formatCurrency(grupo.total_vl_icms) }}</td>
                   </tr>
                   <!-- Detalhe: NFs dentro do CFOP -->
                   <tr v-if="expandedCfops.has(grupo.cfop + grupo.cst_icms)">
-                    <td colspan="7" class="p-0 bg-emerald-50/30 border-b border-emerald-100">
+                    <td colspan="7" class="p-0 bg-paper border-b border-line">
                       <div class="px-16 py-4">
-                        <p class="text-[10px] uppercase font-black tracking-widest text-emerald-600 mb-3">{{ grupo.notas?.length || 0 }} Notas neste CFOP</p>
-                        <div class="bg-white border border-emerald-100 rounded-xl overflow-hidden shadow-sm">
-                          <table class="w-full text-sm">
-                            <thead class="bg-emerald-50 text-[9px] uppercase text-emerald-600 tracking-wider">
+                        <p class="text-[10px] uppercase font-medium tracking-wide text-conforme mb-3">{{ grupo.notas?.length || 0 }} Notas neste CFOP</p>
+                        <div class="bg-sheet border border-line rounded-md overflow-hidden">
+                          <table class="w-full text-[13px]">
+                            <thead class="bg-paper text-[9px] uppercase text-risco tracking-wide">
                               <tr>
                                 <th class="py-2 px-4 text-left">Nº NF</th>
                                 <th class="py-2 px-4 text-left">Data Emissão</th>
@@ -2197,17 +2197,17 @@ const afericaoGauge = computed(() => {
                                 <th class="py-2 px-4 text-center">Ações</th>
                               </tr>
                             </thead>
-                            <tbody class="divide-y divide-emerald-50">
-                              <tr v-for="nf in grupo.notas" :key="nf.id" class="hover:bg-emerald-50/50">
-                                <td class="py-2 px-4 font-mono font-bold text-slate-700">#{{ nf.num_doc }}</td>
-                                <td class="py-2 px-4 text-slate-500">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : 'S/ Data' }}</td>
-                                <td class="py-2 px-4 text-slate-700 truncate max-w-[200px]">{{ nf.nome_cliente || 'Consumidor Final' }}</td>
-                                <td class="py-2 px-4 text-right font-mono font-bold" :class="nf.vl_doc_ajustado !== null ? 'text-amber-600' : 'text-emerald-700'">
+                            <tbody class="divide-y divide-line">
+                              <tr v-for="nf in grupo.notas" :key="nf.id" class="hover:bg-paper">
+                                <td class="py-2 px-4 font-mono text-ink">#{{ nf.num_doc }}</td>
+                                <td class="py-2 px-4 font-mono text-risco">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : 'S/ Data' }}</td>
+                                <td class="py-2 px-4 text-ink truncate max-w-[200px]">{{ nf.nome_cliente || 'Consumidor Final' }}</td>
+                                <td class="py-2 px-4 text-right font-mono" :class="nf.vl_doc_ajustado !== null ? 'text-variacao' : 'text-conforme'">
                                     {{ formatCurrency(nf.vl_doc_ajustado !== null ? nf.vl_doc_ajustado : nf.vl_doc) }}
-                                    <span v-if="nf.vl_doc_ajustado !== null" class="block text-[8px] text-slate-400 line-through font-normal">{{ formatCurrency(nf.vl_doc) }}</span>
+                                    <span v-if="nf.vl_doc_ajustado !== null" class="block text-[8px] text-risco line-through font-normal">{{ formatCurrency(nf.vl_doc) }}</span>
                                 </td>
                                 <td class="py-2 px-4 text-center">
-                                    <button @click.stop="openNfEdit(nf)" class="p-1.5 hover:bg-emerald-100 rounded-lg text-emerald-600 transition-colors" title="Editar Valor">
+                                    <button @click.stop="openNfEdit(nf)" class="p-1.5 hover:bg-paper rounded-md text-conforme transition-colors" title="Editar Valor">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                                     </button>
                                 </td>
@@ -2226,84 +2226,84 @@ const afericaoGauge = computed(() => {
 
         <!-- SUB-ABA: MODELO 55 (NF-e Saída) — Nota por Nota -->
         <div v-if="activeSaidasSubTab === '55'">
-          <div v-if="loadingSaidas55" class="py-20 flex flex-col items-center justify-center text-slate-400">
-            <div class="animate-spin text-3xl mb-4 text-brand-accent border-4 border-brand-accent/20 border-t-brand-accent rounded-full w-8 h-8"></div>
-            <p class="font-bold text-sm tracking-widest uppercase">Carregando NF-es de Saída...</p>
+          <div v-if="loadingSaidas55" class="py-20 flex flex-col items-center justify-center text-risco">
+            <div class="animate-spin text-3xl mb-4 border-4 border-bronze/20 border-t-bronze rounded-full w-8 h-8"></div>
+            <p class="font-medium text-[13px] tracking-wide uppercase">Carregando NF-es de Saída...</p>
           </div>
-          <div v-else-if="filteredSaidas55.length === 0" class="py-20 text-center text-slate-400">
-            <p class="text-lg font-bold">Nenhuma NF-e de Saída Encontrada</p>
+          <div v-else-if="filteredSaidas55.length === 0" class="py-20 text-center text-risco">
+            <p class="text-[16px] font-medium">Nenhuma NF-e de Saída Encontrada</p>
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-left">
-                  <thead class="bg-white border-b border-slate-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                  <thead class="bg-paper border-b border-line text-[10px] font-medium uppercase text-risco tracking-wide">
                     <tr>
                       <th class="py-4 px-6 w-10"></th>
                       <th class="py-4 px-6">Nº NF</th>
                       <th class="py-4 px-6">Emissão</th>
                       <th class="py-4 px-6">Cliente</th>
                       <th class="py-4 px-6 text-right">Valor (NF)</th>
-                      <th class="py-4 px-6 text-center border-l border-slate-100 bg-brand-accent/5">Totais C190</th>
+                      <th class="py-4 px-6 text-center border-l border-line bg-paper">Totais C190</th>
                       <th class="py-4 px-6 text-center">Ações</th>
                     </tr>
                   </thead>
-              <tbody class="divide-y divide-slate-50">
+              <tbody class="divide-y divide-line">
                 <template v-for="nf in filteredSaidas55" :key="nf.id">
-                  <tr @click="toggleSaida55(nf.id)" class="hover:bg-slate-50 cursor-pointer transition-colors">
-                    <td class="py-4 px-6 text-slate-400 font-bold text-lg">{{ expandedSaidas55.has(nf.id) ? '▼' : '▶' }}</td>
-                    <td class="py-4 px-6 font-mono font-bold text-slate-900">#{{ nf.num_doc }}</td>
-                    <td class="py-4 px-6">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : 'S/ Data' }}</td>
+                  <tr @click="toggleSaida55(nf.id)" class="hover:bg-paper cursor-pointer transition-colors">
+                    <td class="py-4 px-6 text-risco font-medium text-lg">{{ expandedSaidas55.has(nf.id) ? '▼' : '▶' }}</td>
+                    <td class="py-4 px-6 font-mono text-ink">#{{ nf.num_doc }}</td>
+                    <td class="py-4 px-6 font-mono">{{ nf.dt_doc ? new Date(nf.dt_doc).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : 'S/ Data' }}</td>
                     <td class="py-4 px-6 truncate max-w-[180px]" :title="nf.nome_cliente">{{ nf.nome_cliente }}</td>
-                    <td class="py-4 px-6 text-right font-mono font-bold" :class="nf.vl_doc_ajustado !== null ? 'text-amber-600' : 'text-slate-900'">
+                    <td class="py-4 px-6 text-right font-mono" :class="nf.vl_doc_ajustado !== null ? 'text-variacao' : 'text-ink'">
                         {{ formatCurrency(nf.vl_doc) }}
-                        <span v-if="nf.vl_doc_ajustado !== null" class="block text-[8px] text-slate-400 line-through font-normal">{{ formatCurrency(nf.vl_doc_original) }}</span>
+                        <span v-if="nf.vl_doc_ajustado !== null" class="block text-[8px] text-risco line-through font-normal">{{ formatCurrency(nf.vl_doc_original) }}</span>
                     </td>
-                    <td class="py-3 px-6 text-right border-l border-slate-100 bg-brand-accent/5">
+                    <td class="py-3 px-6 text-right border-l border-line bg-paper">
                       <div v-if="nf.consolidacao_c190 && nf.consolidacao_c190.length" class="flex flex-col gap-1 items-end">
-                        <div v-for="c in nf.consolidacao_c190" :key="c.cfop" class="flex items-center gap-2 text-xs">
-                          <span class="bg-brand-accent text-white px-2 py-0.5 rounded text-[10px] font-black">{{ c.cfop }}</span>
-                          <span class="text-slate-500">Opr: {{ formatCurrency(c.vl_opr) }}</span>
-                          <span class="text-brand-accent font-bold">| ICMS: {{ formatCurrency(c.vl_icms) }}</span>
+                        <div v-for="c in nf.consolidacao_c190" :key="c.cfop" class="flex items-center gap-2 text-[12px]">
+                          <span class="bg-bronze text-white px-2 py-0.5 rounded text-[10px] font-mono">{{ c.cfop }}</span>
+                          <span class="text-risco">Opr: {{ formatCurrency(c.vl_opr) }}</span>
+                          <span class="text-bronze font-mono">| ICMS: {{ formatCurrency(c.vl_icms) }}</span>
                         </div>
                       </div>
-                      <span v-else class="text-slate-400 text-xs">Sem C190</span>
+                      <span v-else class="text-risco text-[12px]">Sem C190</span>
                     </td>
                     <td class="py-2 px-4 text-center">
-                        <button @click.stop="openNfEdit({...nf, id_c190: nf.consolidacao_c190[0]?.id})" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-accent transition-colors" title="Editar Valor">
+                        <button @click.stop="openNfEdit({...nf, id_c190: nf.consolidacao_c190[0]?.id})" class="p-1.5 hover:bg-paper rounded-md text-risco hover:text-bronze transition-colors" title="Editar Valor">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                         </button>
                     </td>
                   </tr>
                   <!-- Detalhe C170 -->
                   <tr v-if="expandedSaidas55.has(nf.id)">
-                    <td colspan="6" class="p-0 bg-slate-100/50 border-b-2 border-slate-200 shadow-inner">
+                    <td colspan="6" class="p-0 bg-paper border-b-2 border-line">
                       <div class="px-14 py-6">
-                        <span class="text-[10px] uppercase font-black tracking-widest text-slate-500 bg-white px-3 py-1 rounded-md shadow-sm border border-slate-200">Itens da Nota (C170)</span>
-                        <span class="text-xs font-bold text-slate-400 ml-2">{{ nf.itens_c170?.length || 0 }} produto(s)</span>
-                        <div v-if="nf.itens_c170 && nf.itens_c170.length > 0" class="mt-4 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                        <span class="text-[10px] uppercase font-medium tracking-wide text-risco bg-sheet px-3 py-1 rounded-md border border-line">Itens da Nota (C170)</span>
+                        <span class="text-[12px] font-medium text-risco ml-2">{{ nf.itens_c170?.length || 0 }} produto(s)</span>
+                        <div v-if="nf.itens_c170 && nf.itens_c170.length > 0" class="mt-4 bg-sheet border border-line rounded-md overflow-hidden">
                           <table class="w-full">
-                            <thead class="bg-slate-50 text-[9px] uppercase tracking-widest text-slate-400 border-b border-slate-200">
+                            <thead class="bg-paper text-[9px] uppercase tracking-wide text-risco border-b border-line">
                               <tr>
                                 <th class="py-2 px-4 text-center">Item</th>
                                 <th class="py-2 px-4">Produto</th>
                                 <th class="py-2 px-4 text-center">CFOP</th>
                                 <th class="py-2 px-4 text-center">CST</th>
                                 <th class="py-2 px-4 text-right">Qtd</th>
-                                <th class="py-2 px-4 text-right border-l border-slate-100">Total</th>
+                                <th class="py-2 px-4 text-right border-l border-line">Total</th>
                               </tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-50">
-                              <tr v-for="item in nf.itens_c170" :key="item.num_item" class="hover:bg-slate-50">
-                                <td class="py-2 px-4 text-center text-xs font-bold text-slate-400">{{ item.num_item }}</td>
-                                <td class="py-2 px-4 text-xs font-bold text-slate-700">{{ item.descr_item || 'S/N' }} <span class="text-[9px] text-slate-400 font-mono block">{{ item.cod_item }}</span></td>
-                                <td class="py-2 px-4 text-center text-xs font-mono font-bold text-slate-500">{{ item.cfop }}</td>
-                                <td class="py-2 px-4 text-center"><span class="text-[10px] px-2 py-0.5 rounded font-black bg-slate-100 text-slate-600">{{ item.cst_icms }}</span></td>
-                                <td class="py-2 px-4 text-right text-xs font-bold font-mono">{{ formatNumber(item.qtd) }} {{ item.unid }}</td>
-                                <td class="py-2 px-4 text-right border-l border-slate-100 font-mono font-bold text-brand-accent text-xs">{{ formatCurrency(item.vl_item) }}</td>
+                            <tbody class="divide-y divide-line">
+                              <tr v-for="item in nf.itens_c170" :key="item.num_item" class="hover:bg-paper">
+                                <td class="py-2 px-4 text-center text-[12px] font-mono text-risco">{{ item.num_item }}</td>
+                                <td class="py-2 px-4 text-[12px] font-medium text-ink">{{ item.descr_item || 'S/N' }} <span class="text-[9px] text-risco font-mono block">{{ item.cod_item }}</span></td>
+                                <td class="py-2 px-4 text-center text-[12px] font-mono text-risco">{{ item.cfop }}</td>
+                                <td class="py-2 px-4 text-center"><span class="text-[10px] px-2 py-0.5 rounded font-mono bg-paper border border-line text-risco">{{ item.cst_icms }}</span></td>
+                                <td class="py-2 px-4 text-right text-[12px] font-mono text-ink">{{ formatNumber(item.qtd) }} {{ item.unid }}</td>
+                                <td class="py-2 px-4 text-right border-l border-line font-mono text-bronze text-[12px]">{{ formatCurrency(item.vl_item) }}</td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
-                        <p v-else class="text-sm text-slate-500 italic mt-3">Esta nota não possui detalhes C170 neste arquivo.</p>
+                        <p v-else class="text-[13px] text-risco italic mt-3">Esta nota não possui detalhes C170 neste arquivo.</p>
                       </div>
                     </td>
                   </tr>
@@ -2319,74 +2319,74 @@ const afericaoGauge = computed(() => {
     <div v-if="activeTab === 'novo'" class="animate-fade-in">
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div class="lg:col-span-2 flex justify-center">
-      <div class="bg-white rounded-2xl p-8 border-2 border-dashed border-slate-200 hover:border-brand-accent/50 transition-all group text-center space-y-5 max-w-lg w-full shadow-lg shadow-slate-100/50">
-        <div class="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto text-2xl group-hover:scale-110 transition-transform shadow-inner">
+      <div class="bg-sheet rounded-md p-8 border-2 border-dashed border-line hover:border-bronze/50 transition-all group text-center space-y-5 max-w-lg w-full card-shadow">
+        <div class="w-14 h-14 bg-paper rounded-md flex items-center justify-center mx-auto text-2xl group-hover:scale-110 transition-transform">
           {{ isUploading ? '⚙️' : '📥' }}
         </div>
         <div class="space-y-1.5">
-          <h3 class="text-xl font-black text-slate-800 tracking-tight">
+          <h3 class="font-display text-[18px] font-semibold text-ink tracking-[-0.01em]">
             {{ isUploading ? 'Processando Auditoria' : 'Seleção de Arquivo SPED' }}
           </h3>
-          <p class="text-slate-400 text-sm font-medium">
+          <p class="text-risco text-[13px]">
             {{ isUploading ? 'Por favor, não feche a página.' : 'Clique para selecionar o arquivo .txt do SPED' }}
           </p>
         </div>
 
         <div v-if="!isUploading">
-          <label class="inline-block px-8 py-3 bg-brand-accent hover:bg-opacity-90 text-white rounded-xl font-black cursor-pointer transition-all shadow-md shadow-brand-accent/20 active:scale-95 text-sm uppercase tracking-widest">
+          <label class="inline-block px-8 py-3 bg-bronze hover:opacity-85 text-white rounded-md font-medium cursor-pointer transition-all active:scale-95 text-[13px] uppercase tracking-wide">
             Escolher Arquivo
             <input type="file" @change="handleSpedFile" class="hidden" accept=".txt" />
           </label>
         </div>
-        
+
         <!-- BARRA DE PROGRESSO DINÂMICA (UI REFINADA) -->
         <div v-else class="w-full max-w-md mx-auto space-y-4">
-          <div class="flex justify-between items-center text-xs font-black text-slate-500 uppercase tracking-widest px-1">
+          <div class="flex justify-between items-center text-[11px] font-medium text-risco uppercase tracking-wide px-1">
              <span class="flex items-center gap-2">
-                <Loader2 v-if="uploadProgress === 100" class="w-3 h-3 animate-spin text-brand-accent" />
+                <Loader2 v-if="uploadProgress === 100" class="w-3 h-3 animate-spin text-bronze" />
                 {{ uploadProgress < 100 ? 'Transmitindo Arquivo' : 'Salvando no Banco' }}
              </span>
-             <span class="text-brand-accent text-sm">{{ uploadProgress }}%</span>
+             <span class="text-bronze text-[13px] font-mono">{{ uploadProgress }}%</span>
           </div>
-          <div class="h-4 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 p-1">
-             <div 
-               class="h-full bg-gradient-to-r from-blue-500 to-brand-accent rounded-full transition-all duration-500 ease-out shadow-lg"
+          <div class="h-4 w-full bg-paper rounded-full overflow-hidden border border-line p-1">
+             <div
+               class="h-full bg-bronze rounded-full transition-all duration-500 ease-out"
                :style="{ width: `${uploadProgress}%` }"
              ></div>
           </div>
-          <p class="text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse italic">{{ uploadMessage }}</p>
+          <p class="text-[11px] text-risco font-medium uppercase tracking-wide">{{ uploadMessage }}</p>
         </div>
 
-        <div v-if="!isUploading && status" class="pt-4 border-t border-slate-50">
-           <p class="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em] leading-relaxed">{{ status }}</p>
+        <div v-if="!isUploading && status" class="pt-4 border-t border-line">
+           <p class="text-[10px] text-risco uppercase font-medium tracking-wide leading-relaxed">{{ status }}</p>
         </div>
 
         <!-- CONSOLE DO MOTOR (TERMINAL REAL-TIME) -->
         <div v-if="isUploading" class="w-full mt-6 animate-in slide-in-from-bottom-4 duration-700">
-           <div class="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden font-mono text-left">
-              <div class="bg-slate-800 px-4 py-2 flex items-center justify-between border-b border-slate-700">
+           <div class="bg-graphite rounded-md border border-line/10 overflow-hidden font-mono text-left">
+              <div class="bg-graphite-2 px-4 py-2 flex items-center justify-between border-b border-white/[.06]">
                  <div class="flex gap-1.5">
-                    <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-lacre/50"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-variacao/50"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-conforme/50"></div>
                  </div>
-                 <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Motor de Auditoria - Live Stream</span>
+                 <span class="text-[9px] font-medium text-muted uppercase tracking-wide">Motor de Auditoria - Live Stream</span>
               </div>
-              <div 
+              <div
                 ref="terminalContainer"
-                class="p-4 h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent space-y-1.5"
+                class="p-4 h-48 overflow-y-auto space-y-1.5"
               >
-                  <div v-for="(log, idx) in terminalLogs" :key="idx" class="text-xs flex gap-3">
-                     <span v-if="log.time" class="text-slate-600 shrink-0">[{{ log.time }}]</span>
+                  <div v-for="(log, idx) in terminalLogs" :key="idx" class="text-[12px] flex gap-3">
+                     <span v-if="log.time" class="text-muted shrink-0">[{{ log.time }}]</span>
                      <span :class="{
-                        'text-emerald-400': log.type === 'log',
-                        'text-blue-400 font-bold': log.type === 'sys',
-                        'text-slate-300': !log.type
+                        'text-conforme': log.type === 'log',
+                        'text-bronze font-medium': log.type === 'sys',
+                        'text-line': !log.type
                      }">{{ log.msg }}</span>
                   </div>
-                  <div v-if="uploadProgress === 100" class="flex items-center gap-2 text-emerald-500/50 text-[10px] animate-pulse">
+                  <div v-if="uploadProgress === 100" class="flex items-center gap-2 text-conforme/50 text-[10px] animate-pulse">
                      <span>>_</span>
-                     <span class="h-3 w-1 bg-emerald-500"></span>
+                     <span class="h-3 w-1 bg-conforme"></span>
                   </div>
               </div>
            </div>
@@ -2396,32 +2396,32 @@ const afericaoGauge = computed(() => {
 
         <!-- PAINEL LATERAL: últimos arquivos + linha do tempo -->
         <aside class="space-y-4">
-          <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h4 class="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">Últimos arquivos</h4>
-            <div v-if="loadingRecentes" class="text-xs text-slate-400 py-4 text-center">Carregando…</div>
-            <p v-else-if="!arquivosRecentes.length" class="text-xs text-slate-400 italic py-4 text-center">Nenhum arquivo carregado para esta empresa ainda.</p>
+          <div class="bg-sheet rounded-md border border-line card-shadow p-5">
+            <h4 class="text-[11px] font-medium uppercase text-risco tracking-wide mb-3">Últimos arquivos</h4>
+            <div v-if="loadingRecentes" class="text-[12px] text-risco py-4 text-center">Carregando…</div>
+            <p v-else-if="!arquivosRecentes.length" class="text-[12px] text-risco italic py-4 text-center">Nenhum arquivo carregado para esta empresa ainda.</p>
             <ul v-else class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
               <li v-for="a in [...arquivosRecentes].reverse()" :key="a.id">
-                <button @click="abrirArquivo(a.id)" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left hover:bg-slate-50 transition-colors" :class="String(a.id) === String(idArquivoSped) ? 'bg-brand-accent/5 ring-1 ring-brand-accent/20' : ''">
-                  <span class="w-2 h-2 rounded-full shrink-0" :class="String(a.id) === String(idArquivoSped) ? 'bg-brand-accent' : 'bg-slate-300'"></span>
-                  <span class="text-xs font-black text-slate-700 w-14 shrink-0">{{ fmtMes(a.mes) }}</span>
-                  <span class="text-[10px] text-slate-400 font-mono truncate flex-1" :title="a.nome_arquivo">{{ a.nome_arquivo }}</span>
-                  <span v-if="String(a.id) === String(idArquivoSped)" class="text-[8px] font-black uppercase text-brand-accent bg-brand-accent/10 px-1.5 py-0.5 rounded shrink-0">ativo</span>
+                <button @click="abrirArquivo(a.id)" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-left hover:bg-paper transition-colors" :class="String(a.id) === String(idArquivoSped) ? 'bg-bronze/5 ring-1 ring-bronze/20' : ''">
+                  <span class="w-2 h-2 rounded-full shrink-0" :class="String(a.id) === String(idArquivoSped) ? 'bg-bronze' : 'bg-line'"></span>
+                  <span class="text-[12px] font-mono text-ink w-14 shrink-0">{{ fmtMes(a.mes) }}</span>
+                  <span class="text-[10px] text-risco font-mono truncate flex-1" :title="a.nome_arquivo">{{ a.nome_arquivo }}</span>
+                  <span v-if="String(a.id) === String(idArquivoSped)" class="text-[8px] font-medium uppercase text-bronze bg-bronze/10 px-1.5 py-0.5 rounded shrink-0">ativo</span>
                 </button>
               </li>
             </ul>
           </div>
 
-          <div v-if="sequenciaTimeline.length" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h4 class="text-xs font-black uppercase text-slate-400 tracking-widest mb-3">Linha do tempo</h4>
+          <div v-if="sequenciaTimeline.length" class="bg-sheet rounded-md border border-line card-shadow p-5">
+            <h4 class="text-[11px] font-medium uppercase text-risco tracking-wide mb-3">Linha do tempo</h4>
             <div class="flex flex-wrap gap-1.5">
               <button v-for="t in sequenciaTimeline" :key="t.mes" @click="t.id && abrirArquivo(t.id)"
-                :class="t.carregado ? (t.ativo ? 'bg-brand-accent text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200') : 'bg-red-50 text-red-500 border border-dashed border-red-300 cursor-default'"
-                class="px-2 py-1 rounded-md text-[10px] font-black transition-colors">
+                :class="t.carregado ? (t.ativo ? 'bg-bronze text-white' : 'bg-conforme/10 text-conforme hover:bg-conforme/20') : 'bg-lacre/5 text-lacre border border-dashed border-lacre/30 cursor-default'"
+                class="px-2 py-1 rounded-md text-[10px] font-mono transition-colors">
                 {{ fmtMes(t.mes) }}<span v-if="!t.carregado"> ⚠</span>
               </button>
             </div>
-            <p class="text-[9px] text-slate-400 mt-3 leading-relaxed">🟢 carregado · 🟣 ativo · 🔴 mês faltante (quebra de sequência)</p>
+            <p class="text-[9px] text-risco mt-3 leading-relaxed">🟢 carregado · 🟣 ativo · 🔴 mês faltante (quebra de sequência)</p>
           </div>
         </aside>
       </div>
@@ -2431,88 +2431,86 @@ const afericaoGauge = computed(() => {
     <div v-if="activeTab === 'dashboard'" class="space-y-6 animate-fade-in">
 
       <!-- FAIXA DE SAÚDE DO ARQUIVO -->
-      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-wrap items-center gap-4 justify-between">
+      <div class="bg-sheet rounded-md border border-line card-shadow p-4 flex flex-wrap items-center gap-4 justify-between">
         <div class="flex items-center gap-2">
-          <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Saúde do arquivo</span>
-          <span v-if="arquivoInfo" class="text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{{ arquivoInfo.periodo }}</span>
+          <span class="text-[10px] font-medium uppercase text-risco tracking-wide">Saúde do arquivo</span>
+          <span v-if="arquivoInfo" class="text-[11px] font-mono text-ink bg-paper px-2 py-0.5 rounded">{{ arquivoInfo.periodo }}</span>
         </div>
         <div class="flex flex-wrap items-center gap-5">
           <div class="text-right">
-            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Entradas</p>
-            <p class="text-sm font-black text-blue-600">{{ formatCurrency(totalEntradaNotas) }}</p>
+            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Entradas</p>
+            <p class="text-[13px] font-mono text-ink">{{ formatCurrency(totalEntradaNotas) }}</p>
           </div>
           <div class="text-right">
-            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Saídas</p>
-            <p class="text-sm font-black text-emerald-600">{{ formatCurrency(totalSaidaNotas) }}</p>
+            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Saídas</p>
+            <p class="text-[13px] font-mono text-conforme">{{ formatCurrency(totalSaidaNotas) }}</p>
           </div>
           <div class="text-right">
-            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Variação ANP</p>
-            <p class="text-sm font-black" :class="statusAnpGeral === 'CRITICAL' ? 'text-red-500' : statusAnpGeral === 'WARNING' ? 'text-amber-500' : 'text-emerald-600'">
+            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Variação ANP</p>
+            <p class="text-[13px] font-medium" :class="statusAnpGeral === 'CRITICAL' ? 'text-lacre' : statusAnpGeral === 'WARNING' ? 'text-variacao' : 'text-conforme'">
               {{ statusAnpGeral === 'CRITICAL' ? '🔴 Crítico' : statusAnpGeral === 'WARNING' ? '⚠ Atenção' : statusAnpGeral === 'OK' ? '✓ OK' : '—' }}
             </p>
           </div>
           <div class="text-right">
-            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Erros</p>
-            <p class="text-sm font-black" :class="auditErros.length ? 'text-red-500' : 'text-emerald-600'">{{ auditErros.length }}</p>
+            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Erros</p>
+            <p class="text-[13px] font-mono" :class="auditErros.length ? 'text-lacre' : 'text-conforme'">{{ auditErros.length }}</p>
           </div>
         </div>
       </div>
 
       <!-- Linha Macro: Faturamento e Compras (Ultra-Compact) -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group">
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
-                  <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Faturamento</span>
-                  <span class="text-xl font-black text-slate-900">{{ formatCurrency(auditResumoGerencial?.total_saidas) }}</span>
+                  <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Faturamento</span>
+                  <span class="text-xl font-mono text-ink">{{ formatCurrency(auditResumoGerencial?.total_saidas) }}</span>
               </div>
-              <div class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-500 scale-90 group-hover:scale-105 transition-transform">📈</div>
+              <div class="w-8 h-8 rounded-md bg-conforme/10 flex items-center justify-center text-conforme scale-90 group-hover:scale-105 transition-transform">📈</div>
           </div>
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group">
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
-                  <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Compras</span>
-                  <span class="text-xl font-black text-slate-900">{{ formatCurrency(auditResumoGerencial?.total_entradas) }}</span>
+                  <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Compras</span>
+                  <span class="text-xl font-mono text-ink">{{ formatCurrency(auditResumoGerencial?.total_entradas) }}</span>
               </div>
-              <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 scale-90 group-hover:scale-105 transition-transform">📦</div>
+              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">📦</div>
           </div>
 
           <!-- Total Litros: Compras e Vendas -->
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group">
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
-                  <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Total Compras (L)</span>
-                  <span class="text-xl font-black text-slate-900">{{ formatNumber(totalVolumeCompra) }} L</span>
+                  <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Total Compras (L)</span>
+                  <span class="text-xl font-mono text-ink">{{ formatNumber(totalVolumeCompra) }} L</span>
               </div>
-              <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 scale-90 group-hover:scale-105 transition-transform">🚛</div>
+              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">🚛</div>
           </div>
 
-          <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between group">
+          <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
-                  <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Total Vendas (L)</span>
-                  <span class="text-xl font-black text-slate-900">{{ formatNumber(totalVolumeVenda) }} L</span>
+                  <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Total Vendas (L)</span>
+                  <span class="text-xl font-mono text-ink">{{ formatNumber(totalVolumeVenda) }} L</span>
               </div>
-              <div class="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 scale-90 group-hover:scale-105 transition-transform">⛽</div>
+              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">⛽</div>
           </div>
 
           <!-- Cards Dinâmicos de Combustíveis (Compactos) -->
           <template v-for="comb in auditResumoGerencial?.resumoCombustiveis" :key="comb.tipo">
-              <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-lg flex flex-col justify-between group relative overflow-hidden">
+              <div class="bg-graphite p-4 rounded-md border border-line/10 flex flex-col justify-between group relative overflow-hidden">
                   <div class="flex justify-between items-start z-10">
                       <div class="flex flex-col">
-                          <span class="text-[8px] font-black uppercase text-slate-500 tracking-widest">{{ comb.tipo }}</span>
-                          <span class="text-base font-black text-white leading-tight">{{ formatNumber(comb.total_litros) }} L</span>
+                          <span class="text-[8px] font-medium uppercase text-muted tracking-wide">{{ comb.tipo }}</span>
+                          <span class="text-base font-mono text-white leading-tight">{{ formatNumber(comb.total_litros) }} L</span>
                       </div>
                       <span class="text-lg opacity-30 group-hover:scale-110 transition-transform">⛽</span>
                   </div>
-                  <div class="mt-2 pt-2 border-t border-slate-800 flex justify-between items-end z-10">
+                  <div class="mt-2 pt-2 border-t border-white/[.06] flex justify-between items-end z-10">
                       <div class="flex flex-col">
-                          <span class="text-[8px] font-bold text-emerald-500 uppercase">Custo</span>
-                          <span class="text-xs font-black text-white">{{ formatCurrency(comb.custo_medio) }}/L</span>
+                          <span class="text-[8px] font-medium text-conforme uppercase">Custo</span>
+                          <span class="text-[12px] font-mono text-white">{{ formatCurrency(comb.custo_medio) }}/L</span>
                       </div>
-                      <div class="text-[8px] text-slate-500 text-right">
+                      <div class="text-[8px] text-muted text-right">
                          Inv: {{ formatCurrency(comb.total_valor) }}
                       </div>
                   </div>
-                  <!-- Glow Effect -->
-                  <div class="absolute -right-4 -bottom-4 w-12 h-12 bg-emerald-500/10 blur-2xl rounded-full"></div>
               </div>
           </template>
       </div>
@@ -2520,22 +2518,22 @@ const afericaoGauge = computed(() => {
       <!-- Área Técnica: Ranking de CFOP e Prevenção -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <!-- Ranking de CFOP (Compacto) -->
-          <div class="lg:col-span-8 bg-slate-900 p-5 rounded-2xl text-white relative overflow-hidden shadow-xl">
+          <div class="lg:col-span-8 bg-graphite p-5 rounded-md text-white relative overflow-hidden">
              <div v-if="auditResumoGerencial?.saidasPorCFOP?.length" class="z-10 relative space-y-4">
                  <div class="flex justify-between items-center">
-                    <p class="text-slate-400 text-[9px] font-black uppercase tracking-widest">Ranking de Faturamento por CFOP</p>
-                    <span class="text-[8px] px-2 py-0.5 bg-white/10 rounded-full text-slate-400 uppercase tracking-tighter">Top 5 Operações</span>
+                    <p class="text-muted text-[9px] font-medium uppercase tracking-wide">Ranking de Faturamento por CFOP</p>
+                    <span class="text-[8px] px-2 py-0.5 bg-white/10 rounded-full text-muted uppercase tracking-[-0.01em]">Top 5 Operações</span>
                  </div>
                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                     <div v-for="cf in auditResumoGerencial.saidasPorCFOP.slice(0, 4)" :key="cf.cfop" class="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/5 hover:bg-white/10 transition-colors">
+                     <div v-for="cf in auditResumoGerencial.saidasPorCFOP.slice(0, 4)" :key="cf.cfop" class="flex justify-between items-center bg-white/5 p-3 rounded-md border border-white/5 hover:bg-white/10 transition-colors">
                          <div class="flex items-center gap-3">
-                            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-[10px] font-black text-emerald-400">#{{ cf.cfop }}</div>
+                            <div class="w-7 h-7 rounded-md bg-conforme/20 flex items-center justify-center text-[10px] font-mono text-conforme">#{{ cf.cfop }}</div>
                             <div class="flex flex-col">
-                                <span class="text-[10px] font-black leading-tight">Consumo/Saída</span>
-                                <span class="text-[8px] text-slate-500 uppercase">Escrituração Fiscal</span>
+                                <span class="text-[10px] font-medium leading-tight">Consumo/Saída</span>
+                                <span class="text-[8px] text-muted uppercase">Escrituração Fiscal</span>
                             </div>
                          </div>
-                         <span class="font-mono text-xs font-bold text-emerald-400">{{ formatCurrency(cf.total_operacao) }}</span>
+                         <span class="font-mono text-[12px] text-conforme">{{ formatCurrency(cf.total_operacao) }}</span>
                      </div>
                  </div>
              </div>
@@ -2543,13 +2541,13 @@ const afericaoGauge = computed(() => {
           </div>
 
           <!-- Card de Economia (Slim) -->
-          <div class="lg:col-span-4 bg-indigo-600 p-5 rounded-2xl text-white relative overflow-hidden group shadow-xl flex flex-col justify-between">
+          <div class="lg:col-span-4 bg-bronze p-5 rounded-md text-white relative overflow-hidden group flex flex-col justify-between">
               <div class="z-10">
-                  <p class="text-indigo-200 text-[9px] font-black uppercase tracking-widest">Prevenção Financeira</p>
-                  <h4 class="text-2xl font-black mt-1 leading-tight">{{ formatCurrency(economiaEstimada) }}</h4>
-                  <p class="text-indigo-100 text-[10px] mt-1 opacity-80 leading-relaxed italic">Economia estimada em ICMS-ST em duplicidade.</p>
+                  <p class="text-white/70 text-[9px] font-medium uppercase tracking-wide">Prevenção Financeira</p>
+                  <h4 class="text-2xl font-mono mt-1 leading-tight">{{ formatCurrency(economiaEstimada) }}</h4>
+                  <p class="text-white/80 text-[10px] mt-1 leading-relaxed">Economia estimada em ICMS-ST em duplicidade.</p>
               </div>
-              <button class="z-10 mt-4 px-4 py-2 bg-white text-indigo-600 rounded-xl text-[9px] font-black hover:bg-indigo-50 transition-all w-full shadow-lg">DETALHAR CRÉDITOS</button>
+              <button class="z-10 mt-4 px-4 py-2 bg-white text-bronze rounded-md text-[9px] font-medium hover:opacity-90 transition-all w-full">DETALHAR CRÉDITOS</button>
               <div class="absolute -right-4 -bottom-4 text-7xl opacity-10 rotate-12 group-hover:scale-110 transition-transform">💰</div>
           </div>
       </div>
@@ -2560,43 +2558,43 @@ const afericaoGauge = computed(() => {
     <div v-if="activeTab === 'lmc'" class="space-y-4 animate-fade-in">
 
         <!-- Barra de Filtros + Configurar Tanques -->
-        <div class="bg-white px-3 py-2 rounded-xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-3 justify-between">
+        <div class="bg-sheet px-3 py-2 rounded-md card-shadow border border-line flex flex-wrap items-center gap-3 justify-between">
             <div class="flex items-center gap-3">
                 <div class="relative">
-                    <input v-model="lmcFilters.search" type="text" placeholder="Filtrar combustível..." class="pl-8 pr-3 py-1.5 bg-slate-50 border-none rounded-lg text-xs focus:ring-1 focus:ring-brand-accent w-44">
-                    <span class="absolute left-2.5 top-1.5 opacity-30 text-xs">🔍</span>
+                    <input v-model="lmcFilters.search" type="text" placeholder="Filtrar combustível..." class="pl-8 pr-3 py-1.5 bg-paper border border-line rounded-md text-[12px] text-ink focus:border-bronze outline-none w-44">
+                    <span class="absolute left-2.5 top-1.5 opacity-30 text-[12px]">🔍</span>
                 </div>
-                <input v-model="lmcFilters.date" type="date" class="px-3 py-1.5 bg-slate-50 border-none rounded-lg text-xs font-bold text-slate-500">
+                <input v-model="lmcFilters.date" type="date" class="px-3 py-1.5 bg-paper border border-line rounded-md text-[12px] font-mono text-risco">
                 <label class="flex items-center gap-1.5 cursor-pointer group">
-                    <input v-model="lmcFilters.onlyErrors" type="checkbox" class="w-3.5 h-3.5 rounded border-slate-300 text-brand-accent focus:ring-brand-accent focus:ring-1">
-                    <span class="text-[10px] font-bold text-slate-400 group-hover:text-slate-600 uppercase tracking-widest">Só falhas</span>
+                    <input v-model="lmcFilters.onlyErrors" type="checkbox" class="w-3.5 h-3.5 rounded border-line text-bronze focus:ring-bronze focus:ring-1">
+                    <span class="text-[10px] font-medium text-risco group-hover:text-ink uppercase tracking-wide">Só falhas</span>
                 </label>
             </div>
-            <button @click="openLmcConfig" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5">
+            <button @click="openLmcConfig" class="px-4 py-1.5 bg-graphite hover:opacity-90 text-white rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5">
                 ⚙️ Configurar Tanques
             </button>
-            <button @click="openLacresModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar lacres das bombas (registro 1360) — injetados no SPED ao exportar">
+            <button @click="openLacresModal" class="px-4 py-1.5 bg-graphite-2 hover:opacity-90 text-white rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5" title="Cadastrar lacres das bombas (registro 1360) — injetados no SPED ao exportar">
                 🔒 Lacres das Bombas
             </button>
-            <button @click="openCredModal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar credenciadoras do 1601 (maquininhas) — injeta o 0150 completo no SPED ao exportar">
+            <button @click="openCredModal" class="px-4 py-1.5 bg-graphite-2 hover:opacity-90 text-white rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5" title="Cadastrar credenciadoras do 1601 (maquininhas) — injeta o 0150 completo no SPED ao exportar">
                 💳 Credenciadoras (1601)
             </button>
-            <button @click="openE116Modal" class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-black transition-all flex items-center gap-1.5" title="Cadastrar o código de receita (COD_REC) p/ injetar o E116 ausente quando o E110 tem ICMS a recolher">
+            <button @click="openE116Modal" class="px-4 py-1.5 bg-graphite-2 hover:opacity-90 text-white rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5" title="Cadastrar o código de receita (COD_REC) p/ injetar o E116 ausente quando o E110 tem ICMS a recolher">
                 🧾 Apuração ICMS (E116)
             </button>
         </div>
 
         <!-- Banner de Continuidade de Estoque -->
         <div v-if="continuidade.divergencias.length > 0"
-             class="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+             class="bg-variacao/10 border border-variacao/30 rounded-md p-4 space-y-3">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                     <span class="text-lg">⚠️</span>
                     <div>
-                        <p class="text-sm font-black text-amber-800">Continuidade de Estoque — Divergência Detectada</p>
-                        <p class="text-xs text-amber-600">
+                        <p class="text-[13px] font-medium text-variacao">Continuidade de Estoque — Divergência Detectada</p>
+                        <p class="text-[12px] text-risco">
                             O estoque de abertura deste mês difere do fechamento físico do mês anterior
-                            <span v-if="continuidade.divergencias[0]?.periodo_anterior" class="font-bold">
+                            <span v-if="continuidade.divergencias[0]?.periodo_anterior" class="font-mono text-ink">
                                 ({{ continuidade.divergencias[0].periodo_anterior.substring(5,7) }}/{{ continuidade.divergencias[0].periodo_anterior.substring(0,4) }})
                             </span>.
                             Sincronize para corrigir a base de cálculo.
@@ -2604,38 +2602,38 @@ const afericaoGauge = computed(() => {
                     </div>
                 </div>
                 <button @click="sincronizarTodos"
-                        class="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-1.5 shrink-0">
+                        class="px-4 py-1.5 bg-variacao hover:opacity-90 text-white text-[12px] font-medium rounded-md transition-all flex items-center gap-1.5 shrink-0">
                     <Loader2 v-if="Object.keys(sincronizando).length > 0" class="w-3 h-3 animate-spin"/>
                     <span>Sincronizar Todos</span>
                 </button>
             </div>
             <div class="space-y-2">
                 <div v-for="div in continuidade.divergencias" :key="div.cod_item"
-                     class="bg-white rounded-xl border border-amber-100 px-4 py-2.5 flex items-center justify-between gap-4">
+                     class="bg-sheet rounded-md border border-line px-4 py-2.5 flex items-center justify-between gap-4">
                     <div class="min-w-0">
-                        <p class="text-xs font-black text-slate-700 truncate">{{ div.nome || div.cod_item }}</p>
-                        <p class="text-[10px] text-slate-400 font-mono">Cód: {{ div.cod_item }}</p>
+                        <p class="text-[12px] font-medium text-ink truncate">{{ div.nome || div.cod_item }}</p>
+                        <p class="text-[10px] text-risco font-mono">Cód: {{ div.cod_item }}</p>
                     </div>
-                    <div class="flex items-center gap-4 text-xs font-mono shrink-0">
+                    <div class="flex items-center gap-4 text-[12px] font-mono shrink-0">
                         <div class="text-center">
-                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Fechamento ant.</p>
-                            <p class="font-black text-emerald-600">{{ Number(div.fechamento_anterior).toFixed(3) }} L</p>
+                            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Fechamento ant.</p>
+                            <p class="text-conforme">{{ Number(div.fechamento_anterior).toFixed(3) }} L</p>
                         </div>
-                        <div class="text-slate-300 font-bold">→</div>
+                        <div class="text-line font-medium">→</div>
                         <div class="text-center">
-                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Abertura atual</p>
-                            <p class="font-black text-slate-700">{{ Number(div.abertura_atual).toFixed(3) }} L</p>
+                            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Abertura atual</p>
+                            <p class="text-ink">{{ Number(div.abertura_atual).toFixed(3) }} L</p>
                         </div>
                         <div class="text-center">
-                            <p class="text-[9px] uppercase font-black text-slate-400 tracking-widest">Diferença</p>
-                            <p class="font-black" :class="div.diferenca > 0 ? 'text-blue-500' : 'text-rose-500'">
+                            <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Diferença</p>
+                            <p :class="div.diferenca > 0 ? 'text-bronze' : 'text-lacre'">
                                 {{ div.diferenca > 0 ? '+' : '' }}{{ Number(div.diferenca).toFixed(3) }} L
                             </p>
                         </div>
                     </div>
                     <button @click="sincronizarEstoque(div.cod_item, div.fechamento_anterior)"
                             :disabled="sincronizando[div.cod_item]"
-                            class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-[10px] font-black rounded-lg transition-all flex items-center gap-1 shrink-0">
+                            class="px-3 py-1.5 bg-variacao hover:opacity-90 disabled:opacity-50 text-white text-[10px] font-medium rounded-md transition-all flex items-center gap-1 shrink-0">
                         <Loader2 v-if="sincronizando[div.cod_item]" class="w-3 h-3 animate-spin"/>
                         <span v-else>Sincronizar</span>
                     </button>
@@ -2645,166 +2643,166 @@ const afericaoGauge = computed(() => {
 
         <!-- Accordion por Combustível -->
         <div v-if="lmcKpis?.length" class="space-y-2">
-            <div v-for="comb in lmcKpis" :key="comb.cod" class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div v-for="comb in lmcKpis" :key="comb.cod" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
 
                 <!-- Cabeçalho clicável -->
                 <div @click="toggleFuel(comb.cod)"
-                     class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50/60 transition-colors select-none">
+                     class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-paper transition-colors select-none">
                     <div class="flex items-center gap-3">
                         <!-- Seta expand/collapse -->
-                        <span class="text-slate-400 transition-transform duration-200 text-xs"
+                        <span class="text-risco transition-transform duration-200 text-[12px]"
                               :class="expandedFuels[comb.cod] ? 'rotate-90' : ''">▶</span>
-                        <div class="w-1 h-5 bg-brand-accent rounded-full"></div>
-                        <span class="text-sm font-black text-slate-800 uppercase tracking-tight">{{ comb.nome }}</span>
-                        <span class="text-[9px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full border border-slate-200">{{ comb.cod }}</span>
+                        <div class="w-1 h-5 bg-bronze rounded-full"></div>
+                        <span class="text-[13px] font-medium text-ink uppercase tracking-[-0.01em]">{{ comb.nome }}</span>
+                        <span class="text-[9px] font-mono text-risco bg-paper px-1.5 py-0.5 rounded-full border border-line">{{ comb.cod }}</span>
                     </div>
 
                     <!-- KPIs inline -->
                     <div class="flex items-center gap-2 ml-4 flex-wrap justify-end">
                         <div class="flex flex-col items-end">
-                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Est. Inicial</span>
+                            <span class="text-[8px] uppercase text-risco font-medium tracking-wide">Est. Inicial</span>
                             <div v-if="editingStock[comb.cod] === undefined" class="flex items-center gap-1">
-                                <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueInicial) }}</span>
+                                <span class="text-[12px] font-mono text-ink tabular-nums">{{ formatNumber(comb.estoqueInicial) }}</span>
                                 <button @click.stop="toggleEditStock(comb.cod, comb.estoqueInicial)"
-                                        class="text-[10px] text-slate-400 hover:text-brand-accent transition-colors leading-none"
+                                        class="text-[10px] text-risco hover:text-bronze transition-colors leading-none"
                                         title="Ajustar estoque inicial">✏️</button>
                             </div>
                             <div v-else class="flex items-center gap-1" @click.stop>
                                 <input v-model="editingStock[comb.cod]" type="number" step="0.001"
-                                       class="bg-white border border-slate-200 rounded px-2 py-0.5 text-xs font-black focus:ring-1 focus:ring-brand-accent outline-none w-28">
+                                       class="bg-sheet border border-line rounded px-2 py-0.5 text-[12px] font-mono focus:border-bronze outline-none w-28">
                                 <button @click.stop="saveInitialStock(comb.cod)" :disabled="savingStock"
-                                        class="bg-emerald-500 text-white rounded px-2 py-0.5 text-xs hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                                        class="bg-conforme text-white rounded px-2 py-0.5 text-[12px] hover:opacity-90 disabled:opacity-50 transition-colors">
                                     <Loader2 v-if="savingStock" class="w-3 h-3 animate-spin inline"/>
                                     <span v-else>Salvar</span>
                                 </button>
                                 <button @click.stop="delete editingStock[comb.cod]"
-                                        class="text-xs text-slate-400 hover:text-slate-600 px-1">✕</button>
+                                        class="text-[12px] text-risco hover:text-ink px-1">✕</button>
                             </div>
                         </div>
-                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="w-px h-6 bg-line"></div>
                         <div class="flex flex-col items-end">
-                            <span class="text-[8px] uppercase text-emerald-500 font-black tracking-widest">Entradas</span>
-                            <span class="text-xs font-black text-slate-700 tabular-nums">+{{ formatNumber(comb.totalEntradas) }}</span>
+                            <span class="text-[8px] uppercase text-conforme font-medium tracking-wide">Entradas</span>
+                            <span class="text-[12px] font-mono text-ink tabular-nums">+{{ formatNumber(comb.totalEntradas) }}</span>
                         </div>
-                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="w-px h-6 bg-line"></div>
                         <div class="flex flex-col items-end">
-                            <span class="text-[8px] uppercase text-amber-500 font-black tracking-widest">Saídas</span>
-                            <span class="text-xs font-black text-slate-700 tabular-nums">-{{ formatNumber(comb.totalSaidas) }}</span>
+                            <span class="text-[8px] uppercase text-variacao font-medium tracking-wide">Saídas</span>
+                            <span class="text-[12px] font-mono text-ink tabular-nums">-{{ formatNumber(comb.totalSaidas) }}</span>
                         </div>
-                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="w-px h-6 bg-line"></div>
                         <div class="flex flex-col items-end">
-                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Quebra</span>
-                            <span class="text-xs font-black tabular-nums" :class="comb.quebraLiquida >= 0 ? 'text-emerald-600' : 'text-rose-600'">
+                            <span class="text-[8px] uppercase text-risco font-medium tracking-wide">Quebra</span>
+                            <span class="text-[12px] font-mono tabular-nums" :class="comb.quebraLiquida >= 0 ? 'text-conforme' : 'text-lacre'">
                                 {{ comb.quebraLiquida > 0 ? '+' : '' }}{{ formatNumber(comb.quebraLiquida) }} L
                             </span>
                         </div>
-                        <div class="w-px h-6 bg-slate-100"></div>
+                        <div class="w-px h-6 bg-line"></div>
                         <div class="flex flex-col items-end">
-                            <span class="text-[8px] uppercase text-slate-400 font-black tracking-widest">Saldo M+1</span>
-                            <span class="text-xs font-black text-slate-700 tabular-nums">{{ formatNumber(comb.estoqueFinal) }}</span>
+                            <span class="text-[8px] uppercase text-risco font-medium tracking-wide">Saldo M+1</span>
+                            <span class="text-[12px] font-mono text-ink tabular-nums">{{ formatNumber(comb.estoqueFinal) }}</span>
                         </div>
-                        <div class="w-px h-6 bg-slate-100"></div>
-                        <span class="px-2 py-1 rounded-lg text-[9px] font-black uppercase"
-                              :class="comb.irregularidades > 0 ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'">
+                        <div class="w-px h-6 bg-line"></div>
+                        <span class="px-2 py-1 rounded-md text-[9px] font-medium uppercase"
+                              :class="comb.irregularidades > 0 ? 'bg-lacre/10 text-lacre border border-lacre/20' : 'bg-conforme/10 text-conforme border border-conforme/20'">
                             {{ comb.irregularidades > 0 ? comb.irregularidades + ' Irreg.' : '✅ Conforme' }}
                         </span>
-                        <button @click.stop="openOtimizador(comb)" class="px-2.5 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[9px] font-black transition-all border border-indigo-100">
+                        <button @click.stop="openOtimizador(comb)" class="px-2.5 py-1 bg-bronze/10 text-bronze hover:bg-bronze/20 rounded-md text-[9px] font-medium transition-all border border-bronze/20">
                             🚀
                         </button>
                     </div>
                 </div>
 
                 <!-- Tabela expandível -->
-                <div v-if="expandedFuels[comb.cod]" class="border-t border-slate-100">
+                <div v-if="expandedFuels[comb.cod]" class="border-t border-line">
                     <!-- Edição estoque inicial -->
-                    <div class="px-4 py-2 bg-slate-50/50 flex items-center gap-3 border-b border-slate-100">
-                        <span class="text-[9px] font-black uppercase text-slate-400 tracking-widest">Est. Inicial do Mês:</span>
+                    <div class="px-4 py-2 bg-paper flex items-center gap-3 border-b border-line">
+                        <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Est. Inicial do Mês:</span>
                         <div v-if="editingStock[comb.cod] === undefined" class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-700 font-mono">{{ formatNumber(comb.estoqueInicial) }}</span>
-                            <button @click="toggleEditStock(comb.cod, comb.estoqueInicial)" class="text-[10px] text-slate-400 hover:text-brand-accent transition-colors">✏️ Ajustar</button>
+                            <span class="text-[12px] font-mono text-ink">{{ formatNumber(comb.estoqueInicial) }}</span>
+                            <button @click="toggleEditStock(comb.cod, comb.estoqueInicial)" class="text-[10px] text-risco hover:text-bronze transition-colors">✏️ Ajustar</button>
                         </div>
                         <div v-else class="flex items-center gap-1">
-                            <input v-model="editingStock[comb.cod]" type="number" step="0.001" class="bg-white border border-slate-200 rounded px-2 py-0.5 text-xs font-black focus:ring-1 focus:ring-brand-accent outline-none w-32">
-                            <button @click="saveInitialStock(comb.cod)" :disabled="savingStock" class="bg-emerald-500 text-white rounded px-2 py-0.5 text-xs hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                            <input v-model="editingStock[comb.cod]" type="number" step="0.001" class="bg-sheet border border-line rounded px-2 py-0.5 text-[12px] font-mono focus:border-bronze outline-none w-32">
+                            <button @click="saveInitialStock(comb.cod)" :disabled="savingStock" class="bg-conforme text-white rounded px-2 py-0.5 text-[12px] hover:opacity-90 disabled:opacity-50 transition-colors">
                                 <Loader2 v-if="savingStock" class="w-3 h-3 animate-spin inline"/>
                                 <span v-else>Salvar</span>
                             </button>
-                            <button @click="delete editingStock[comb.cod]" class="text-xs text-slate-400 hover:text-slate-600 px-1">✕</button>
+                            <button @click="delete editingStock[comb.cod]" class="text-[12px] text-risco hover:text-ink px-1">✕</button>
                         </div>
                     </div>
 
                     <div class="overflow-x-auto custom-scrollbar-light">
                         <table class="min-w-full text-left">
-                            <thead class="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
-                                <tr class="text-[9px] text-slate-400 uppercase font-black tracking-widest">
+                            <thead class="bg-paper border-b border-line sticky top-0 z-10">
+                                <tr class="text-[9px] text-risco uppercase font-medium tracking-wide">
                                     <th class="px-4 py-2.5 whitespace-nowrap">Data</th>
                                     <th class="px-4 py-2.5 text-center whitespace-nowrap">Capacidade</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Est. Inicial</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Entradas</th>
-                                    <th class="px-4 py-2.5 text-right text-orange-400 whitespace-nowrap">Saídas ✏️</th>
+                                    <th class="px-4 py-2.5 text-right text-variacao whitespace-nowrap">Saídas ✏️</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Escritural</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Físico</th>
-                                    <th class="px-4 py-2.5 text-right border-l border-slate-100 whitespace-nowrap">Diferença (L)</th>
+                                    <th class="px-4 py-2.5 text-right border-l border-line whitespace-nowrap">Diferença (L)</th>
                                     <th class="px-4 py-2.5 text-right whitespace-nowrap">Var %</th>
-                                    <th class="px-4 py-2.5 text-right text-rose-400 whitespace-nowrap">Excesso</th>
+                                    <th class="px-4 py-2.5 text-right text-lacre whitespace-nowrap">Excesso</th>
                                     <th class="px-4 py-2.5 text-center whitespace-nowrap">Status ANP</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-50">
-                                <tr v-for="item in lmcDoCombustivel(comb.cod)" :key="item.id_movimento" class="hover:bg-slate-50/40 transition-colors">
-                                    <td class="px-4 py-2 font-mono text-[11px] text-slate-500">{{ new Date(item.data_movimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) }}</td>
-                                    <td class="px-4 py-2 text-center font-mono text-[11px] font-bold text-slate-400">
+                            <tbody class="divide-y divide-line">
+                                <tr v-for="item in lmcDoCombustivel(comb.cod)" :key="item.id_movimento" class="hover:bg-paper transition-colors">
+                                    <td class="px-4 py-2 font-mono text-[11px] text-risco">{{ new Date(item.data_movimento).toLocaleDateString('pt-BR', {timeZone: 'UTC'}) }}</td>
+                                    <td class="px-4 py-2 text-center font-mono text-[11px] text-risco">
                                         {{ item.capacidade_tanque > 0 ? formatNumber(item.capacidade_tanque) + ' L' : '—' }}
                                     </td>
-                                    <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_abert_final || item.estq_abert) }}</td>
-                                    <td class="px-4 py-2 text-right font-mono text-xs text-emerald-600">{{ formatNumber(item.vol_entr_lmc) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-[12px] text-risco">{{ formatNumber(item.estq_abert_final || item.estq_abert) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-[12px] text-conforme">{{ formatNumber(item.vol_entr_lmc) }}</td>
                                     <!-- Saídas editável -->
-                                    <td class="px-4 py-2 text-right font-mono text-xs text-amber-700 bg-orange-50/30">
+                                    <td class="px-4 py-2 text-right font-mono text-[12px] text-variacao bg-variacao/5">
                                         <div v-if="editingSaida[`${item.cod_item}|${item.data_movimento}`] === undefined"
                                              class="flex items-center justify-end gap-1">
                                             <span>{{ formatNumber(item.vol_saidas_final) }}</span>
                                             <button @click="toggleEditSaida(item.cod_item, item.data_movimento, item.vol_saidas_final)"
-                                                    class="text-[10px] text-slate-400 hover:text-orange-500 transition-colors"
+                                                    class="text-[10px] text-risco hover:text-variacao transition-colors"
                                                     title="Editar saída deste dia">✏️</button>
                                         </div>
                                         <div v-else class="flex items-center justify-end gap-1">
                                             <input v-model="editingSaida[`${item.cod_item}|${item.data_movimento}`]"
                                                    type="number" step="0.001"
-                                                   class="bg-white border border-orange-300 rounded px-1.5 py-0.5 text-xs font-black focus:ring-1 focus:ring-orange-400 outline-none w-24">
+                                                   class="bg-sheet border border-variacao/40 rounded px-1.5 py-0.5 text-[12px] font-mono focus:border-variacao outline-none w-24">
                                             <button @click="saveEditSaida(item.cod_item, item.data_movimento)"
                                                     :disabled="savingSaida"
-                                                    class="bg-orange-500 text-white rounded px-1.5 py-0.5 text-[10px] hover:bg-orange-600 disabled:opacity-50 transition-colors">
+                                                    class="bg-variacao text-white rounded px-1.5 py-0.5 text-[10px] hover:opacity-90 disabled:opacity-50 transition-colors">
                                                 <span v-if="savingSaida">...</span>
                                                 <span v-else>OK</span>
                                             </button>
                                             <button @click="delete editingSaida[`${item.cod_item}|${item.data_movimento}`]"
-                                                    class="text-[10px] text-slate-400 hover:text-slate-600">✕</button>
+                                                    class="text-[10px] text-risco hover:text-ink">✕</button>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-2 text-right font-mono text-xs text-slate-600">{{ formatNumber(item.estq_escr_final) }}</td>
-                                    <td class="px-4 py-2 text-right font-mono text-xs font-black text-slate-800">{{ formatNumber(item.fech_fisico_final) }}</td>
-                                    <td class="px-4 py-2 text-right border-l border-slate-50">
-                                        <span :class="item.variacao_litros >= 0 ? 'text-emerald-600' : 'text-rose-600'" class="text-xs font-mono font-bold">
+                                    <td class="px-4 py-2 text-right font-mono text-[12px] text-risco">{{ formatNumber(item.estq_escr_final) }}</td>
+                                    <td class="px-4 py-2 text-right font-mono text-[12px] text-ink">{{ formatNumber(item.fech_fisico_final) }}</td>
+                                    <td class="px-4 py-2 text-right border-l border-line">
+                                        <span :class="item.variacao_litros >= 0 ? 'text-conforme' : 'text-lacre'" class="text-[12px] font-mono">
                                             {{ item.variacao_litros > 0 ? '+' : '' }}{{ formatNumber(item.variacao_litros) }}
                                         </span>
                                     </td>
                                     <td class="px-4 py-2 text-right">
-                                        <span :class="item.variacao_percentual > 0.6 ? 'text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded' : 'text-slate-500'" class="text-[11px] font-mono">
+                                        <span :class="item.variacao_percentual > 0.6 ? 'text-lacre bg-lacre/10 px-1.5 py-0.5 rounded' : 'text-risco'" class="text-[11px] font-mono">
                                             {{ item.variacao_percentual.toFixed(3) }}%
                                         </span>
                                     </td>
-                                    <td class="px-4 py-2 text-right font-mono text-[11px] font-black" :class="item.excesso > 0 ? 'text-rose-600' : 'text-slate-300'">
+                                    <td class="px-4 py-2 text-right font-mono text-[11px]" :class="item.excesso > 0 ? 'text-lacre' : 'text-line'">
                                         {{ item.excesso > 0 ? formatNumber(item.excesso) + ' L' : '—' }}
                                     </td>
                                     <td class="px-4 py-2 text-center">
-                                        <span v-if="item.status_anp === 'CONFORME'" class="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black rounded border border-emerald-100">OK</span>
-                                        <span v-else-if="item.status_anp === 'FORA LIMITE'" class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-black rounded border border-rose-100 animate-pulse">FORA LIMITE</span>
-                                        <span v-else-if="item.status_anp === 'EXCESSO'" class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-black rounded border border-amber-100">EXCESSO</span>
-                                        <span v-else class="px-2 py-0.5 bg-slate-900 text-white text-[9px] font-black rounded">NEGATIVO</span>
+                                        <span v-if="item.status_anp === 'CONFORME'" class="px-2 py-0.5 bg-conforme/10 text-conforme text-[9px] font-medium rounded border border-conforme/20">OK</span>
+                                        <span v-else-if="item.status_anp === 'FORA LIMITE'" class="px-2 py-0.5 bg-lacre/10 text-lacre text-[9px] font-medium rounded border border-lacre/20">FORA LIMITE</span>
+                                        <span v-else-if="item.status_anp === 'EXCESSO'" class="px-2 py-0.5 bg-variacao/10 text-variacao text-[9px] font-medium rounded border border-variacao/20">EXCESSO</span>
+                                        <span v-else class="px-2 py-0.5 bg-graphite text-white text-[9px] font-medium rounded">NEGATIVO</span>
                                     </td>
                                 </tr>
                                 <tr v-if="lmcDoCombustivel(comb.cod).length === 0">
-                                    <td colspan="10" class="py-8 text-center text-slate-400 italic text-sm">Nenhum registro encontrado para este combustível.</td>
+                                    <td colspan="10" class="py-8 text-center text-risco italic text-[13px]">Nenhum registro encontrado para este combustível.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -2865,65 +2863,65 @@ const afericaoGauge = computed(() => {
        </OccurrenceTable>
 
        <!-- Navegação de Sub-abas de Erros -->
-       <div v-if="auditErros.length > 0" class="flex flex-wrap gap-2 pb-2 border-b border-slate-100 max-w-4xl mx-auto">
-          <button 
+       <div v-if="auditErros.length > 0" class="flex flex-wrap gap-2 pb-2 border-b border-line max-w-4xl mx-auto">
+          <button
             @click="activeErrorSubTab = 'TODOS'"
-            :class="activeErrorSubTab === 'TODOS' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-500 hover:bg-slate-50 border-slate-200'"
-            class="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2"
+            :class="activeErrorSubTab === 'TODOS' ? 'bg-graphite text-white' : 'bg-sheet text-risco hover:bg-paper border-line'"
+            class="px-4 py-2 rounded-md text-[10px] font-medium uppercase tracking-wide border transition-all flex items-center gap-2"
           >
-            📋 TODOS <span class="bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{{ auditErros.length }}</span>
+            📋 TODOS <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ auditErros.length }}</span>
           </button>
-          
-          <button 
-            v-for="group in availableErrorGroups" 
+
+          <button
+            v-for="group in availableErrorGroups"
             :key="group.name"
             @click="activeErrorSubTab = group.name"
-            :class="activeErrorSubTab === group.name ? 'bg-brand-accent text-white shadow-md border-brand-accent' : 'bg-white text-slate-500 hover:bg-slate-50 border-slate-200'"
-            class="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2"
+            :class="activeErrorSubTab === group.name ? 'bg-bronze text-white border-bronze' : 'bg-sheet text-risco hover:bg-paper border-line'"
+            class="px-4 py-2 rounded-md text-[10px] font-medium uppercase tracking-wide border transition-all flex items-center gap-2"
           >
-            📦 REG. {{ group.name }} <span class="bg-white/20 px-1.5 py-0.5 rounded-md text-[8px]">{{ group.count }}</span>
+            📦 REG. {{ group.name }} <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ group.count }}</span>
           </button>
        </div>
 
-       <div v-if="auditErros.length === 0" class="text-center py-20 bg-white rounded-3xl border border-slate-100 space-y-4 shadow-sm">
+       <div v-if="auditErros.length === 0" class="text-center py-20 bg-sheet rounded-md border border-line space-y-4 card-shadow">
           <div class="text-5xl">🎉</div>
-          <h3 class="text-2xl font-bold text-slate-800">Nenhum erro encontrado!</h3>
-          <p class="text-slate-400">Seu arquivo SPED está 100% em conformidade com as regras atuais.</p>
+          <h3 class="font-display text-[22px] font-semibold text-ink">Nenhum erro encontrado!</h3>
+          <p class="text-risco">Seu arquivo SPED está 100% em conformidade com as regras atuais.</p>
        </div>
-       
+
        <div v-else class="max-w-4xl mx-auto space-y-4">
-          <div v-for="erro in filteredAuditErros" :key="erro.id" 
-            class="bg-white rounded-2xl overflow-hidden border-l-4 shadow-sm hover:shadow-md transition-shadow group"
-            :class="erro.tipo_erro === 'CRITICAL' ? 'border-red-500' : 'border-amber-400'">
-            
+          <div v-for="erro in filteredAuditErros" :key="erro.id"
+            class="bg-sheet rounded-md overflow-hidden border-l-4 card-shadow group"
+            :class="erro.tipo_erro === 'CRITICAL' ? 'border-lacre' : 'border-variacao'">
+
             <div class="p-6">
                <div class="flex justify-between items-start mb-2">
-                  <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded" :class="erro.tipo_erro === 'CRITICAL' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'">
+                  <span class="text-[9px] font-medium uppercase tracking-wide px-2 py-1 rounded font-mono" :class="erro.tipo_erro === 'CRITICAL' ? 'bg-lacre/10 text-lacre' : 'bg-variacao/10 text-variacao'">
                      {{ erro.regra_id }} • {{ erro.tipo_erro }}
                   </span>
-                  <p class="text-[10px] text-slate-400 font-mono">{{ erro.cod_item_erro || 'Geral' }}</p>
+                  <p class="text-[10px] text-risco font-mono">{{ erro.cod_item_erro || 'Geral' }}</p>
                </div>
-               <h4 class="text-lg font-bold text-slate-800 group-hover:text-brand-accent transition-colors">{{ erro.titulo_erro }}</h4>
-               <p class="text-slate-500 text-sm mt-2 leading-relaxed">{{ erro.descricao_erro }}</p>
-               
-               <div class="mt-4 bg-slate-900 rounded-xl p-4 text-xs font-mono text-emerald-400 relative overflow-hidden border border-slate-800 shadow-inner">
-                  <div class="absolute left-0 top-0 h-full w-1 bg-emerald-500/50"></div>
+               <h4 class="font-display text-[16px] font-semibold text-ink group-hover:text-bronze transition-colors">{{ erro.titulo_erro }}</h4>
+               <p class="text-risco text-[13px] mt-2 leading-relaxed">{{ erro.descricao_erro }}</p>
+
+               <div class="mt-4 bg-graphite rounded-md p-4 text-[12px] font-mono text-conforme relative overflow-hidden border border-line/10">
+                  <div class="absolute left-0 top-0 h-full w-1 bg-conforme/50"></div>
                   <pre class="whitespace-pre-wrap">{{ erro.conteudo_linha }}</pre>
                </div>
-               
+
                <div class="mt-4 flex items-center justify-between">
-                  <div class="text-xs bg-slate-50 text-slate-500 px-3 py-1.5 rounded-lg border border-slate-100 italic">
-                     💡 <strong>Sugestão:</strong> {{ erro.sugestao_correcao }}
+                  <div class="text-[12px] bg-paper text-risco px-3 py-1.5 rounded-md border border-line">
+                     💡 <strong class="text-ink">Sugestão:</strong> {{ erro.sugestao_correcao }}
                   </div>
                   <div class="flex gap-2">
-                    <button v-if="erro.regra_id === 'RTAX-C170-01'" 
+                    <button v-if="erro.regra_id === 'RTAX-C170-01'"
                       @click="applyBulkCorrection(erro.regra_id)"
-                      class="px-4 py-1.5 bg-emerald-600/10 text-emerald-600 text-[10px] font-black rounded-lg hover:bg-emerald-600/20 transition-colors">
+                      class="px-4 py-1.5 bg-conforme/10 text-conforme text-[10px] font-medium rounded-md hover:bg-conforme/20 transition-colors">
                       CORRIGIR TODOS
                     </button>
-                    <button v-if="erro.regra_id === 'RTAX-C170-01'" 
+                    <button v-if="erro.regra_id === 'RTAX-C170-01'"
                       @click="openCorrection(erro)"
-                      class="px-4 py-1.5 bg-brand-accent text-white text-[10px] font-black rounded-lg hover:bg-blue-700 transition-colors shadow-md">
+                      class="px-4 py-1.5 bg-bronze text-white text-[10px] font-medium rounded-md hover:opacity-90 transition-colors">
                       EXECUTAR CURA
                     </button>
                   </div>
@@ -2934,101 +2932,99 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de Cura Simplificado -->
-    <div v-if="showCorrectionModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-       <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
-          <h3 class="text-xl font-bold flex items-center gap-2 text-brand-accent">
+    <div v-if="showCorrectionModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-50 p-4">
+       <div class="bg-sheet rounded-md border border-line p-8 max-w-md w-full card-shadow space-y-6">
+          <h3 class="font-display text-[18px] font-semibold flex items-center gap-2 text-bronze">
             🔮 Máquina de Cura: Retificação
           </h3>
-          <p class="text-sm text-slate-500">Insira o novo código de **CST ICMS** para retificar este item no SPED automaticamente.</p>
-          
+          <p class="text-[13px] text-risco">Insira o novo código de **CST ICMS** para retificar este item no SPED automaticamente.</p>
+
           <div class="space-y-2">
-             <label class="text-[10px] font-black uppercase text-slate-400">Novo CST Sugerido (Ex: 060)</label>
-             <input v-model="correctedValue" type="text" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-lg focus:ring-2 focus:ring-brand-accent outline-none transition-all" placeholder="060" />
+             <label class="text-[10px] font-medium uppercase text-risco tracking-wide">Novo CST Sugerido (Ex: 060)</label>
+             <input v-model="correctedValue" type="text" class="w-full p-4 bg-sheet border border-line rounded-md font-mono text-[16px] text-ink focus:border-bronze outline-none transition-all" placeholder="060" />
           </div>
 
           <div class="flex gap-3">
-             <button @click="showCorrectionModal = false" class="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors">CANCELAR</button>
-             <button @click="applyCorrection" class="flex-1 py-3 bg-brand-accent text-white font-bold rounded-2xl shadow-lg shadow-brand-accent/20 hover:scale-105 transition-all">APLICAR CURA</button>
+             <button @click="showCorrectionModal = false" class="flex-1 py-3 text-risco font-medium hover:bg-paper rounded-md transition-colors">CANCELAR</button>
+             <button @click="applyCorrection" class="flex-1 py-3 bg-bronze text-white font-medium rounded-md hover:opacity-90 transition-all">APLICAR CURA</button>
           </div>
        </div>
     </div>
 
     <!-- Modal de Ajuste de NF (5.929 / 65) -->
-    <div v-if="showNfEditModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6">
+    <div v-if="showNfEditModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-50 p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-lg w-full card-shadow space-y-6">
             <div class="flex justify-between items-start">
                 <div>
-                   <h3 class="text-xl font-bold text-slate-800">Ajustar Valor NF #{{ nfToEdit?.num_doc }}</h3>
-                   <p class="text-xs text-slate-400 font-mono">Chave: {{ nfToEdit?.chv_nfe || 'N/A' }}</p>
+                   <h3 class="font-display text-[18px] font-semibold text-ink">Ajustar Valor NF #{{ nfToEdit?.num_doc }}</h3>
+                   <p class="text-[12px] text-risco font-mono">Chave: {{ nfToEdit?.chv_nfe || 'N/A' }}</p>
                 </div>
-                <button @click="showNfEditModal = false" class="text-slate-300 hover:text-slate-500">✕</button>
+                <button @click="showNfEditModal = false" class="text-risco hover:text-ink">✕</button>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
                 <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase text-slate-400">Total da Nota (C100)</label>
-                    <input v-model.number="nfEditForm.vl_doc" type="number" step="0.01" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:ring-2 focus:ring-brand-accent outline-none" />
+                    <label class="text-[10px] font-medium uppercase text-risco tracking-wide">Total da Nota (C100)</label>
+                    <input v-model.number="nfEditForm.vl_doc" type="number" step="0.01" class="w-full p-3 bg-sheet border border-line rounded-md font-mono text-[13px] text-ink focus:border-bronze outline-none" />
                 </div>
                 <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase text-slate-400">Valor Operação (C190)</label>
-                    <input v-model.number="nfEditForm.vl_opr" type="number" step="0.01" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:ring-2 focus:ring-brand-accent outline-none" />
+                    <label class="text-[10px] font-medium uppercase text-risco tracking-wide">Valor Operação (C190)</label>
+                    <input v-model.number="nfEditForm.vl_opr" type="number" step="0.01" class="w-full p-3 bg-sheet border border-line rounded-md font-mono text-[13px] text-ink focus:border-bronze outline-none" />
                 </div>
                 <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase text-slate-400">BC ICMS (C190)</label>
-                    <input v-model.number="nfEditForm.vl_bc_icms" type="number" step="0.01" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:ring-2 focus:ring-brand-accent outline-none" />
+                    <label class="text-[10px] font-medium uppercase text-risco tracking-wide">BC ICMS (C190)</label>
+                    <input v-model.number="nfEditForm.vl_bc_icms" type="number" step="0.01" class="w-full p-3 bg-sheet border border-line rounded-md font-mono text-[13px] text-ink focus:border-bronze outline-none" />
                 </div>
                 <div class="space-y-1.5">
-                    <label class="text-[10px] font-black uppercase text-slate-400">Valor ICMS (C190)</label>
-                    <input v-model.number="nfEditForm.vl_icms" type="number" step="0.01" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm focus:ring-2 focus:ring-brand-accent outline-none" />
+                    <label class="text-[10px] font-medium uppercase text-risco tracking-wide">Valor ICMS (C190)</label>
+                    <input v-model.number="nfEditForm.vl_icms" type="number" step="0.01" class="w-full p-3 bg-sheet border border-line rounded-md font-mono text-[13px] text-ink focus:border-bronze outline-none" />
                 </div>
             </div>
 
             <div class="flex gap-3 pt-2">
-                <button @click="showNfEditModal = false" class="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors">CANCELAR</button>
-                <button @click="saveNfEdit" class="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 hover:scale-105 transition-all">SALVAR AJUSTES</button>
+                <button @click="showNfEditModal = false" class="flex-1 py-3 text-risco font-medium hover:bg-paper rounded-md transition-colors">CANCELAR</button>
+                <button @click="saveNfEdit" class="flex-1 py-3 bg-conforme text-white font-medium rounded-md hover:opacity-90 transition-all">SALVAR AJUSTES</button>
             </div>
         </div>
     </div>
 
     <!-- Modal de Distribuição Inteligente (Otimizador LMC) -->
-    <div v-if="showOtimizadorModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[70] p-4">
-        <div class="bg-white rounded-[40px] p-10 max-w-xl w-full shadow-2xl space-y-8 animate-fade-in relative overflow-hidden">
-            <!-- Background Decoration -->
-            <div class="absolute -right-20 -top-20 w-64 h-64 bg-brand-accent/5 rounded-full blur-3xl"></div>
-            
+    <div v-if="showOtimizadorModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[70] p-4">
+        <div class="bg-sheet rounded-md border border-line p-10 max-w-xl w-full card-shadow space-y-8 animate-fade-in relative overflow-hidden">
+
             <div class="relative z-10 flex justify-between items-start">
                 <div class="space-y-1">
-                   <div class="inline-flex items-center gap-2 px-3 py-1 bg-brand-accent/10 rounded-full">
-                      <span class="w-1.5 h-1.5 bg-brand-accent rounded-full animate-pulse"></span>
-                      <span class="text-[10px] font-black text-brand-accent uppercase tracking-widest">Motor Matemático V2</span>
+                   <div class="inline-flex items-center gap-2 px-3 py-1 bg-bronze/10 rounded-full">
+                      <span class="w-1.5 h-1.5 bg-bronze rounded-full"></span>
+                      <span class="text-[10px] font-medium text-bronze uppercase tracking-wide">Motor Matemático V2</span>
                    </div>
-                   <h3 class="text-3xl font-black text-slate-800 tracking-tighter">
-                      Distribuição <span class="text-brand-accent">Inteligente</span>
+                   <h3 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">
+                      Distribuição Inteligente
                    </h3>
-                   <p class="text-sm text-slate-400 font-medium leading-relaxed">
-                      Reconstruir medições e vendas para: <span class="bg-slate-100 px-2 py-0.5 rounded font-black text-slate-600">{{ productToOtimizar?.nome }}</span>
+                   <p class="text-[13px] text-risco leading-relaxed">
+                      Reconstruir medições e vendas para: <span class="bg-paper px-2 py-0.5 rounded font-medium text-ink">{{ productToOtimizar?.nome }}</span>
                    </p>
                 </div>
-                <button @click="showOtimizadorModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+                <button @click="showOtimizadorModal = false" class="w-10 h-10 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco transition-colors">✕</button>
             </div>
 
-            <div class="relative z-10 bg-slate-50 rounded-3xl p-8 border border-slate-100 space-y-6 shadow-inner">
+            <div class="relative z-10 bg-paper rounded-md p-8 border border-line space-y-6">
                 <div class="space-y-4">
                     <div class="flex justify-between items-end">
-                        <label class="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none">Meta de Volume Mensal (Vendas)</label>
-                        <span class="text-[9px] font-mono font-bold text-slate-400">Referência atual: {{ formatNumber(productToOtimizar?.totalSaidas) }} L</span>
+                        <label class="text-[10px] font-medium uppercase text-risco tracking-wide leading-none">Meta de Volume Mensal (Vendas)</label>
+                        <span class="text-[9px] font-mono text-risco">Referência atual: {{ formatNumber(productToOtimizar?.totalSaidas) }} L</span>
                     </div>
                     <div class="relative">
-                        <input v-model.number="targetVolume" type="number" step="0.001" class="w-full bg-white border-2 border-slate-100 focus:border-brand-accent rounded-2xl px-6 py-5 text-2xl font-black tabular-nums transition-all outline-none shadow-sm">
-                        <div class="absolute right-6 top-1/2 -translate-y-1/2 text-sm font-black text-slate-300">LITROS</div>
+                        <input v-model.number="targetVolume" type="number" step="0.001" class="w-full bg-sheet border border-line focus:border-bronze rounded-md px-6 py-5 text-2xl font-mono tabular-nums text-ink transition-all outline-none">
+                        <div class="absolute right-6 top-1/2 -translate-y-1/2 text-[13px] font-medium text-risco">LITROS</div>
                     </div>
                 </div>
-                
-                <div class="bg-indigo-50/50 rounded-2xl p-5 border border-indigo-100/50 flex items-start gap-4">
+
+                <div class="bg-bronze/5 rounded-md p-5 border border-bronze/20 flex items-start gap-4">
                     <div class="text-2xl pt-0.5">🛡️</div>
                     <div class="space-y-1">
-                        <p class="text-[10px] font-black text-indigo-700 uppercase tracking-widest">Garantia de Conformidade</p>
-                        <p class="text-xs text-indigo-600/70 font-medium leading-relaxed italic">
+                        <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">Garantia de Conformidade</p>
+                        <p class="text-[12px] text-risco leading-relaxed">
                             O motor aplicará ruído orgânico artificial respeitando a variação legal de **0,55%** e ajustará as medições automaticamente para este volume.
                         </p>
                     </div>
@@ -3036,8 +3032,8 @@ const afericaoGauge = computed(() => {
             </div>
 
             <div class="relative z-10 flex gap-4">
-                <button @click="showOtimizadorModal = false" :disabled="savingOtimizacao" class="flex-1 py-5 text-slate-400 font-black hover:bg-slate-50 rounded-2xl transition-all uppercase tracking-widest text-xs">CANCELAR</button>
-                <button @click="startOtimizacao" :disabled="savingOtimizacao" class="flex-[2] py-5 bg-slate-900 text-white font-black rounded-2xl shadow-2xl shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-3 group uppercase tracking-widest text-xs">
+                <button @click="showOtimizadorModal = false" :disabled="savingOtimizacao" class="flex-1 py-5 text-risco font-medium hover:bg-paper rounded-md transition-all uppercase tracking-wide text-[12px]">CANCELAR</button>
+                <button @click="startOtimizacao" :disabled="savingOtimizacao" class="flex-[2] py-5 bg-graphite text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-3 group uppercase tracking-wide text-[12px]">
                     <span v-if="savingOtimizacao" class="w-5 h-5 border-3 border-white/20 border-t-white rounded-full animate-spin"></span>
                     <span v-else class="group-hover:translate-x-1 transition-transform">🚀</span>
                     {{ savingOtimizacao ? 'DISTRIBUINDO...' : 'INICIAR DISTRIBUIÇÃO' }}
@@ -3047,42 +3043,42 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de Configuração de Tanques (Capacidades) -->
-    <div v-if="showLmcConfigModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-xl w-full shadow-2xl space-y-6 animate-fade-in">
+    <div v-if="showLmcConfigModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-xl w-full card-shadow space-y-6 animate-fade-in">
             <div class="flex justify-between items-start">
                 <div>
-                   <h3 class="text-2xl font-black text-slate-800 tracking-tighter">⛓️ Configuração de <span class="text-brand-accent">Tanques</span></h3>
-                   <p class="text-sm text-slate-400 font-medium">Defina a capacidade máxima de armazenamento para cada produto.</p>
+                   <h3 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">⛓️ Configuração de Tanques</h3>
+                   <p class="text-[13px] text-risco">Defina a capacidade máxima de armazenamento para cada produto.</p>
                 </div>
-                <button @click="showLmcConfigModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+                <button @click="showLmcConfigModal = false" class="w-10 h-10 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco transition-colors">✕</button>
             </div>
 
             <div class="max-h-[400px] overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-                <div v-for="conf in tankConfigs" :key="conf.cod_item" class="bg-slate-50 p-4 rounded-2xl border flex items-center justify-between gap-4" :class="conf.fromSped ? 'border-brand-accent/30 bg-brand-accent/5' : 'border-slate-100'">
+                <div v-for="conf in tankConfigs" :key="conf.cod_item" class="bg-paper p-4 rounded-md border flex items-center justify-between gap-4" :class="conf.fromSped ? 'border-bronze/30 bg-bronze/5' : 'border-line'">
                     <div class="flex flex-col">
                         <div class="flex items-center gap-2">
-                            <span class="text-xs font-black text-slate-700">{{ conf.descr_item }}</span>
-                            <span v-if="conf.fromSped" title="Capacidade detectada automaticamente do arquivo SPED" class="text-[8px] font-black text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">SPED</span>
+                            <span class="text-[12px] font-medium text-ink">{{ conf.descr_item }}</span>
+                            <span v-if="conf.fromSped" title="Capacidade detectada automaticamente do arquivo SPED" class="text-[8px] font-medium text-conforme bg-conforme/15 px-1.5 py-0.5 rounded-full uppercase tracking-wide">SPED</span>
                         </div>
-                        <span class="text-[9px] font-mono text-slate-400">COD: {{ conf.cod_item }}</span>
+                        <span class="text-[9px] font-mono text-risco">COD: {{ conf.cod_item }}</span>
                     </div>
                     <div class="relative w-40">
-                        <input v-model.number="conf.capacidade" type="number" step="0" @input="conf.fromSped = false" class="w-full bg-white border focus:border-brand-accent rounded-xl px-4 py-2 text-right font-black tabular-nums transition-all outline-none text-sm" :class="conf.fromSped ? 'border-brand-accent/40' : 'border-slate-200'">
-                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-300 uppercase">Litros</span>
+                        <input v-model.number="conf.capacidade" type="number" step="0" @input="conf.fromSped = false" class="w-full bg-sheet border focus:border-bronze rounded-md px-4 py-2 text-right font-mono tabular-nums text-ink transition-all outline-none text-[13px]" :class="conf.fromSped ? 'border-bronze/40' : 'border-line'">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[8px] font-medium text-risco uppercase">Litros</span>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
+            <div class="bg-variacao/10 rounded-md p-4 border border-variacao/20 flex items-start gap-3">
                 <div class="text-xl">💡</div>
-                <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
+                <p class="text-[10px] text-ink leading-relaxed">
                     As capacidades são usadas para validar o **Status ANP** e identificar excessos de estoque no LMC.
                 </p>
             </div>
 
             <div class="flex gap-3 mt-2">
-                <button @click="showLmcConfigModal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
-                <button @click="saveLmcConfig" :disabled="savingLmcConfig" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                <button @click="showLmcConfigModal = false" class="flex-1 py-4 text-risco font-medium hover:bg-paper rounded-md transition-colors uppercase tracking-wide text-[12px]">CANCELAR</button>
+                <button @click="saveLmcConfig" :disabled="savingLmcConfig" class="flex-[2] py-4 bg-graphite text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-[12px]">
                     <Loader2 v-if="savingLmcConfig" class="w-4 h-4 animate-spin"/>
                     {{ savingLmcConfig ? 'SALVANDO...' : 'SALVAR CAPACIDADES' }}
                 </button>
@@ -3091,47 +3087,47 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de Lacres das Bombas (registro 1360) -->
-    <div v-if="showLacresModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
+    <div v-if="showLacresModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-2xl w-full card-shadow space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
             <div class="flex justify-between items-start">
                 <div>
-                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">🔒 Lacres das <span class="text-brand-accent">Bombas</span></h3>
-                    <p class="text-sm text-slate-400 font-medium">Informe os lacres de cada bomba (registro 1360). São injetados no SPED ao exportar.</p>
+                    <h3 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">🔒 Lacres das Bombas</h3>
+                    <p class="text-[13px] text-risco">Informe os lacres de cada bomba (registro 1360). São injetados no SPED ao exportar.</p>
                 </div>
-                <button @click="showLacresModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+                <button @click="showLacresModal = false" class="w-10 h-10 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco transition-colors">✕</button>
             </div>
 
-            <div v-if="!lacresBombas.length" class="text-sm text-slate-400 italic py-6 text-center">Nenhuma bomba (registro 1350) encontrada neste arquivo.</div>
+            <div v-if="!lacresBombas.length" class="text-[13px] text-risco italic py-6 text-center">Nenhuma bomba (registro 1350) encontrada neste arquivo.</div>
 
             <div class="overflow-y-auto pr-2 space-y-4 custom-scrollbar flex-1">
-                <div v-for="(b, bi) in lacresBombas" :key="bi" class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                <div v-for="(b, bi) in lacresBombas" :key="bi" class="bg-paper p-4 rounded-md border border-line space-y-3">
                     <div class="flex items-center justify-between gap-2">
                         <div class="flex flex-col">
-                            <span class="text-xs font-black text-slate-700">Bomba: {{ b.serie }}</span>
-                            <span class="text-[9px] font-mono text-slate-400">{{ b.fabricante }} · {{ b.modelo }}</span>
+                            <span class="text-[12px] font-medium text-ink">Bomba: {{ b.serie }}</span>
+                            <span class="text-[9px] font-mono text-risco">{{ b.fabricante }} · {{ b.modelo }}</span>
                         </div>
-                        <span v-if="b.temLacre" class="text-[8px] font-black text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">já tem 1360</span>
-                        <span v-else class="text-[8px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full uppercase tracking-wider">sem lacre</span>
+                        <span v-if="b.temLacre" class="text-[8px] font-medium text-conforme bg-conforme/15 px-1.5 py-0.5 rounded-full uppercase tracking-wide">já tem 1360</span>
+                        <span v-else class="text-[8px] font-medium text-lacre bg-lacre/15 px-1.5 py-0.5 rounded-full uppercase tracking-wide">sem lacre</span>
                     </div>
                     <div v-for="(l, li) in b.lacres" :key="li" class="flex items-center gap-2">
-                        <input v-model="l.num_lacre" placeholder="Nº do lacre" class="flex-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-bold outline-none transition-all" />
-                        <input v-model="l.dt_aplicacao" placeholder="DDMMAAAA" maxlength="8" class="w-32 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-mono text-center outline-none transition-all" />
-                        <button @click="removeLacre(b, li)" class="w-8 h-8 shrink-0 bg-slate-100 hover:bg-red-100 hover:text-red-600 rounded-lg text-slate-400 transition-colors" title="Remover lacre">✕</button>
+                        <input v-model="l.num_lacre" placeholder="Nº do lacre" class="flex-1 bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none transition-all" />
+                        <input v-model="l.dt_aplicacao" placeholder="DDMMAAAA" maxlength="8" class="w-32 bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] font-mono text-center text-ink outline-none transition-all" />
+                        <button @click="removeLacre(b, li)" class="w-8 h-8 shrink-0 bg-paper hover:bg-lacre/10 hover:text-lacre rounded-md text-risco transition-colors" title="Remover lacre">✕</button>
                     </div>
-                    <button @click="addLacre(b)" class="text-[10px] font-black text-brand-accent hover:underline">+ adicionar lacre</button>
+                    <button @click="addLacre(b)" class="text-[10px] font-medium text-bronze hover:underline">+ adicionar lacre</button>
                 </div>
             </div>
 
-            <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
+            <div class="bg-variacao/10 rounded-md p-4 border border-variacao/20 flex items-start gap-3">
                 <div class="text-xl">💡</div>
-                <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
+                <p class="text-[10px] text-ink leading-relaxed">
                     O nº do lacre e a data (DDMMAAAA) são os do lacre físico aplicado na bomba. O PVA exige ao menos um lacre (1360) por bomba (1350).
                 </p>
             </div>
 
             <div class="flex gap-3">
-                <button @click="showLacresModal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
-                <button @click="saveLacres" :disabled="savingLacres" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                <button @click="showLacresModal = false" class="flex-1 py-4 text-risco font-medium hover:bg-paper rounded-md transition-colors uppercase tracking-wide text-[12px]">CANCELAR</button>
+                <button @click="saveLacres" :disabled="savingLacres" class="flex-[2] py-4 bg-graphite text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-[12px]">
                     <Loader2 v-if="savingLacres" class="w-4 h-4 animate-spin"/>
                     {{ savingLacres ? 'SALVANDO...' : 'SALVAR LACRES' }}
                 </button>
@@ -3140,57 +3136,57 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de Credenciadoras (participantes do 1601) -->
-    <div v-if="showCredModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-3xl w-full shadow-2xl space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
+    <div v-if="showCredModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-3xl w-full card-shadow space-y-6 animate-fade-in max-h-[90vh] flex flex-col">
             <div class="flex justify-between items-start">
                 <div>
-                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">💳 Credenciadoras <span class="text-brand-accent">(1601)</span></h3>
-                    <p class="text-sm text-slate-400 font-medium">Dados das maquininhas/credenciadoras p/ gerar o registro 0150. Município e Endereço são obrigatórios.</p>
+                    <h3 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">💳 Credenciadoras (1601)</h3>
+                    <p class="text-[13px] text-risco">Dados das maquininhas/credenciadoras p/ gerar o registro 0150. Município e Endereço são obrigatórios.</p>
                 </div>
-                <button @click="showCredModal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+                <button @click="showCredModal = false" class="w-10 h-10 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco transition-colors">✕</button>
             </div>
 
-            <div v-if="!credList.length" class="text-sm text-slate-400 italic py-6 text-center">Nenhuma credenciadora do 1601 sem 0150 neste arquivo. 👍</div>
+            <div v-if="!credList.length" class="text-[13px] text-risco italic py-6 text-center">Nenhuma credenciadora do 1601 sem 0150 neste arquivo. 👍</div>
 
             <div class="overflow-y-auto pr-2 space-y-4 custom-scrollbar flex-1">
-                <div v-for="(c, ci) in credList" :key="ci" class="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
+                <div v-for="(c, ci) in credList" :key="ci" class="bg-paper p-4 rounded-md border border-line space-y-2">
                     <div class="flex items-center gap-2">
-                        <span class="text-[9px] font-mono text-slate-400">CNPJ</span>
-                        <span class="text-xs font-black text-slate-700">{{ c.cnpj }}</span>
+                        <span class="text-[9px] font-mono text-risco">CNPJ</span>
+                        <span class="text-[12px] font-mono text-ink">{{ c.cnpj }}</span>
                     </div>
-                    <input v-model="c.nome" placeholder="Razão social" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-bold outline-none" />
+                    <input v-model="c.nome" placeholder="Razão social" class="w-full bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none" />
                     <div class="grid grid-cols-2 gap-2">
-                        <input v-model="c.cod_mun" placeholder="Cód. município IBGE (7 díg) *" maxlength="7" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs font-mono outline-none" />
-                        <input v-model="c.ie" placeholder="IE (deixe vazio p/ credenciadora)" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                        <input v-model="c.cod_mun" placeholder="Cód. município IBGE (7 díg) *" maxlength="7" class="bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] font-mono text-ink outline-none" />
+                        <input v-model="c.ie" placeholder="IE (deixe vazio p/ credenciadora)" class="bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none" />
                     </div>
-                    <input v-model="c.endereco" placeholder="Endereço (logradouro) *" class="w-full bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                    <input v-model="c.endereco" placeholder="Endereço (logradouro) *" class="w-full bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none" />
                     <div class="grid grid-cols-2 gap-2">
-                        <input v-model="c.num" placeholder="Número" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
-                        <input v-model="c.bairro" placeholder="Bairro" class="bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2 text-xs outline-none" />
+                        <input v-model="c.num" placeholder="Número" class="bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none" />
+                        <input v-model="c.bairro" placeholder="Bairro" class="bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2 text-[12px] text-ink outline-none" />
                     </div>
                 </div>
             </div>
 
-            <div v-if="credList.length && dadosPosto && (dadosPosto.cod_mun || dadosPosto.endereco)" class="flex items-center justify-between gap-3 bg-sky-50 rounded-2xl p-3 border border-sky-100">
-                <p class="text-[10px] text-sky-700 font-medium leading-snug">
+            <div v-if="credList.length && dadosPosto && (dadosPosto.cod_mun || dadosPosto.endereco)" class="flex items-center justify-between gap-3 bg-bronze/5 rounded-md p-3 border border-bronze/20">
+                <p class="text-[10px] text-ink leading-snug">
                     Sem o endereço da credenciadora? Use os dados do próprio posto
                     <span class="font-mono">({{ dadosPosto.cod_mun }} · {{ dadosPosto.endereco }})</span> — o 0150 fica válido no PVA.
                 </p>
-                <button @click="usarDadosPosto" type="button" class="shrink-0 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors">
+                <button @click="usarDadosPosto" type="button" class="shrink-0 px-3 py-1.5 bg-bronze hover:opacity-90 text-white rounded-md text-[10px] font-medium uppercase tracking-wide transition-colors">
                     🏪 Usar dados do posto
                 </button>
             </div>
 
-            <div class="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-start gap-3">
+            <div class="bg-variacao/10 rounded-md p-4 border border-variacao/20 flex items-start gap-3">
                 <div class="text-xl">💡</div>
-                <p class="text-[10px] text-amber-700 font-medium leading-relaxed italic">
+                <p class="text-[10px] text-ink leading-relaxed">
                     O 0150 só é injetado para credenciadoras com <b>Código de município</b> e <b>Endereço</b> preenchidos (obrigatórios no PVA). Os dados são reaproveitados em todos os arquivos.
                 </p>
             </div>
 
             <div class="flex gap-3">
-                <button @click="showCredModal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
-                <button @click="saveCred" :disabled="savingCred || !credList.length" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                <button @click="showCredModal = false" class="flex-1 py-4 text-risco font-medium hover:bg-paper rounded-md transition-colors uppercase tracking-wide text-[12px]">CANCELAR</button>
+                <button @click="saveCred" :disabled="savingCred || !credList.length" class="flex-[2] py-4 bg-graphite text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-[12px]">
                     <Loader2 v-if="savingCred" class="w-4 h-4 animate-spin"/>
                     {{ savingCred ? 'SALVANDO...' : 'SALVAR CREDENCIADORAS' }}
                 </button>
@@ -3199,34 +3195,34 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de Apuração do ICMS (E116) -->
-    <div v-if="showE116Modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6 animate-fade-in">
+    <div v-if="showE116Modal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-lg w-full card-shadow space-y-6 animate-fade-in">
             <div class="flex justify-between items-start">
                 <div>
-                    <h3 class="text-2xl font-black text-slate-800 tracking-tighter">🧾 Apuração ICMS <span class="text-brand-accent">(E116)</span></h3>
-                    <p class="text-sm text-slate-400 font-medium">Para gerar o E116 ausente quando o E110 tem ICMS a recolher.</p>
+                    <h3 class="font-display text-[22px] font-semibold text-ink tracking-[-0.01em]">🧾 Apuração ICMS (E116)</h3>
+                    <p class="text-[13px] text-risco">Para gerar o E116 ausente quando o E110 tem ICMS a recolher.</p>
                 </div>
-                <button @click="showE116Modal = false" class="w-10 h-10 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400 transition-colors">✕</button>
+                <button @click="showE116Modal = false" class="w-10 h-10 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco transition-colors">✕</button>
             </div>
 
             <div class="space-y-3">
                 <div>
-                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-wider">Código de receita (COD_REC)</label>
-                    <input v-model="e116Cad.cod_rec" placeholder="ex.: 0767" maxlength="10" class="w-full mt-1 bg-white border border-slate-200 focus:border-brand-accent rounded-xl px-3 py-2.5 text-sm font-mono font-bold outline-none" />
-                    <p class="text-[10px] text-slate-400 mt-1 italic">Padrão <b>0767</b> (ICMS REGIME NORMAL). Confirme no seu DARE/ERP se usar outro.</p>
+                    <label class="text-[10px] font-medium text-risco uppercase tracking-wide">Código de receita (COD_REC)</label>
+                    <input v-model="e116Cad.cod_rec" placeholder="ex.: 0767" maxlength="10" class="w-full mt-1 bg-sheet border border-line focus:border-bronze rounded-md px-3 py-2.5 text-[13px] font-mono text-ink outline-none" />
+                    <p class="text-[10px] text-risco mt-1 italic">Padrão <b>0767</b> (ICMS REGIME NORMAL). Confirme no seu DARE/ERP se usar outro.</p>
                 </div>
             </div>
 
-            <div class="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 flex items-start gap-3">
+            <div class="bg-conforme/10 rounded-md p-4 border border-conforme/20 flex items-start gap-3">
                 <div class="text-xl">✅</div>
-                <p class="text-[10px] text-emerald-700 font-medium leading-relaxed italic">
+                <p class="text-[10px] text-ink leading-relaxed">
                     Automático ao re-exportar: <b>COD_OR=000</b>; <b>valor</b> = ICMS a recolher do E110; <b>vencimento</b> = último dia do mês de apuração; <b>mês de referência</b> = período do SPED. Você só confirma o COD_REC.
                 </p>
             </div>
 
             <div class="flex gap-3">
-                <button @click="showE116Modal = false" class="flex-1 py-4 text-slate-500 font-bold hover:bg-slate-100 rounded-2xl transition-colors uppercase tracking-widest text-xs">CANCELAR</button>
-                <button @click="saveE116" :disabled="savingE116 || !e116Cad.cod_rec" class="flex-[2] py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg shadow-slate-200 hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-xs">
+                <button @click="showE116Modal = false" class="flex-1 py-4 text-risco font-medium hover:bg-paper rounded-md transition-colors uppercase tracking-wide text-[12px]">CANCELAR</button>
+                <button @click="saveE116" :disabled="savingE116 || !e116Cad.cod_rec" class="flex-[2] py-4 bg-graphite text-white font-medium rounded-md hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-[12px]">
                     <Loader2 v-if="savingE116" class="w-4 h-4 animate-spin"/>
                     {{ savingE116 ? 'SALVANDO...' : 'SALVAR APURAÇÃO' }}
                 </button>
@@ -3235,23 +3231,23 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal de LMC Incompleto: dias do período sem Registro 1300 -->
-    <div v-if="showLmcLacunaModal && avisosLmcUpload" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-5 max-h-[85vh] overflow-y-auto">
+    <div v-if="showLmcLacunaModal && avisosLmcUpload" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-2xl w-full card-shadow space-y-5 max-h-[85vh] overflow-y-auto">
             <div class="flex justify-between items-start gap-4">
                 <div class="flex items-start gap-3">
                     <div class="text-2xl">⚠️</div>
                     <div>
-                        <h3 class="text-xl font-black text-amber-700">LMC Incompleto Detectado</h3>
-                        <p class="text-xs text-slate-500 mt-1 font-medium">
-                            Período <span class="font-mono font-bold">{{ avisosLmcUpload.periodo }}</span> ·
+                        <h3 class="font-display text-[18px] font-semibold text-variacao">LMC Incompleto Detectado</h3>
+                        <p class="text-[12px] text-risco mt-1">
+                            Período <span class="font-mono text-ink">{{ avisosLmcUpload.periodo }}</span> ·
                             {{ avisosLmcUpload.total_dias_periodo }} dias esperados
                         </p>
                     </div>
                 </div>
-                <button @click="showLmcLacunaModal = false" class="w-9 h-9 bg-slate-50 hover:bg-slate-100 rounded-full flex items-center justify-center text-slate-400">✕</button>
+                <button @click="showLmcLacunaModal = false" class="w-9 h-9 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco">✕</button>
             </div>
 
-            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 leading-relaxed">
+            <div class="bg-variacao/10 border border-variacao/20 rounded-md p-4 text-[12px] text-ink leading-relaxed">
                 O arquivo SPED foi importado, mas o <b>Registro 1300 (LMC)</b> não cobre todos os dias do período.
                 Isso costuma indicar que o LMC parou de ser lançado antes do fim do mês.
                 Verifique na tabela abaixo quais combustíveis estão com dias faltantes — corrija no SPED de origem
@@ -3260,22 +3256,22 @@ const afericaoGauge = computed(() => {
 
             <div class="space-y-2">
                 <div v-for="prod in avisosLmcUpload.produtos.filter(p => p.dias_faltantes.length > 0)" :key="prod.cod_item"
-                     class="border border-slate-200 rounded-2xl p-4 space-y-2">
+                     class="border border-line rounded-md p-4 space-y-2">
                     <div class="flex items-center justify-between gap-3">
                         <div>
-                            <div class="text-sm font-black text-slate-800">{{ prod.descr_item }}</div>
-                            <div class="text-[10px] font-mono text-slate-400">{{ prod.cod_item }}</div>
+                            <div class="text-[13px] font-medium text-ink">{{ prod.descr_item }}</div>
+                            <div class="text-[10px] font-mono text-risco">{{ prod.cod_item }}</div>
                         </div>
                         <div class="text-right">
-                            <div class="text-xs font-black text-rose-600">{{ prod.dias_faltantes.length }} dia(s) sem LMC</div>
-                            <div class="text-[10px] text-slate-400">
+                            <div class="text-[12px] font-medium text-lacre">{{ prod.dias_faltantes.length }} dia(s) sem LMC</div>
+                            <div class="text-[10px] text-risco">
                                 Último lançamento: <span class="font-mono">{{ prod.ultimo_dia_com_lmc || '—' }}</span>
                             </div>
                         </div>
                     </div>
                     <div class="flex flex-wrap gap-1">
                         <span v-for="d in prod.dias_faltantes" :key="d"
-                              class="text-[10px] font-mono bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-100">
+                              class="text-[10px] font-mono bg-lacre/10 text-lacre px-2 py-0.5 rounded border border-lacre/20">
                             {{ d.split('-').reverse().join('/') }}
                         </span>
                     </div>
@@ -3284,7 +3280,7 @@ const afericaoGauge = computed(() => {
 
             <div class="flex gap-3 pt-2">
                 <button @click="showLmcLacunaModal = false"
-                        class="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg hover:bg-slate-800 transition-all uppercase tracking-widest text-xs">
+                        class="flex-1 py-4 bg-graphite text-white font-medium rounded-md hover:opacity-90 transition-all uppercase tracking-wide text-[12px]">
                     Entendi, continuar auditoria
                 </button>
             </div>
@@ -3292,43 +3288,43 @@ const afericaoGauge = computed(() => {
     </div>
 
     <!-- Modal: Período Fora de Sequência -->
-    <div v-if="showSequenciaModal && sequenciaInfo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-        <div class="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-5">
+    <div v-if="showSequenciaModal && sequenciaInfo" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
+        <div class="bg-sheet rounded-md border border-line p-8 max-w-lg w-full card-shadow space-y-5">
             <div class="flex items-start gap-3">
-                <div class="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl shrink-0">⚠️</div>
+                <div class="w-12 h-12 bg-variacao/15 rounded-md flex items-center justify-center text-2xl shrink-0">⚠️</div>
                 <div>
-                    <h3 class="text-lg font-black text-amber-700">Período Fora de Sequência</h3>
-                    <p class="text-xs text-slate-500 mt-1 font-medium">{{ sequenciaInfo.empresa }}</p>
+                    <h3 class="font-display text-[16px] font-semibold text-variacao">Período Fora de Sequência</h3>
+                    <p class="text-[12px] text-risco mt-1">{{ sequenciaInfo.empresa }}</p>
                 </div>
             </div>
 
-            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-slate-500 font-medium">Último período carregado:</span>
-                    <span class="font-black text-slate-800">{{ sequenciaInfo.ultimoPeriodo }}</span>
+            <div class="bg-variacao/10 border border-variacao/20 rounded-md p-5 space-y-3">
+                <div class="flex items-center justify-between text-[13px]">
+                    <span class="text-risco">Último período carregado:</span>
+                    <span class="font-mono text-ink">{{ sequenciaInfo.ultimoPeriodo }}</span>
                 </div>
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-slate-500 font-medium">Período esperado:</span>
-                    <span class="font-black text-emerald-600">{{ sequenciaInfo.esperado }}</span>
+                <div class="flex items-center justify-between text-[13px]">
+                    <span class="text-risco">Período esperado:</span>
+                    <span class="font-mono text-conforme">{{ sequenciaInfo.esperado }}</span>
                 </div>
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-slate-500 font-medium">Período do arquivo:</span>
-                    <span class="font-black text-amber-700">{{ sequenciaInfo.novoPeriodo }}</span>
+                <div class="flex items-center justify-between text-[13px]">
+                    <span class="text-risco">Período do arquivo:</span>
+                    <span class="font-mono text-variacao">{{ sequenciaInfo.novoPeriodo }}</span>
                 </div>
             </div>
 
-            <p class="text-xs text-slate-500 leading-relaxed">
+            <p class="text-[12px] text-risco leading-relaxed">
                 O arquivo que você está carregando não é o mês seguinte ao último período processado.
                 Isso pode causar quebra de continuidade no LMC e divergências intermensais.
             </p>
 
             <div class="flex gap-3 pt-1">
                 <button @click="cancelarUploadForaSequencia"
-                        class="flex-1 py-3.5 bg-slate-100 text-slate-700 font-bold rounded-2xl hover:bg-slate-200 transition-all text-xs uppercase tracking-wider">
+                        class="flex-1 py-3.5 bg-paper text-ink font-medium rounded-md hover:bg-line/50 transition-all text-[12px] uppercase tracking-wide">
                     Cancelar
                 </button>
                 <button @click="confirmarUploadForaSequencia"
-                        class="flex-1 py-3.5 bg-amber-500 text-white font-black rounded-2xl shadow-lg hover:bg-amber-600 transition-all text-xs uppercase tracking-wider">
+                        class="flex-1 py-3.5 bg-variacao text-white font-medium rounded-md hover:opacity-90 transition-all text-[12px] uppercase tracking-wide">
                     Carregar mesmo assim
                 </button>
             </div>
@@ -3344,5 +3340,8 @@ const afericaoGauge = computed(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
 }
 </style>

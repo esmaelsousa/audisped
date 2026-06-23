@@ -4,6 +4,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { empresaSelecionada, idArquivoSped, setArquivoInfo, setEmpresaSelecionada } from '../store';
 import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-vue-next';
+import UiButton from '@/components/ui/UiButton.vue';
 
 const loading = ref(false);
 const erro = ref('');
@@ -309,306 +310,308 @@ onMounted(async () => {
   <div class="p-6 max-w-6xl mx-auto space-y-6">
     <!-- Cabeçalho -->
     <div class="flex items-center gap-3">
-      <div class="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-        <ShieldCheck class="w-6 h-6" />
+      <div class="w-11 h-11 rounded-md bg-bronze/10 flex items-center justify-center text-bronze">
+        <ShieldCheck class="w-6 h-6" :stroke-width="1.7" />
       </div>
       <div>
-        <h1 class="text-xl font-bold text-slate-800">Validador de SPED Fiscal</h1>
-        <p class="text-xs text-slate-500">Selecione um SPED importado, valide todos os blocos, corrija e baixe o arquivo corrigido.</p>
+        <h1 class="font-display text-[22px] font-semibold tracking-[-0.01em] text-ink">Validador de SPED Fiscal</h1>
+        <p class="text-[13px] text-risco">Selecione um SPED importado, valide todos os blocos, corrija e baixe o arquivo corrigido.</p>
       </div>
     </div>
 
     <!-- Seletor empresa → período (só arquivos do banco) -->
-    <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+    <div class="bg-sheet rounded-md border border-line card-shadow p-5">
       <div class="mb-3">
-        <label class="text-[11px] font-bold text-slate-500 uppercase">Buscar empresa</label>
+        <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Buscar empresa</label>
         <div class="relative mt-1">
           <input v-model="buscaEmpresa" type="text" placeholder="CNPJ, razão social ou nome fantasia…"
-            class="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 pr-8" />
+            class="w-full bg-sheet border border-line rounded-md text-[13px] text-ink px-3 py-2 pr-8 outline-none focus:border-bronze transition-colors" />
           <button v-if="buscaEmpresa" @click="buscaEmpresa = ''" type="button"
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">✕</button>
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-risco hover:text-ink transition-colors">✕</button>
         </div>
-        <p v-if="buscaEmpresa" class="text-[10px] text-slate-400 mt-1">{{ empresasFiltradas.length }} de {{ empresas.length }} empresa(s)</p>
+        <p v-if="buscaEmpresa" class="text-[11px] text-risco mt-1">{{ empresasFiltradas.length }} de {{ empresas.length }} empresa(s)</p>
       </div>
       <div class="grid sm:grid-cols-[2fr_1.5fr_auto] gap-3 items-end">
         <div>
-          <label class="text-[11px] font-bold text-slate-500 uppercase">Empresa</label>
-          <select v-model="empresaSel" @change="carregarArquivos" class="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2">
+          <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Empresa</label>
+          <select v-model="empresaSel" @change="carregarArquivos" class="mt-1 w-full bg-sheet border border-line rounded-md text-[13px] text-ink px-3 py-2 outline-none focus:border-bronze transition-colors">
             <option :value="null">— selecione —</option>
             <option v-for="e in empresasFiltradas" :key="e.id" :value="e.id">{{ nomeEmpresa(e) }} · {{ e.cnpj }}</option>
           </select>
         </div>
         <div>
-          <label class="text-[11px] font-bold text-slate-500 uppercase">Período (SPED)</label>
-          <select v-model="arquivoSel" :disabled="!arquivos.length" class="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2 disabled:bg-slate-50">
+          <label class="text-[11px] uppercase tracking-wide text-risco font-medium">Período (SPED)</label>
+          <select v-model="arquivoSel" :disabled="!arquivos.length" class="mt-1 w-full bg-sheet border border-line rounded-md text-[13px] text-ink px-3 py-2 outline-none focus:border-bronze transition-colors disabled:bg-paper">
             <option :value="null">— selecione —</option>
             <option v-for="a in arquivos" :key="a.id" :value="a.id">{{ a.periodo_apuracao }}</option>
           </select>
         </div>
-        <button @click="analisar" :disabled="loading || !arquivoSel"
-          class="px-5 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2 justify-center">
-          <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><ShieldCheck v-else class="w-4 h-4" />
+        <UiButton @click="analisar" :disabled="loading || !arquivoSel" class="justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+          <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><ShieldCheck v-else class="w-4 h-4" :stroke-width="1.8" />
           {{ loading ? 'Validando…' : 'Validar este SPED' }}
-        </button>
+        </UiButton>
       </div>
-      <div class="flex items-center gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
+      <div class="flex items-center gap-3 mt-3 pt-3 border-t border-line flex-wrap">
         <input ref="uploadRef" type="file" accept=".txt,.TXT" class="hidden" @change="importarSped" />
-        <button @click="uploadRef && uploadRef.click()" :disabled="uploading"
-          class="px-4 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 flex items-center gap-2">
-          <Loader2 v-if="uploading" class="w-4 h-4 animate-spin" /><UploadCloud v-else class="w-4 h-4" />
+        <UiButton variant="ghost" @click="uploadRef && uploadRef.click()" :disabled="uploading" class="disabled:opacity-50">
+          <Loader2 v-if="uploading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><UploadCloud v-else class="w-4 h-4 text-risco" :stroke-width="1.8" />
           {{ uploading ? 'Importando…' : 'Importar SPED (.txt)' }}
-        </button>
-        <span v-if="uploadMsg" class="text-xs text-indigo-600 font-semibold">{{ uploadMsg }}</span>
-        <span v-else class="text-[11px] text-slate-400">Importa um SPED novo no banco (como o Analisador) e já valida. Ou selecione um já importado acima.</span>
+        </UiButton>
+        <span v-if="uploadMsg" class="text-[12px] text-bronze font-medium">{{ uploadMsg }}</span>
+        <span v-else class="text-[11px] text-risco">Importa um SPED novo no banco (como o Analisador) e já valida. Ou selecione um já importado acima.</span>
       </div>
     </div>
 
-    <div v-if="erro" class="bg-red-50 border border-red-200 text-red-700 text-sm rounded-2xl p-4">{{ erro }}</div>
-    <div v-if="loading" class="text-center text-slate-400 text-sm py-10"><Loader2 class="w-6 h-6 animate-spin inline" /> Validando o SPED…</div>
+    <div v-if="erro" class="bg-lacre/[0.06] border border-lacre/25 text-lacre text-[13px] rounded-md p-4">{{ erro }}</div>
+    <div v-if="loading" class="text-center text-risco text-[13px] py-10"><Loader2 class="w-6 h-6 animate-spin inline" :stroke-width="1.8" /> Validando o SPED…</div>
 
     <template v-if="resultado && !loading">
       <!-- Identificação -->
-      <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+      <div class="bg-sheet rounded-md border border-line card-shadow p-5">
         <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <h2 class="text-base font-bold text-slate-800">{{ empresaNome || resultado.arquivo?.cnpj || 'Empresa' }}</h2>
-          <span v-if="resultado.validadoSobre === 'exportado'" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">✓ validado sobre o SPED corrigido</span>
+          <h2 class="font-display text-[16px] font-semibold text-ink">{{ empresaNome || resultado.arquivo?.cnpj || 'Empresa' }}</h2>
+          <span v-if="resultado.validadoSobre === 'exportado'" class="text-[10px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-1 rounded-md">✓ validado sobre o SPED corrigido</span>
         </div>
-        <div class="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-          <span class="text-slate-500">CNPJ: <b class="text-slate-700">{{ resultado.arquivo?.cnpj || '—' }}</b></span>
-          <span class="text-slate-500">Período: <b class="text-slate-700">{{ fmtPeriodo(resultado.arquivo?.periodo) }}</b></span>
-          <span class="text-slate-500">Leiaute: <b class="text-slate-700">{{ resultado.arquivo?.versao || '—' }}</b></span>
-          <span class="text-slate-500">Linhas: <b class="text-slate-700">{{ resultado.arquivo?.totalLinhas?.toLocaleString('pt-BR') }}</b></span>
-          <span class="text-slate-400 text-xs">Arquivo: {{ resultado.arquivo?.nome || '—' }}</span>
+        <div class="flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+          <span class="text-risco">CNPJ: <b class="font-mono text-ink">{{ resultado.arquivo?.cnpj || '—' }}</b></span>
+          <span class="text-risco">Período: <b class="font-mono text-ink">{{ fmtPeriodo(resultado.arquivo?.periodo) }}</b></span>
+          <span class="text-risco">Leiaute: <b class="font-mono text-ink">{{ resultado.arquivo?.versao || '—' }}</b></span>
+          <span class="text-risco">Linhas: <b class="font-mono text-ink">{{ resultado.arquivo?.totalLinhas?.toLocaleString('pt-BR') }}</b></span>
+          <span class="text-risco text-[12px]">Arquivo: {{ resultado.arquivo?.nome || '—' }}</span>
         </div>
       </div>
 
       <!-- Métricas -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-          <p class="text-[10px] uppercase font-bold text-slate-400">Ocorrências</p>
-          <p class="text-2xl font-bold text-slate-700">{{ resultado.resumo.total }}</p>
+        <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+          <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Ocorrências</p>
+          <p class="text-[26px] font-display font-semibold text-ink">{{ resultado.resumo.total }}</p>
         </div>
-        <div class="p-4 rounded-2xl border shadow-sm text-center" :class="resultado.resumo.bloqueantes ? 'bg-red-50 border-red-200' : 'bg-white border-slate-100'">
-          <p class="text-[10px] uppercase font-bold text-slate-400">Bloqueantes</p>
-          <p class="text-2xl font-bold" :class="resultado.resumo.bloqueantes ? 'text-red-600' : 'text-slate-700'">{{ resultado.resumo.bloqueantes }}</p>
+        <div class="p-4 rounded-md border card-shadow text-center" :class="resultado.resumo.bloqueantes ? 'bg-lacre/[0.06] border-lacre/25' : 'bg-sheet border-line'">
+          <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Bloqueantes</p>
+          <p class="text-[26px] font-display font-semibold" :class="resultado.resumo.bloqueantes ? 'text-lacre' : 'text-ink'">{{ resultado.resumo.bloqueantes }}</p>
         </div>
-        <div class="p-4 rounded-2xl border shadow-sm text-center" :class="resultado.resumo.advertencias ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'">
-          <p class="text-[10px] uppercase font-bold text-slate-400">Advertências</p>
-          <p class="text-2xl font-bold text-amber-600">{{ resultado.resumo.advertencias }}</p>
+        <div class="p-4 rounded-md border card-shadow text-center" :class="resultado.resumo.advertencias ? 'bg-variacao/[0.06] border-variacao/25' : 'bg-sheet border-line'">
+          <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Advertências</p>
+          <p class="text-[26px] font-display font-semibold text-variacao">{{ resultado.resumo.advertencias }}</p>
         </div>
-        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-          <p class="text-[10px] uppercase font-bold text-slate-400">Regras executadas</p>
-          <p class="text-2xl font-bold text-slate-700">{{ resultado.resumo.regrasExecutadas }}</p>
+        <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+          <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Regras executadas</p>
+          <p class="text-[26px] font-display font-semibold text-ink">{{ resultado.resumo.regrasExecutadas }}</p>
         </div>
       </div>
 
       <!-- Cobertura por bloco (o "X") -->
-      <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
-        <p class="text-xs font-bold text-slate-500 uppercase mb-3">Cobertura por bloco</p>
+      <div class="bg-sheet rounded-md border border-line card-shadow p-5">
+        <p class="text-[11px] uppercase tracking-wide font-medium text-risco mb-3">Cobertura por bloco</p>
         <div class="flex flex-wrap gap-2">
           <button v-for="b in resultado.resumo.blocosPresentes" :key="b"
             @click="filtroBloco = filtroBloco === b ? '' : b"
-            class="px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all"
+            class="px-3 py-1.5 rounded-md text-[12px] font-medium border flex items-center gap-1.5 transition-colors"
             :class="[
-              filtroBloco === b ? 'ring-2 ring-indigo-400' : '',
-              (resultado.porBloco[b]?.bloqueantes) ? 'bg-red-50 border-red-200 text-red-700'
-              : (resultado.porBloco[b]?.erros) ? 'bg-amber-50 border-amber-200 text-amber-700'
-              : 'bg-emerald-50 border-emerald-200 text-emerald-700']">
-            <component :is="resultado.porBloco[b]?.erros ? AlertTriangle : CheckCircle2" class="w-3.5 h-3.5" />
-            {{ nomeBloco(b) }}<span v-if="resultado.porBloco[b]?.erros"> · {{ resultado.porBloco[b].erros }}</span>
+              filtroBloco === b ? 'ring-2 ring-bronze/50' : '',
+              (resultado.porBloco[b]?.bloqueantes) ? 'bg-lacre/[0.06] border-lacre/25 text-lacre'
+              : (resultado.porBloco[b]?.erros) ? 'bg-variacao/[0.06] border-variacao/25 text-variacao'
+              : 'bg-conforme/[0.06] border-conforme/25 text-conforme']">
+            <component :is="resultado.porBloco[b]?.erros ? AlertTriangle : CheckCircle2" class="w-3.5 h-3.5" :stroke-width="1.7" />
+            {{ nomeBloco(b) }}<span v-if="resultado.porBloco[b]?.erros" class="font-mono"> · {{ resultado.porBloco[b].erros }}</span>
           </button>
         </div>
       </div>
 
       <!-- Ações de correção -->
-      <div v-if="resultadoId" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-3">
+      <div v-if="resultadoId" class="bg-sheet rounded-md border border-line card-shadow p-5 space-y-3">
         <div class="flex items-center gap-3 flex-wrap">
-          <button @click="revalidar" :disabled="loading" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-2">
-            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" /><CheckCircle2 v-else class="w-4 h-4" /> Re-validar (sobre o SPED corrigido)
-          </button>
-          <button @click="baixarCorrigido" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 flex items-center gap-2">
-            <UploadCloud class="w-4 h-4 rotate-180" /> Baixar SPED corrigido
-          </button>
-          <button @click="verAlteracoes" :disabled="loadingAlt" class="px-4 py-2 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-50 flex items-center gap-2">
-            <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" /><span v-else>📋</span> O que foi corrigido
-          </button>
-          <span v-if="msgCorr" class="text-xs font-semibold" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-red-600' : 'text-emerald-600'">{{ msgCorr }}</span>
+          <UiButton @click="baixarCorrigido">
+            <UploadCloud class="w-4 h-4 rotate-180" :stroke-width="1.8" /> Baixar SPED corrigido
+          </UiButton>
+          <UiButton variant="ghost" @click="revalidar" :disabled="loading" class="disabled:opacity-50">
+            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" /> Re-validar (sobre o SPED corrigido)
+          </UiButton>
+          <UiButton variant="ghost" @click="verAlteracoes" :disabled="loadingAlt" class="disabled:opacity-50">
+            <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><span v-else>📋</span> O que foi corrigido
+          </UiButton>
+          <span v-if="msgCorr" class="text-[12px] font-medium" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-lacre' : 'text-conforme'">{{ msgCorr }}</span>
         </div>
-        <div v-if="correcoes.length" class="border border-slate-100 rounded-xl overflow-hidden">
-          <div class="px-3 py-2 bg-slate-50 text-[11px] font-bold text-slate-500">Correções a aplicar no SPED corrigido ({{ correcoes.length }})</div>
+        <div v-if="correcoes.length" class="border border-line rounded-md overflow-hidden">
+          <div class="px-3 py-2 bg-paper text-[11px] uppercase tracking-wide font-medium text-risco">Correções a aplicar no SPED corrigido ({{ correcoes.length }})</div>
           <table class="w-full text-[11px]">
-            <tbody class="divide-y divide-slate-50">
-              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-slate-50/60">
-                <td class="px-3 py-1.5 font-mono text-slate-500">{{ c.registro }}</td>
-                <td class="px-3 py-1.5 text-slate-500">campo {{ c.campo_idx }}</td>
-                <td class="px-3 py-1.5"><span class="text-slate-400 line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-emerald-700">{{ c.valor_corrigido }}</span></td>
-                <td class="px-3 py-1.5 text-right"><button @click="removerCorrecao(c)" class="text-[10px] text-red-500 hover:text-red-700 font-bold">remover</button></td>
+            <tbody class="divide-y divide-line">
+              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-paper">
+                <td class="px-3 py-1.5 font-mono text-risco">{{ c.registro }}</td>
+                <td class="px-3 py-1.5 text-risco">campo {{ c.campo_idx }}</td>
+                <td class="px-3 py-1.5"><span class="text-risco line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-conforme">{{ c.valor_corrigido }}</span></td>
+                <td class="px-3 py-1.5 text-right"><button @click="removerCorrecao(c)" class="text-[10px] text-lacre hover:opacity-80 font-medium">remover</button></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="text-[10px] text-slate-400">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
+        <p class="text-[11px] text-risco">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
       </div>
 
       <!-- Corrigir cadastro: IE (0000) e contabilista (0100) — edita direto → aplicado no export -->
-      <div v-if="resultadoId && cadastro" class="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4">
+      <div v-if="resultadoId && cadastro" class="bg-sheet rounded-md border border-line card-shadow p-5 space-y-4">
         <div>
-          <h3 class="text-sm font-bold text-slate-700">Corrigir cadastro (IE / contabilista)</h3>
-          <p class="text-[11px] text-slate-400">Digite o valor correto e salve — vai para as correções e o SPED exportado já sai corrigido. Use para a IE rejeitada pela SEFAZ e para os dados do contador.</p>
+          <h3 class="text-[13px] font-semibold text-ink">Corrigir cadastro (IE / contabilista)</h3>
+          <p class="text-[11px] text-risco">Digite o valor correto e salve — vai para as correções e o SPED exportado já sai corrigido. Use para a IE rejeitada pela SEFAZ e para os dados do contador.</p>
         </div>
         <!-- Inscrição Estadual (0000) -->
         <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-bold text-slate-500 w-40 shrink-0">Inscrição Estadual <span class="text-slate-400">(UF {{ cadastro.uf || '—' }})</span></span>
-          <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.ie || '(vazio)' }}</b></span>
-          <input v-model="cadVal.ie" type="text" placeholder="IE correta" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
-          <button @click="salvarCadastro('ie','0000','unico',10,cadastro.ie)" :disabled="salvandoCad==='ie'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+          <span class="text-[12px] font-medium text-risco w-40 shrink-0">Inscrição Estadual <span class="text-risco">(UF {{ cadastro.uf || '—' }})</span></span>
+          <span class="text-[11px] text-risco">atual: <b class="font-mono text-ink">{{ cadastro.ie || '(vazio)' }}</b></span>
+          <input v-model="cadVal.ie" type="text" placeholder="IE correta" class="flex-1 min-w-[140px] h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" />
+          <button @click="salvarCadastro('ie','0000','unico',10,cadastro.ie)" :disabled="salvandoCad==='ie'" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">salvar</button>
         </div>
         <!-- Contabilista (0100) -->
         <template v-if="cadastro.contador">
-          <div class="text-[11px] text-slate-400 border-t border-slate-100 pt-3">Contabilista (0100): <b class="text-slate-600">{{ cadastro.contador.nome || '—' }}</b> · CNPJ {{ cadastro.contador.cnpj || '—' }}</div>
+          <div class="text-[11px] text-risco border-t border-line pt-3">Contabilista (0100): <b class="text-ink">{{ cadastro.contador.nome || '—' }}</b> · CNPJ <span class="font-mono">{{ cadastro.contador.cnpj || '—' }}</span></div>
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-bold text-slate-500 w-40 shrink-0">CPF do responsável</span>
-            <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.contador.cpf || '(vazio)' }}</b></span>
-            <input v-model="cadVal.cpf" type="text" placeholder="CPF (só números)" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
-            <button @click="salvarCadastro('cpf','0100',cadastro.contador.chave,3,cadastro.contador.cpf)" :disabled="salvandoCad==='cpf'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+            <span class="text-[12px] font-medium text-risco w-40 shrink-0">CPF do responsável</span>
+            <span class="text-[11px] text-risco">atual: <b class="font-mono text-ink">{{ cadastro.contador.cpf || '(vazio)' }}</b></span>
+            <input v-model="cadVal.cpf" type="text" placeholder="CPF (só números)" class="flex-1 min-w-[140px] h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" />
+            <button @click="salvarCadastro('cpf','0100',cadastro.contador.chave,3,cadastro.contador.cpf)" :disabled="salvandoCad==='cpf'" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">salvar</button>
           </div>
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-bold text-slate-500 w-40 shrink-0">CRC</span>
-            <span class="text-[11px] text-slate-400">atual: <b class="font-mono text-slate-600">{{ cadastro.contador.crc || '(vazio)' }}</b></span>
-            <input v-model="cadVal.crc" type="text" placeholder="nº do CRC" class="flex-1 min-w-[140px] h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" />
-            <button @click="salvarCadastro('crc','0100',cadastro.contador.chave,4,cadastro.contador.crc)" :disabled="salvandoCad==='crc'" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">salvar</button>
+            <span class="text-[12px] font-medium text-risco w-40 shrink-0">CRC</span>
+            <span class="text-[11px] text-risco">atual: <b class="font-mono text-ink">{{ cadastro.contador.crc || '(vazio)' }}</b></span>
+            <input v-model="cadVal.crc" type="text" placeholder="nº do CRC" class="flex-1 min-w-[140px] h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" />
+            <button @click="salvarCadastro('crc','0100',cadastro.contador.chave,4,cadastro.contador.crc)" :disabled="salvandoCad==='crc'" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">salvar</button>
           </div>
         </template>
       </div>
 
       <!-- O QUE FOI CORRIGIDO (changelog antes→depois, por bloco/registro) -->
-      <div v-if="alteracoes" class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-          <span class="text-sm font-bold text-slate-700">📋 O que foi corrigido</span>
-          <span class="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">{{ alteracoes.total }} alteração(ões)</span>
-          <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ k }}: {{ n }}</span>
-          <button @click="baixarRelatorioPdf" class="ml-auto px-3 py-1 rounded-lg text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">📄 Relatório (PDF)</button>
-          <button @click="alteracoes = null" class="text-[11px] text-slate-400 hover:text-slate-600 font-bold">fechar ✕</button>
+      <div v-if="alteracoes" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+        <div class="px-5 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+          <span class="text-[13px] font-semibold text-ink">📋 O que foi corrigido</span>
+          <span class="text-[11px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-0.5 rounded-md">{{ alteracoes.total }} alteração(ões)</span>
+          <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-medium text-risco bg-paper border border-line px-2 py-0.5 rounded-md">{{ k }}: {{ n }}</span>
+          <button @click="baixarRelatorioPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">📄 Relatório (PDF)</button>
+          <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar ✕</button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
-        <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-amber-50 border-b border-amber-100">
-          <p class="text-[11px] font-bold text-amber-800 mb-1.5">⏸️ Correções desligadas por você ({{ alteracoes.skips.length }}) — NÃO aplicadas (o erro pode voltar no PVA):</p>
+        <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-variacao/[0.06] border-b border-variacao/20">
+          <p class="text-[11px] font-medium text-variacao mb-1.5">⏸️ Correções desligadas por você ({{ alteracoes.skips.length }}) — NÃO aplicadas (o erro pode voltar no PVA):</p>
           <div class="flex flex-wrap gap-2">
-            <span v-for="(s, i) in alteracoes.skips" :key="i" class="inline-flex items-center gap-1.5 text-[10px] bg-white border border-amber-200 rounded-full px-2 py-0.5">
-              <span class="font-semibold text-amber-800">{{ rotuloRegra(s.regra_id) }}<span v-if="s.chave" class="font-mono text-amber-600"> · {{ s.chave }}</span></span>
-              <button @click="toggleSkip(s.regra_id, s.chave, false)" :disabled="loadingAlt" class="text-emerald-600 hover:text-emerald-800 font-bold">reativar ↺</button>
+            <span v-for="(s, i) in alteracoes.skips" :key="i" class="inline-flex items-center gap-1.5 text-[10px] bg-sheet border border-variacao/25 rounded-md px-2 py-0.5">
+              <span class="font-medium text-variacao">{{ rotuloRegra(s.regra_id) }}<span v-if="s.chave" class="font-mono"> · {{ s.chave }}</span></span>
+              <button @click="toggleSkip(s.regra_id, s.chave, false)" :disabled="loadingAlt" class="text-conforme hover:opacity-80 font-medium">reativar ↺</button>
             </span>
           </div>
         </div>
-        <div v-if="!alteracoes.total" class="px-5 py-6 text-xs text-slate-400 italic text-center">Nenhuma correção aplicada neste arquivo (o SPED já estava coerente nos pontos que tratamos).</div>
-        <div v-else class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+        <div v-if="!alteracoes.total" class="px-5 py-6 text-[13px] text-risco italic text-center">Nenhuma correção aplicada neste arquivo (o SPED já estava coerente nos pontos que tratamos).</div>
+        <div v-else class="divide-y divide-line max-h-[60vh] overflow-y-auto">
           <div v-for="b in alteracoes.agrupado" :key="b.bloco" class="p-4">
-            <p class="text-xs font-black text-slate-600 mb-2">BLOCO {{ b.bloco }} <span class="text-slate-400 font-bold">· {{ b.total }}</span></p>
+            <p class="text-[12px] font-semibold text-ink mb-2">BLOCO {{ b.bloco }} <span class="text-risco font-mono">· {{ b.total }}</span></p>
             <div v-for="reg in b.registros" :key="reg.registro" class="mb-3">
-              <p class="text-[11px] font-bold text-indigo-600 font-mono mb-1">{{ reg.registro }} <span class="text-slate-400">({{ reg.total }})</span></p>
+              <p class="text-[11px] font-medium text-bronze font-mono mb-1">{{ reg.registro }} <span class="text-risco">({{ reg.total }})</span></p>
               <div class="space-y-1">
-                <div v-for="(it, i) in reg.itens" :key="i" class="text-[11px] flex items-start gap-2 bg-slate-50/60 rounded-lg px-2 py-1.5">
-                  <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded"
-                    :class="{ 'bg-violet-100 text-violet-700': it.origem==='injecao', 'bg-amber-100 text-amber-700': it.origem==='fiscal', 'bg-sky-100 text-sky-700': it.origem==='manual', 'bg-slate-200 text-slate-600': it.origem==='auto', 'bg-rose-100 text-rose-700': it.origem==='remocao' }">{{ it.origem }}</span>
+                <div v-for="(it, i) in reg.itens" :key="i" class="text-[11px] flex items-start gap-2 bg-paper rounded-md px-2 py-1.5">
+                  <span class="shrink-0 text-[9px] font-medium uppercase px-1.5 py-0.5 rounded-md border"
+                    :class="{ 'bg-bronze/10 text-bronze border-bronze/25': it.origem==='injecao', 'bg-variacao/10 text-variacao border-variacao/25': it.origem==='fiscal', 'bg-conforme/10 text-conforme border-conforme/25': it.origem==='manual', 'bg-paper text-risco border-line': it.origem==='auto', 'bg-lacre/10 text-lacre border-lacre/25': it.origem==='remocao' }">{{ it.origem }}</span>
                   <span class="min-w-0 flex-1">
-                    <b class="text-slate-600">{{ it.campo || it.escopo }}</b>:
-                    <span class="text-slate-400 line-through break-all">{{ it.antes || '—' }}</span>
-                    <span class="text-slate-300 mx-1">→</span>
-                    <span class="font-mono text-emerald-700 break-all">{{ it.depois }}</span>
-                    <span class="block text-[10px] text-slate-400 italic">{{ it.motivo }}</span>
+                    <b class="text-ink">{{ it.campo || it.escopo }}</b>:
+                    <span class="text-risco line-through break-all">{{ it.antes || '—' }}</span>
+                    <span class="text-risco mx-1">→</span>
+                    <span class="font-mono text-conforme break-all">{{ it.depois }}</span>
+                    <span class="block text-[10px] text-risco italic">{{ it.motivo }}</span>
                   </span>
                   <button v-if="EXCLUIVEIS.has(it.regraId)" @click="toggleSkip(it.regraId, chaveSkip(it), true)" :disabled="loadingAlt"
                     title="Não aplicar esta correção no SPED corrigido"
-                    class="shrink-0 self-center text-[9px] font-bold text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded px-1.5 py-0.5 transition-colors">desligar</button>
-                  <span v-else class="shrink-0 self-center text-[9px] text-slate-300" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela)">🔒</span>
+                    class="shrink-0 self-center text-[9px] font-medium text-lacre hover:text-white hover:bg-lacre border border-lacre/25 rounded-md px-1.5 py-0.5 transition-colors">desligar</button>
+                  <span v-else class="shrink-0 self-center text-[9px] text-risco" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela)">🔒</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p class="px-5 py-2 text-[10px] text-slate-400 border-t border-slate-50">Reflete o ÚLTIMO "Baixar/Re-validar". Itens estruturais (totalizadores, recontagens) são sempre aplicados; injeções e ajustes fiscais são o que o sistema acrescentou para passar no PVA.</p>
+        <p class="px-5 py-2 text-[10px] text-risco border-t border-line">Reflete o ÚLTIMO "Baixar/Re-validar". Itens estruturais (totalizadores, recontagens) são sempre aplicados; injeções e ajustes fiscais são o que o sistema acrescentou para passar no PVA.</p>
       </div>
 
       <!-- Filtros + lista de erros -->
-      <div v-if="resultado.erros.length" class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-          <span class="text-sm font-bold text-slate-700">Erros encontrados</span>
-          <select v-model="filtroBloco" class="text-xs border border-slate-200 rounded-lg px-2 py-1">
+      <div v-if="resultado.erros.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+        <div class="px-5 py-3 border-b border-line flex items-center gap-3 flex-wrap">
+          <span class="text-[13px] font-semibold text-ink">Erros encontrados</span>
+          <select v-model="filtroBloco" class="text-[12px] bg-sheet border border-line rounded-md px-2 py-1 text-ink outline-none focus:border-bronze transition-colors">
             <option value="">Todos os blocos</option>
             <option v-for="b in resultado.resumo.blocosPresentes" :key="b" :value="b">{{ nomeBloco(b) }}</option>
           </select>
-          <select v-model="filtroSev" class="text-xs border border-slate-200 rounded-lg px-2 py-1">
+          <select v-model="filtroSev" class="text-[12px] bg-sheet border border-line rounded-md px-2 py-1 text-ink outline-none focus:border-bronze transition-colors">
             <option value="">Toda severidade</option>
             <option value="BLOQ">Bloqueantes</option>
             <option value="ADV">Advertências</option>
           </select>
-          <span class="text-xs text-slate-400 ml-auto">{{ errosFiltrados.length }} de {{ resultado.erros.length }}</span>
+          <span class="text-[12px] text-risco ml-auto font-mono">{{ errosFiltrados.length }} de {{ resultado.erros.length }}</span>
         </div>
 
-        <div class="divide-y divide-slate-50 max-h-[60vh] overflow-y-auto">
+        <div class="divide-y divide-line max-h-[60vh] overflow-y-auto">
           <div v-for="(e, i) in errosFiltrados" :key="i">
-            <button @click="toggle(i)" class="w-full text-left px-5 py-3 hover:bg-slate-50/60 flex items-start gap-3">
-              <span class="px-2 py-0.5 rounded-md text-[9px] font-bold shrink-0 mt-0.5"
-                :class="e.severidade === 'BLOQ' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'">
+            <button @click="toggle(i)" class="w-full text-left px-5 py-3 hover:bg-paper flex items-start gap-3 transition-colors">
+              <span class="px-2 py-0.5 rounded-md text-[9px] font-medium uppercase tracking-wide shrink-0 mt-0.5 border"
+                :class="e.severidade === 'BLOQ' ? 'bg-lacre/10 text-lacre border-lacre/25' : 'bg-variacao/10 text-variacao border-variacao/25'">
                 {{ e.severidade === 'BLOQ' ? 'BLOQUEANTE' : 'ADVERTÊNCIA' }}
               </span>
               <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-slate-800 truncate">{{ e.titulo }}</p>
-                <p class="text-[11px] text-slate-500">{{ e.regra_id }} · {{ e.registro }} · linha {{ e.linha ?? '-' }}</p>
+                <p class="text-[13px] font-medium text-ink truncate">{{ e.titulo }}</p>
+                <p class="text-[11px] text-risco font-mono">{{ e.regra_id }} · {{ e.registro }} · linha {{ e.linha ?? '-' }}</p>
               </div>
-              <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-bold text-white bg-emerald-600 px-1.5 py-0.5 rounded shrink-0 mt-0.5">✓ corrigido por você</span>
-              <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">auto no download</span>
-              <component :is="expandido === i ? ChevronUp : ChevronDown" class="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+              <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-medium text-white bg-conforme px-1.5 py-0.5 rounded-md shrink-0 mt-0.5">✓ corrigido por você</span>
+              <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-1.5 py-0.5 rounded-md shrink-0 mt-0.5">auto no download</span>
+              <component :is="expandido === i ? ChevronUp : ChevronDown" class="w-4 h-4 text-risco shrink-0 mt-0.5" :stroke-width="1.8" />
             </button>
-            <div v-if="expandido === i" class="px-5 pb-4 pt-1 bg-slate-50/50 text-xs space-y-2">
-              <div v-if="e.corrigidoPeloUsuario" class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-emerald-800">
+            <div v-if="expandido === i" class="px-5 pb-4 pt-1 bg-paper text-[12px] space-y-2">
+              <div v-if="e.corrigidoPeloUsuario" class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-3 text-conforme">
                 <b>✓ Você já corrigiu este item.</b> Ele ainda aparece aqui porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Re-validar (sobre o SPED corrigido)"</b> ou baixe o SPED corrigido para confirmar — a correção é aplicada no arquivo final.
               </div>
-              <p class="text-slate-600">{{ e.detalhe }}</p>
+              <p class="text-ink">{{ e.detalhe }}</p>
               <div class="grid sm:grid-cols-2 gap-2">
-                <div v-if="e.valorAtual !== '' && e.valorAtual != null"><span class="text-slate-400">Valor atual:</span> <span class="font-mono text-slate-700 break-all">{{ e.valorAtual }}</span></div>
-                <div v-if="e.valorSugerido !== undefined && e.valorSugerido !== ''"><span class="text-slate-400">Sugestão:</span> <span class="font-mono text-emerald-700 break-all">{{ e.valorSugerido }}</span></div>
+                <div v-if="e.valorAtual !== '' && e.valorAtual != null"><span class="text-risco">Valor atual:</span> <span class="font-mono text-ink break-all">{{ e.valorAtual }}</span></div>
+                <div v-if="e.valorSugerido !== undefined && e.valorSugerido !== ''"><span class="text-risco">Sugestão:</span> <span class="font-mono text-conforme break-all">{{ e.valorSugerido }}</span></div>
               </div>
-              <div class="bg-white border border-slate-100 rounded-xl p-3">
-                <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Como corrigir no ERP</p>
-                <p class="text-slate-600">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
+              <div class="bg-sheet border border-line rounded-md p-3">
+                <p class="text-[10px] uppercase tracking-wide font-medium text-risco mb-1">Como corrigir no ERP</p>
+                <p class="text-ink">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
               </div>
               <!-- DOC-C170-01: vincular o COD_ITEM órfão a um produto 0200 cadastrado (lista suspensa) -->
-              <div v-if="e.regra_id === 'DOC-C170-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-violet-50/60 border border-violet-100 rounded-xl p-3">
-                <p class="text-[10px] uppercase font-bold text-violet-400 mb-1">Vincular a um produto cadastrado (0200)</p>
-                <p class="text-[11px] text-slate-500 mb-2">Este COD_ITEM não existe no 0200. Selecione o produto correspondente do posto — vale para <b>todas</b> as notas com esse item.</p>
+              <div v-if="e.regra_id === 'DOC-C170-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Vincular a um produto cadastrado (0200)</p>
+                <p class="text-[11px] text-risco mb-2">Este COD_ITEM não existe no 0200. Selecione o produto correspondente do posto — vale para <b>todas</b> as notas com esse item.</p>
                 <div class="flex items-center gap-2">
-                  <select v-model="vincSel[keyErro(e)]" @focus="carregarProdutos0200" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 bg-white">
+                  <select v-model="vincSel[keyErro(e)]" @focus="carregarProdutos0200" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors">
                     <option value="">{{ loadingProds ? 'carregando produtos...' : (produtos0200.length ? 'selecione o produto…' : 'clique para carregar…') }}</option>
                     <option v-for="p in produtos0200" :key="p.cod_item" :value="p.cod_item">{{ p.cod_item }} — {{ p.descr }}{{ p.ncm ? ' (NCM ' + p.ncm + ')' : '' }}</option>
                   </select>
-                  <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 shrink-0">Vincular</button>
+                  <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">Vincular</button>
                 </div>
               </div>
-              <div v-if="e.corrigivel && resultadoId" class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
-                <p class="text-[10px] uppercase font-bold text-indigo-400 mb-1">Corrigir no sistema</p>
+              <div v-if="e.corrigivel && resultadoId" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Corrigir no sistema</p>
                 <div class="flex items-center gap-2">
-                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-xs border border-slate-200 rounded-lg px-2 font-mono" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">
-                  <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-lg text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 shrink-0">
+                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">
+                  <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">
                     {{ salvando === keyErro(e) ? 'Salvando…' : 'Salvar correção' }}
                   </button>
                 </div>
-                <p v-if="e.permiteVazio" class="text-[9px] text-slate-400 mt-1 italic">Campo opcional: deixe vazio para apagar o conteúdo inválido, ou informe o código correto.</p>
-                <p class="text-[10px] text-slate-400 mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
+                <p v-if="e.permiteVazio" class="text-[9px] text-risco mt-1 italic">Campo opcional: deixe vazio para apagar o conteúdo inválido, ou informe o código correto.</p>
+                <p class="text-[10px] text-risco mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
               </div>
-              <p class="text-[10px] text-slate-400">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>
+              <p class="text-[10px] text-risco">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-else class="bg-emerald-50 border border-emerald-200 rounded-3xl p-8 text-center text-emerald-700 font-bold">
+      <div v-else class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-8 text-center text-conforme font-semibold">
         ✅ Nenhum erro encontrado pelas regras atuais.
       </div>
 
-      <p class="text-[11px] text-slate-400 text-center">
+      <p class="text-[11px] text-risco text-center">
         Validado contra {{ resultado.resumo.regrasExecutadas }} regra(s) do catálogo. O PVA pode ter validações adicionais — este módulo cresce de forma incremental.
       </p>
     </template>
   </div>
 </template>
+
+<style scoped>
+.card-shadow { box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07); }
+</style>

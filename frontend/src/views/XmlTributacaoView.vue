@@ -25,6 +25,7 @@ import {
   Eye,
   X
 } from 'lucide-vue-next';
+import UiButton from '@/components/ui/UiButton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -275,61 +276,59 @@ function closeDetails() {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col bg-[#0f172a] text-slate-200 min-h-screen">
-    <!-- Header Premium -->
-    <header class="h-24 bg-[#1e293b]/50 border-b border-white/5 flex items-center justify-between px-10 backdrop-blur-xl sticky top-0 z-20">
-      <div class="flex items-center gap-4">
-        <div class="w-12 h-12 bg-brand-accent/20 rounded-2xl flex items-center justify-center border border-brand-accent/30 shadow-lg shadow-brand-accent/10">
-          <Zap class="w-6 h-6 text-brand-accent animate-pulse" />
+  <div class="flex-1 flex flex-col bg-paper text-ink min-h-screen">
+    <!-- Header -->
+    <header class="bg-sheet border-b border-line flex flex-col md:flex-row md:items-center justify-between gap-4 px-4 sm:px-8 py-5 sticky top-0 z-20">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-bronze/10 rounded-md flex items-center justify-center border border-bronze/20">
+          <Zap class="w-5 h-5 text-bronze" :stroke-width="1.8" />
         </div>
-        <div>
-          <h1 class="text-2xl font-black text-white tracking-tighter uppercase italic">
-            Analista <span class="text-brand-accent">Premium</span> AI
+        <div class="space-y-1">
+          <h1 class="font-display text-[22px] font-semibold tracking-[-0.01em] text-ink">
+            Conciliação XML
           </h1>
-          <p class="text-xs text-slate-400 font-medium">Fluxo Inteligente de Injeção XML -> SPED Fiscal</p>
+          <p class="text-[13px] text-risco">Fluxo de Injeção XML → SPED Fiscal</p>
         </div>
       </div>
 
-      <!-- Stepper Vertical/Horizontal -->
-      <div class="flex items-center gap-4">
+      <!-- Stepper -->
+      <div class="flex items-center gap-3">
         <div v-for="step in 4" :key="step" class="flex items-center">
-          <div 
-            class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-500 border-2"
+          <div
+            class="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold transition-colors border"
             :class="[
-              currentStep === step ? 'bg-brand-accent border-brand-accent text-white scale-110 shadow-lg shadow-brand-accent/30' : 
-              currentStep > step ? 'bg-emerald-500 border-emerald-500 text-white' : 
-              'bg-transparent border-white/10 text-slate-500'
+              currentStep === step ? 'bg-bronze border-bronze text-white' :
+              currentStep > step ? 'bg-conforme border-conforme text-white' :
+              'bg-paper border-line text-risco'
             ]"
           >
-            <CheckCircle2 v-if="currentStep > step" class="w-5 h-5" />
+            <CheckCircle2 v-if="currentStep > step" class="w-5 h-5" :stroke-width="1.8" />
             <span v-else>{{ step }}</span>
           </div>
-          <div v-if="step < 4" class="w-8 h-0.5 bg-white/5 mx-2" :class="{'bg-brand-accent/50': currentStep > step}"></div>
+          <div v-if="step < 4" class="w-8 h-0.5 bg-line mx-2" :class="{'bg-conforme': currentStep > step}"></div>
         </div>
       </div>
     </header>
 
     <!-- Main Content Area -->
-    <main class="flex-1 p-10 max-w-7xl mx-auto w-full">
-      
+    <main class="flex-1 p-4 sm:p-8 max-w-7xl mx-auto w-full">
+
       <!-- STEP 1: UPLOAD -->
-      <section v-if="currentStep === 1" class="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div class="bg-[#1e293b]/40 border border-white/5 rounded-3xl p-12 text-center relative overflow-hidden group">
-          <div class="absolute inset-0 bg-gradient-to-br from-brand-accent/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          
-          <div 
+      <section v-if="currentStep === 1" class="space-y-6">
+        <div class="bg-sheet border border-line rounded-md p-8 sm:p-12 text-center">
+          <div
             @dragover.prevent="isDragOver = true"
             @dragleave.prevent="isDragOver = false"
             @drop.prevent="handleDrop"
-            :class="{'border-brand-accent bg-brand-accent/5': isDragOver}"
-            class="border-2 border-dashed border-white/10 rounded-2xl p-16 transition-all relative z-10"
+            :class="{'border-bronze bg-bronze/5': isDragOver}"
+            class="border-2 border-dashed border-line rounded-md p-10 sm:p-16 transition-colors"
           >
-            <FileUp class="w-20 h-20 text-brand-accent mx-auto mb-6 opacity-80" />
-            <h2 class="text-2xl font-bold text-white mb-2">Arraste seus XMLs de Compra</h2>
-            <p class="text-slate-400 mb-8 max-w-md mx-auto">Selecione múltiplos arquivos .xml de NF-e para processamento em lote e remapeamento automático.</p>
-            
-            <label class="bg-brand-accent hover:bg-brand-accent/90 text-white px-8 py-3.5 rounded-xl font-bold cursor-pointer transition-all shadow-xl shadow-brand-accent/20 inline-flex items-center gap-2 active:scale-95">
-              <Search class="w-5 h-5" />
+            <FileUp class="w-16 h-16 text-bronze mx-auto mb-6" :stroke-width="1.6" />
+            <h2 class="font-display text-[18px] font-semibold text-ink mb-2">Arraste seus XMLs de Compra</h2>
+            <p class="text-[13px] text-risco mb-8 max-w-md mx-auto">Selecione múltiplos arquivos .xml de NF-e para processamento em lote e remapeamento automático.</p>
+
+            <label class="inline-flex items-center gap-[7px] rounded-md bg-bronze text-white px-[13px] py-[7px] text-[13px] font-medium cursor-pointer transition-opacity hover:opacity-85">
+              <Search class="w-4 h-4" :stroke-width="1.8" />
               Procurar Arquivos
               <input type="file" multiple accept=".xml" class="hidden" @change="onFileChange" />
             </label>
@@ -337,131 +336,131 @@ function closeDetails() {
         </div>
 
         <!-- Lista de Arquivos Selecionados -->
-        <div v-if="files.length > 0" class="bg-[#1e293b]/40 border border-white/5 rounded-2xl p-6">
-          <h3 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center justify-between">
+        <div v-if="files.length > 0" class="bg-sheet border border-line rounded-md p-6">
+          <h3 class="text-[11px] font-medium text-risco uppercase tracking-wide mb-4 flex items-center justify-between">
             Arquivos na fila ({{ files.length }})
-            <button @click="files = []" class="text-red-400 hover:text-red-300 text-xs font-bold transition-colors">Limpar Tudo</button>
+            <button @click="files = []" class="text-lacre hover:opacity-80 text-[12px] font-medium transition-opacity">Limpar Tudo</button>
           </h3>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div v-for="(f, i) in files" :key="i" class="bg-white/5 border border-white/5 rounded-xl p-3 flex items-center justify-between group">
+            <div v-for="(f, i) in files" :key="i" class="bg-paper border border-line rounded-md p-3 flex items-center justify-between group">
                <div class="flex items-center gap-3 truncate">
-                 <FileJson class="w-5 h-5 text-brand-accent shrink-0" />
-                 <span class="text-sm text-slate-300 truncate font-mono">{{ f.name }}</span>
+                 <FileJson class="w-5 h-5 text-bronze shrink-0" :stroke-width="1.8" />
+                 <span class="text-[13px] text-risco truncate font-mono">{{ f.name }}</span>
                </div>
-               <button @click="removeFile(i)" class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded transition-all">
-                 <Trash2 class="w-4 h-4 text-red-400" />
+               <button @click="removeFile(i)" class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-lacre/10 rounded-md transition-all">
+                 <Trash2 class="w-4 h-4 text-lacre" :stroke-width="1.8" />
                </button>
             </div>
           </div>
-          
-          <div class="mt-10 flex justify-end">
-             <button 
+
+          <div class="mt-8 flex justify-end">
+             <UiButton
                @click="analyzeFiles"
                :disabled="isLoading"
-               class="bg-brand-secondary hover:bg-brand-secondary/90 text-white px-10 py-4 rounded-xl font-black uppercase text-sm tracking-widest flex items-center gap-3 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+               class="disabled:opacity-50"
              >
-               <Loader2 v-if="isLoading" class="w-5 h-5 animate-spin" />
-               <Sparkles v-else class="w-5 h-5" />
-               {{ isLoading ? 'Analisando Estruturas...' : 'Iniciar Análise Proativa' }}
-             </button>
+               <Loader2 v-if="isLoading" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
+               <Sparkles v-else class="w-4 h-4" :stroke-width="1.8" />
+               {{ isLoading ? 'Analisando...' : 'Iniciar Análise' }}
+             </UiButton>
           </div>
         </div>
       </section>
 
       <!-- STEP 2: REGRAS E MAPEAMENTO -->
-      <section v-if="currentStep === 2" class="space-y-6 animate-in fade-in zoom-in-95 duration-500">
-        <div class="flex items-center justify-between mb-2">
-          <div>
-            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+      <section v-if="currentStep === 2" class="space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+          <div class="space-y-1">
+            <h2 class="font-display text-[18px] font-semibold text-ink">
               Detecção de Itens e Tributação
             </h2>
-            <p class="text-sm text-slate-400">Validamos {{ totalCount }} itens únicos. Por favor, confirme o CFOP/CST de destino abaixo.</p>
+            <p class="text-[13px] text-risco">Validamos {{ totalCount }} itens únicos. Por favor, confirme o CFOP/CST de destino abaixo.</p>
           </div>
-          <div class="flex items-center gap-4">
-             <div class="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
-               <span class="text-xs text-slate-400 uppercase block font-bold tracking-tighter">Mapeados</span>
-               <span class="text-lg font-black text-emerald-400 leading-none">{{ mappedCount }} / {{ totalCount }}</span>
+          <div class="flex items-center gap-3">
+             <div class="bg-conforme/[0.06] border border-conforme/25 px-4 py-2 rounded-md">
+               <span class="text-[11px] text-risco uppercase block font-medium tracking-wide">Mapeados</span>
+               <span class="text-[18px] font-semibold text-conforme leading-none font-mono">{{ mappedCount }} / {{ totalCount }}</span>
              </div>
              <div class="relative">
-                <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <input v-model="searchTerm" type="text" placeholder="Filtrar por produto..." class="bg-[#1e293b] border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm focus:ring-1 focus:ring-brand-accent outline-none" />
+                <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco" :stroke-width="1.8" />
+                <input v-model="searchTerm" type="text" placeholder="Filtrar por produto..." class="bg-sheet border border-line rounded-md py-2 pl-9 pr-3 text-[13px] text-ink placeholder-risco outline-none focus:border-bronze transition-colors" />
              </div>
           </div>
         </div>
 
-        <div class="bg-[#1e293b]/40 border border-white/5 rounded-2xl overflow-hidden max-h-[500px] overflow-y-auto custom-scrollbar">
-          <table class="w-full text-left">
-            <thead class="bg-white/5 sticky top-0 z-10 backdrop-blur-md">
-              <tr class="text-[10px] font-black uppercase text-slate-500 tracking-widest border-b border-white/5">
-                <th class="px-6 py-4">Fornecedor / Produto</th>
-                <th class="px-6 py-4">Data / Nota</th>
-                <th class="px-6 py-4 text-center">NCM</th>
-                <th class="px-6 py-4">Valores XML</th>
-                <th class="px-6 py-4">Desc / Frete</th>
-                <th class="px-6 py-4">CFOP Dest.</th>
-                <th class="px-6 py-4">CST Dest.</th>
-                <th class="px-6 py-4">Cód. Interno (ERP)</th>
-                <th class="px-6 py-4">Conta Contábil</th>
-                <th class="px-6 py-4 text-right">Ação</th>
+        <div class="bg-sheet border border-line rounded-md overflow-hidden max-h-[500px] overflow-y-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse">
+            <thead class="sticky top-0 z-10">
+              <tr class="bg-paper text-[10px] font-semibold uppercase text-risco tracking-[.08em] border-b border-line">
+                <th class="px-5 py-3">Fornecedor / Produto</th>
+                <th class="px-5 py-3">Data / Nota</th>
+                <th class="px-5 py-3 text-center">NCM</th>
+                <th class="px-5 py-3">Valores XML</th>
+                <th class="px-5 py-3">Desc / Frete</th>
+                <th class="px-5 py-3">CFOP Dest.</th>
+                <th class="px-5 py-3">CST Dest.</th>
+                <th class="px-5 py-3">Cód. Interno (ERP)</th>
+                <th class="px-5 py-3">Conta Contábil</th>
+                <th class="px-5 py-3 text-right">Ação</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-white/5">
-              <tr v-for="item in filteredItems" :key="item.cnpj_fornecedor + item.cod_produto_xml + item.numero_nota" class="hover:bg-white/5 transition-colors group">
-                <td class="px-6 py-3">
-                  <div class="text-[10px] text-brand-accent font-mono mb-1">{{ item.cnpj_fornecedor }} - {{ item.nome_fornecedor }}</div>
-                  <div class="text-xs font-bold text-slate-200 line-clamp-1" :title="item.descricao_produto">
-                    <span class="text-slate-500 font-mono mr-2">{{ item.cod_produto_xml }}</span>
+            <tbody>
+              <tr v-for="item in filteredItems" :key="item.cnpj_fornecedor + item.cod_produto_xml + item.numero_nota" class="border-t border-line hover:bg-paper transition-colors group">
+                <td class="px-5 py-3">
+                  <div class="text-[10px] text-bronze font-mono mb-1">{{ item.cnpj_fornecedor }} - {{ item.nome_fornecedor }}</div>
+                  <div class="text-[13px] font-medium text-ink line-clamp-1" :title="item.descricao_produto">
+                    <span class="text-risco font-mono mr-2">{{ item.cod_produto_xml }}</span>
                     {{ item.descricao_produto }}
                   </div>
                 </td>
-                <td class="px-6 py-3">
-                   <div class="text-xs font-black text-white">{{ item.numero_nota }}</div>
-                   <div class="text-[10px] text-slate-500">{{ formatDate(item.data_nota) }}</div>
+                <td class="px-5 py-3">
+                   <div class="text-[13px] font-semibold text-ink font-mono">{{ item.numero_nota }}</div>
+                   <div class="text-[10px] text-risco font-mono">{{ formatDate(item.data_nota) }}</div>
                 </td>
-                <td class="px-6 py-3 font-mono text-center text-xs text-slate-400">{{ item.ncm }}</td>
-                <td class="px-6 py-3">
-                   <div class="text-[10px] text-slate-400">Unit: <span class="text-emerald-400 font-bold">{{ formatCurrency(item.valor_unitario) }}</span></div>
-                   <div class="text-[10px] text-slate-500">Total: {{ formatCurrency(item.valor_total) }}</div>
+                <td class="px-5 py-3 font-mono text-center text-[12px] text-risco">{{ item.ncm }}</td>
+                <td class="px-5 py-3">
+                   <div class="text-[10px] text-risco">Unit: <span class="text-conforme font-semibold font-mono">{{ formatCurrency(item.valor_unitario) }}</span></div>
+                   <div class="text-[10px] text-risco font-mono">Total: {{ formatCurrency(item.valor_total) }}</div>
                 </td>
-                <td class="px-6 py-3">
-                   <div class="text-[10px] text-red-400/70" v-if="parseValor(item.desconto) > 0">Desc: -{{ formatCurrency(item.desconto) }}</div>
-                   <div class="text-[10px] text-amber-400/70" v-if="parseValor(item.frete) > 0">Frete: +{{ formatCurrency(item.frete) }}</div>
-                   <div class="text-[10px] text-slate-600" v-else-if="!item.desconto && !item.frete">-</div>
+                <td class="px-5 py-3">
+                   <div class="text-[10px] text-lacre font-mono" v-if="parseValor(item.desconto) > 0">Desc: -{{ formatCurrency(item.desconto) }}</div>
+                   <div class="text-[10px] text-variacao font-mono" v-if="parseValor(item.frete) > 0">Frete: +{{ formatCurrency(item.frete) }}</div>
+                   <div class="text-[10px] text-risco" v-else-if="!item.desconto && !item.frete">-</div>
                 </td>
-                <td class="px-6 py-3">
-                  <input v-model="item.cfop_atual" list="cfop-suggestions" type="text" class="w-14 bg-white/5 border border-white/10 rounded px-2 py-1 text-emerald-400 font-bold font-mono text-xs outline-none focus:border-brand-accent" />
+                <td class="px-5 py-3">
+                  <input v-model="item.cfop_atual" list="cfop-suggestions" type="text" class="w-14 bg-sheet border border-line rounded-md px-2 py-1 text-conforme font-semibold font-mono text-[12px] outline-none focus:border-bronze transition-colors" />
                 </td>
-                <td class="px-6 py-3">
-                   <input v-model="item.cst_atual" type="text" class="w-12 bg-white/5 border border-white/10 rounded px-2 py-1 text-amber-400 font-bold font-mono text-xs outline-none focus:border-brand-accent" />
+                <td class="px-5 py-3">
+                   <input v-model="item.cst_atual" type="text" class="w-12 bg-sheet border border-line rounded-md px-2 py-1 text-variacao font-semibold font-mono text-[12px] outline-none focus:border-bronze transition-colors" />
                 </td>
-                <td class="px-6 py-3">
+                <td class="px-5 py-3">
                    <div class="relative">
-                     <input v-model="item.cod_interno" type="text" placeholder="Cód. ERP..." class="w-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs outline-none focus:border-brand-accent" />
-                     <div v-if="item.cod_item_sugerido && !item.cod_interno" class="absolute -top-3 left-0 text-[8px] text-brand-accent font-bold animate-pulse">
-                       Sugestão IA: {{ item.cod_item_sugerido }}
+                     <input v-model="item.cod_interno" type="text" placeholder="Cód. ERP..." class="w-24 bg-sheet border border-line rounded-md px-2 py-1 text-[12px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
+                     <div v-if="item.cod_item_sugerido && !item.cod_interno" class="absolute -top-3 left-0 text-[8px] text-bronze font-semibold font-mono">
+                       Sugestão: {{ item.cod_item_sugerido }}
                      </div>
                    </div>
                 </td>
-                <td class="px-6 py-3">
-                   <input v-model="item.conta_contabil" type="text" placeholder="60..." class="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-[10px] outline-none focus:border-brand-accent" />
+                <td class="px-5 py-3">
+                   <input v-model="item.conta_contabil" type="text" placeholder="60..." class="w-20 bg-sheet border border-line rounded-md px-2 py-1 text-[10px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
                 </td>
-                <td class="px-6 py-3 text-right">
+                <td class="px-5 py-3 text-right">
                    <div class="flex items-center justify-end gap-1">
-                     <button 
+                     <button
                        @click="openDetails(item)"
-                       class="p-2 rounded-lg hover:bg-white/10 transition-all text-slate-400 hover:text-white"
+                       class="p-1.5 rounded-md hover:bg-paper transition-colors text-risco hover:text-bronze"
                        title="Ver Detalhes/Origem"
                      >
-                        <Eye class="w-4 h-4" />
+                        <Eye class="w-4 h-4" :stroke-width="1.8" />
                      </button>
-                     <button 
+                     <button
                        @click="saveRuleLocal(item)"
                        :disabled="item.isMapped"
-                       class="p-2 rounded-lg hover:bg-emerald-500/10 transition-all text-slate-400 hover:text-emerald-400"
-                       :class="{'text-emerald-500 opacity-100': item.isMapped}"
+                       class="p-1.5 rounded-md hover:bg-conforme/10 transition-colors text-risco hover:text-conforme"
+                       :class="{'text-conforme opacity-100': item.isMapped}"
                        title="Salvar Regra"
                      >
-                        <Save class="w-4 h-4" />
+                        <Save class="w-4 h-4" :stroke-width="1.8" />
                      </button>
                    </div>
                 </td>
@@ -470,160 +469,159 @@ function closeDetails() {
           </table>
         </div>
 
-        <div class="flex items-center justify-between pt-6 border-t border-white/5">
-          <button @click="currentStep = 1" class="flex items-center gap-2 text-slate-400 hover:text-white font-bold transition-all">
-            <ChevronLeft class="w-5 h-5" /> Voltar para Arquivos
+        <div class="flex items-center justify-between pt-6 border-t border-line">
+          <button @click="currentStep = 1" class="flex items-center gap-2 text-risco hover:text-ink text-[13px] font-medium transition-colors">
+            <ChevronLeft class="w-4 h-4" :stroke-width="1.8" /> Voltar para Arquivos
           </button>
-          <button @click="currentStep = 3" class="bg-brand-accent hover:bg-brand-accent/90 text-white px-10 py-3.5 rounded-xl font-black uppercase text-sm tracking-widest flex items-center gap-3 transition-all">
-            Configuração Avançada <ChevronRight class="w-5 h-5" />
-          </button>
+          <UiButton @click="currentStep = 3">
+            Configuração Avançada <ChevronRight class="w-4 h-4" :stroke-width="1.8" />
+          </UiButton>
         </div>
       </section>
 
       <!-- STEP 3: CONFIGURAÇÃO DE CUSTO -->
-      <section v-if="currentStep === 3" class="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-right-8 duration-500">
-        <div class="bg-[#1e293b]/40 border border-white/5 rounded-3xl p-10 space-y-8">
-          <div class="flex items-center gap-4 mb-2">
-             <Settings2 class="w-8 h-8 text-brand-accent" />
-             <div>
-               <h2 class="text-2xl font-bold text-white tracking-tight">Regras de Injeção de Custo</h2>
-               <p class="text-slate-400">Configure como o sistema deve tratar impostos e CFOPs residuais.</p>
+      <section v-if="currentStep === 3" class="max-w-3xl mx-auto space-y-6">
+        <div class="bg-sheet border border-line rounded-md p-6 sm:p-8 space-y-6">
+          <div class="flex items-center gap-3 mb-2">
+             <Settings2 class="w-6 h-6 text-bronze" :stroke-width="1.8" />
+             <div class="space-y-1">
+               <h2 class="font-display text-[18px] font-semibold text-ink">Regras de Injeção de Custo</h2>
+               <p class="text-[13px] text-risco">Configure como o sistema deve tratar impostos e CFOPs residuais.</p>
              </div>
           </div>
 
-          <div class="space-y-6">
-            <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+          <div class="space-y-4">
+            <div class="flex items-center justify-between p-4 bg-paper rounded-md border border-line">
                <div>
-                  <h4 class="font-bold text-white mb-1">CFOP de Entrada Padrão</h4>
-                  <p class="text-xs text-slate-400 italic">Usado quando não houver regra específica de De-Para.</p>
+                  <h4 class="font-medium text-ink text-[13px] mb-1">CFOP de Entrada Padrão</h4>
+                  <p class="text-[12px] text-risco">Usado quando não houver regra específica de De-Para.</p>
                </div>
                <div class="flex gap-2">
-                 <input v-model="configs.cfop_padrao" list="cfop-suggestions" type="text" class="w-24 bg-[#0f172a] border border-white/10 rounded-xl px-4 py-2 text-brand-accent font-black text-center text-lg shadow-inner outline-none focus:border-brand-accent transition-all" />
-                 <button @click="showCfopManager = true" class="bg-[#0f172a] hover:bg-white/5 border border-white/10 p-3 rounded-xl transition-all" title="Gerenciar CFOPs">
-                   <Settings2 class="w-5 h-5 text-slate-400" />
+                 <input v-model="configs.cfop_padrao" list="cfop-suggestions" type="text" class="w-24 bg-sheet border border-line rounded-md px-4 py-2 text-bronze font-semibold font-mono text-center text-[16px] outline-none focus:border-bronze transition-colors" />
+                 <button @click="showCfopManager = true" class="bg-sheet hover:bg-paper border border-line p-2.5 rounded-md transition-colors" title="Gerenciar CFOPs">
+                   <Settings2 class="w-5 h-5 text-risco" :stroke-width="1.8" />
                  </button>
                </div>
             </div>
 
             <!-- FORÇAR CST 040 -->
-            <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+            <div class="flex items-center justify-between p-4 bg-paper rounded-md border border-line">
                <div class="flex-1 pr-10">
-                  <h4 class="font-bold text-white mb-1">Forçar Uso/Consumo (CST 040)</h4>
-                  <p class="text-xs text-slate-400">Itens com CFOP 1.556 serão transformados em Isentos (CST 040) e terão a Base de Cálculo e ICMS zerados automaticamente.</p>
+                  <h4 class="font-medium text-ink text-[13px] mb-1">Forçar Uso/Consumo (CST 040)</h4>
+                  <p class="text-[12px] text-risco">Itens com CFOP 1.556 serão transformados em Isentos (CST 040) e terão a Base de Cálculo e ICMS zerados automaticamente.</p>
                </div>
                <label class="relative inline-flex items-center cursor-pointer">
                   <input v-model="configs.forcar_uso_consumo" type="checkbox" class="sr-only peer">
-                  <div class="w-14 h-7 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
+                  <div class="w-14 h-7 bg-line peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-line after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-conforme"></div>
                </label>
             </div>
 
             <!-- AJUSTE IPI NO CUSTO -->
-            <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+            <div class="flex items-center justify-between p-4 bg-paper rounded-md border border-line">
                <div class="flex-1 pr-10">
-                  <h4 class="font-bold text-white mb-1 flex items-center gap-2">
+                  <h4 class="font-medium text-ink text-[13px] mb-1">
                     Somar IPI ao Valor do Produto
-                    <span class="bg-amber-500/10 text-amber-500 text-[8px] px-1.5 py-0.5 rounded border border-amber-500/20">PREMIUM</span>
                   </h4>
-                  <p class="text-xs text-slate-400">Incorpora o valor do IPI ao valor unitário da mercadoria (C170) para fins de composição de custo bruto no SPED.</p>
+                  <p class="text-[12px] text-risco">Incorpora o valor do IPI ao valor unitário da mercadoria (C170) para fins de composição de custo bruto no SPED.</p>
                </div>
                <label class="relative inline-flex items-center cursor-pointer">
                   <input v-model="configs.ajuste_ipi" type="checkbox" class="sr-only peer">
-                  <div class="w-14 h-7 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-brand-accent after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all"></div>
+                  <div class="w-14 h-7 bg-line rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-bronze after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-line after:border after:rounded-full after:h-6 after:w-6 after:transition-all"></div>
                </label>
             </div>
 
              <!-- AJUSTE ICMS NO CUSTO -->
-             <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+             <div class="flex items-center justify-between p-4 bg-paper rounded-md border border-line">
                <div class="flex-1 pr-10">
-                  <h4 class="font-bold text-white mb-1 flex items-center gap-2">
+                  <h4 class="font-medium text-ink text-[13px] mb-1">
                     Somar ICMS ao Valor do Produto
-                    <span class="bg-amber-500/10 text-amber-500 text-[8px] px-1.5 py-0.5 rounded border border-amber-500/20">PREMIUM</span>
                   </h4>
-                  <p class="text-xs text-slate-400">Útil para empresas que não recuperam crédito de ICMS. O imposto é incorporado ao custo do item e o crédito é zerado.</p>
+                  <p class="text-[12px] text-risco">Útil para empresas que não recuperam crédito de ICMS. O imposto é incorporado ao custo do item e o crédito é zerado.</p>
                </div>
                <label class="relative inline-flex items-center cursor-pointer">
                   <input v-model="configs.ajuste_icms" type="checkbox" class="sr-only peer">
-                  <div class="w-14 h-7 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-brand-accent after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all"></div>
+                  <div class="w-14 h-7 bg-line rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-bronze after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-line after:border after:rounded-full after:h-6 after:w-6 after:transition-all"></div>
                </label>
             </div>
           </div>
         </div>
 
         <!-- Arquivo Base Info -->
-        <div v-if="spedBaseId" class="bg-brand-accent/5 border border-brand-accent/20 rounded-2xl p-6 flex items-center gap-4">
-           <Database class="w-8 h-8 text-brand-accent opacity-50" />
-           <div>
-             <span class="text-[10px] text-brand-accent font-bold uppercase tracking-wider block">Arquivo Destino de Injeção</span>
-             <span class="text-sm font-bold text-white">{{ spedBaseNome }}</span>
+        <div v-if="spedBaseId" class="bg-bronze/[0.06] border border-bronze/25 rounded-md p-5 flex items-center gap-4">
+           <Database class="w-7 h-7 text-bronze" :stroke-width="1.8" />
+           <div class="space-y-1">
+             <span class="text-[10px] text-bronze font-medium uppercase tracking-wide block">Arquivo Destino de Injeção</span>
+             <span class="text-[13px] font-medium text-ink">{{ spedBaseNome }}</span>
            </div>
         </div>
 
         <div class="flex items-center justify-between pt-4">
-          <button @click="currentStep = 2" class="flex items-center gap-2 text-slate-400 hover:text-white font-bold transition-all">
-            <ChevronLeft class="w-5 h-5" /> Revisar Itens
+          <button @click="currentStep = 2" class="flex items-center gap-2 text-risco hover:text-ink text-[13px] font-medium transition-colors">
+            <ChevronLeft class="w-4 h-4" :stroke-width="1.8" /> Revisar Itens
           </button>
-          <button 
+          <UiButton
             @click="startInjection"
             :disabled="isLoading"
-            class="bg-emerald-500 hover:bg-emerald-600 text-white px-12 py-4 rounded-xl font-black uppercase text-sm tracking-widest flex items-center gap-3 transition-all shadow-xl shadow-emerald-500/20 disabled:opacity-50"
+            class="bg-conforme disabled:opacity-50"
           >
-            <Loader2 v-if="isLoading" class="w-5 h-5 animate-spin" />
-            <Play v-else class="w-5 h-5 fill-current" />
+            <Loader2 v-if="isLoading" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
+            <Play v-else class="w-4 h-4 fill-current" :stroke-width="1.8" />
             Executar Injeção Final
-          </button>
+          </UiButton>
         </div>
       </section>
 
       <!-- STEP 4: RESULTADO -->
-      <section v-if="currentStep === 4" class="max-w-4xl mx-auto space-y-10 animate-in fade-in zoom-in-95 duration-700">
-        <div class="text-center space-y-4">
-           <div class="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto border-4 border-emerald-500/50 mb-6">
-              <CheckCircle2 class="w-12 h-12 text-emerald-500" />
+      <section v-if="currentStep === 4" class="max-w-4xl mx-auto space-y-8">
+        <div class="text-center space-y-3">
+           <div class="w-20 h-20 bg-conforme/[0.08] rounded-full flex items-center justify-center mx-auto border border-conforme/40 mb-4">
+              <CheckCircle2 class="w-10 h-10 text-conforme" :stroke-width="1.8" />
            </div>
-           <h2 class="text-4xl font-black text-white tracking-tighter">Injeção Concluída com Sucesso!</h2>
-           <p class="text-slate-400 text-lg">Seu fluxo de compras foi integrado com precisão cirúrgica.</p>
+           <h2 class="font-display text-[26px] font-semibold text-ink tracking-[-0.01em]">Injeção Concluída com Sucesso!</h2>
+           <p class="text-risco text-[13px]">Seu fluxo de compras foi integrado com precisão.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-           <div class="bg-[#1e293b]/40 border border-white/5 rounded-3xl p-8 space-y-6">
-              <h3 class="text-sm font-black text-slate-500 uppercase tracking-widest border-b border-white/5 pb-4">Resumo da Operação</h3>
+           <div class="bg-sheet border border-line rounded-md p-6 space-y-5">
+              <h3 class="text-[11px] font-medium text-risco uppercase tracking-wide border-b border-line pb-4">Resumo da Operação</h3>
               <div class="grid grid-cols-2 gap-4">
                  <div class="space-y-1">
-                   <div class="text-[10px] text-slate-500 uppercase font-bold">Documentos</div>
-                   <div class="text-2xl font-black text-white">{{ results.relatorio.totalNotas }} <span class="text-xs font-normal text-slate-400">NF-es</span></div>
+                   <div class="text-[10px] text-risco uppercase font-medium tracking-wide">Documentos</div>
+                   <div class="text-[22px] font-semibold text-ink font-mono">{{ results.relatorio.totalNotas }} <span class="text-[12px] font-normal text-risco font-body">NF-es</span></div>
                  </div>
                  <div class="space-y-1 text-right">
-                   <div class="text-[10px] text-slate-500 uppercase font-bold">Valor Total Mercadorias</div>
-                   <div class="text-2xl font-black text-brand-accent">R$ {{ results.relatorio.totalValorCompras }}</div>
+                   <div class="text-[10px] text-risco uppercase font-medium tracking-wide">Valor Total Mercadorias</div>
+                   <div class="text-[22px] font-semibold text-bronze font-mono">R$ {{ results.relatorio.totalValorCompras }}</div>
                  </div>
               </div>
-              <div class="p-4 bg-white/5 rounded-2xl flex items-center gap-3">
-                 <AlertCircle class="w-5 h-5 text-amber-500" />
-                 <span class="text-xs text-slate-300">Todas as linhas C100, C170 e C190 foram geradas e ajustadas conforme suas regras de custo.</span>
+              <div class="p-4 bg-variacao/[0.06] border border-variacao/25 rounded-md flex items-center gap-3">
+                 <AlertCircle class="w-5 h-5 text-variacao shrink-0" :stroke-width="1.8" />
+                 <span class="text-[12px] text-ink">Todas as linhas C100, C170 e C190 foram geradas e ajustadas conforme suas regras de custo.</span>
               </div>
            </div>
 
-           <div class="bg-[#1e293b]/40 border border-white/5 rounded-3xl p-8 flex flex-col justify-center gap-6">
-              <h3 class="text-sm font-black text-slate-500 uppercase tracking-widest text-center">Próximos Passos</h3>
-              
-              <button 
-                @click="dowloadSpedFragment"
-                class="w-full bg-[#334155] hover:bg-[#475569] text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
-              >
-                <Download class="w-5 h-5" /> Download Fragmento SPED
-              </button>
+           <div class="bg-sheet border border-line rounded-md p-6 flex flex-col justify-center gap-4">
+              <h3 class="text-[11px] font-medium text-risco uppercase tracking-wide text-center">Próximos Passos</h3>
 
-              <button 
+              <UiButton
+                variant="ghost"
+                @click="dowloadSpedFragment"
+                class="w-full justify-center py-[11px]"
+              >
+                <Download class="w-4 h-4" :stroke-width="1.8" /> Download Fragmento SPED
+              </UiButton>
+
+              <UiButton
                 v-if="spedBaseId"
                 @click="router.push(`/analisador/${spedBaseId}`)"
-                class="w-full bg-brand-accent hover:bg-brand-accent/90 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-accent/20 active:scale-95"
+                class="w-full justify-center py-[11px]"
               >
-                <Database class="w-5 h-5" /> Abrir no Analisador Crítico
-              </button>
+                <Database class="w-4 h-4" :stroke-width="1.8" /> Abrir no Analisador Crítico
+              </UiButton>
 
-              <button 
+              <button
                 @click="currentStep = 1; files = []; results = null;"
-                class="w-full bg-white/5 hover:bg-white/10 text-slate-400 py-3 rounded-2xl text-xs font-bold transition-all"
+                class="w-full text-risco hover:text-ink py-2 text-[12px] font-medium transition-colors"
               >
                 Iniciar Novo Processo
               </button>
@@ -634,16 +632,16 @@ function closeDetails() {
     </main>
 
     <!-- Footer Stats -->
-    <footer class="h-10 bg-[#0f172a] border-t border-white/5 flex items-center px-10 justify-between text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+    <footer class="h-10 bg-graphite border-t border-line flex items-center px-4 sm:px-8 justify-between text-[10px] text-muted font-medium uppercase tracking-wide">
        <div>
-         Status do Analista: <span class="text-emerald-400">Online & Otimizado</span>
+         Status: <span class="text-conforme">Online</span>
        </div>
        <div class="flex items-center gap-4">
-         <span>Powered by Audisped Advanced</span>
+         <span>AudiSped</span>
          <div class="flex gap-1">
-           <div class="w-1 h-1 bg-brand-accent rounded-full animate-ping"></div>
-           <div class="w-1 h-1 bg-brand-accent rounded-full"></div>
-           <div class="w-1 h-1 bg-brand-accent rounded-full"></div>
+           <div class="w-1 h-1 bg-bronze rounded-full"></div>
+           <div class="w-1 h-1 bg-bronze rounded-full"></div>
+           <div class="w-1 h-1 bg-bronze rounded-full"></div>
          </div>
        </div>
     </footer>
@@ -654,39 +652,39 @@ function closeDetails() {
 
     <!-- Modal de Gestão de CFOPs -->
     <div v-if="showCfopManager" class="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div 
-        @click="showCfopManager = false" 
-        class="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+      <div
+        @click="showCfopManager = false"
+        class="absolute inset-0 bg-ink/40"
       ></div>
-      
-      <div class="relative w-full max-w-2xl bg-[#1e293b] border border-white/10 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <div class="p-6 border-b border-white/5 flex items-center justify-between">
-          <h3 class="text-xl font-black text-white uppercase italic tracking-tighter">
-            Gerenciar <span class="text-brand-accent">CFOPs</span>
+
+      <div class="relative w-full max-w-2xl bg-sheet border border-line rounded-md overflow-hidden card-shadow">
+        <div class="p-6 border-b border-line flex items-center justify-between">
+          <h3 class="font-display text-[16px] font-semibold text-ink">
+            Gerenciar CFOPs
           </h3>
-          <button @click="showCfopManager = false" class="p-2 hover:bg-white/5 rounded-full text-slate-400 transition-colors">
-            <X class="w-6 h-6" />
+          <button @click="showCfopManager = false" class="p-2 hover:bg-paper rounded-md text-risco hover:text-ink transition-colors">
+            <X class="w-5 h-5" :stroke-width="1.8" />
           </button>
         </div>
 
         <div class="p-6 space-y-6">
-          <div class="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-4">
-            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest">Adicionar Novo Código</h4>
+          <div class="bg-paper p-4 rounded-md border border-line space-y-4">
+            <h4 class="text-[11px] font-medium text-risco uppercase tracking-wide">Adicionar Novo Código</h4>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <input v-model="newCfop.codigo" type="text" placeholder="Cód. ex: 1403" class="bg-[#0f172a] border border-white/10 rounded-xl px-4 py-2 text-white font-mono text-sm outline-none focus:border-brand-accent" />
-              <input v-model="newCfop.descricao" type="text" placeholder="Descrição..." class="bg-[#0f172a] border border-white/10 rounded-xl px-4 py-2 text-white text-sm outline-none focus:border-brand-accent" />
-              <button @click="addCfop" class="bg-brand-accent hover:bg-brand-accent/90 text-white rounded-xl font-bold text-xs transition-all">ADICIONAR</button>
+              <input v-model="newCfop.codigo" type="text" placeholder="Cód. ex: 1403" class="bg-sheet border border-line rounded-md px-3 py-2 text-ink font-mono text-[13px] outline-none focus:border-bronze transition-colors" />
+              <input v-model="newCfop.descricao" type="text" placeholder="Descrição..." class="bg-sheet border border-line rounded-md px-3 py-2 text-ink text-[13px] outline-none focus:border-bronze transition-colors" />
+              <UiButton @click="addCfop" class="justify-center">Adicionar</UiButton>
             </div>
           </div>
 
           <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-            <div v-for="cf in registeredCfops" :key="cf.id" class="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-transparent hover:border-white/10 transition-all">
+            <div v-for="cf in registeredCfops" :key="cf.id" class="flex items-center justify-between p-3 bg-paper rounded-md border border-line hover:border-bronze/40 transition-colors">
               <div class="flex items-center gap-3">
-                <span class="text-brand-accent font-black font-mono">{{ cf.codigo }}</span>
-                <span class="text-xs text-slate-300">{{ cf.descricao }}</span>
+                <span class="text-bronze font-semibold font-mono text-[13px]">{{ cf.codigo }}</span>
+                <span class="text-[12px] text-risco">{{ cf.descricao }}</span>
               </div>
-              <button @click="removeCfop(cf.id)" class="text-slate-500 hover:text-red-400 p-1 transition-colors">
-                <Trash2 class="w-4 h-4" />
+              <button @click="removeCfop(cf.id)" class="text-risco hover:text-lacre p-1 transition-colors">
+                <Trash2 class="w-4 h-4" :stroke-width="1.8" />
               </button>
             </div>
           </div>
@@ -697,6 +695,9 @@ function closeDetails() {
 </template>
 
 <style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -704,24 +705,10 @@ function closeDetails() {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(18, 24, 32, 0.12);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.bg-brand-secondary {
-  background-color: #6366f1; /* Indigo */
-}
-
-/* Animations provide that premium feel */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.animate-fade-in {
-  animation: fade-in 0.5s ease-out;
+  background: rgba(18, 24, 32, 0.22);
 }
 </style>

@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api'
 import { useRouter } from 'vue-router'
 import { setEmpresaSelecionada } from '../store'
 import { Search, Building2, ChevronRight, Plus, Trash2, X } from 'lucide-vue-next'
+import UiButton from '../components/ui/UiButton.vue'
 
 const router = useRouter();
 const empresas = ref([]);
@@ -121,60 +122,48 @@ async function criarEmpresa() {
 </script>
 
 <template>
-  <div class="max-w-6xl mx-auto py-8 space-y-8 animate-fade-in">
+  <div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 space-y-6 animate-fade-in">
 
-    <!-- Header Hero -->
-    <header class="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-6">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-end justify-between gap-5 border-b border-line pb-5">
       <div class="space-y-1">
-        <h1 class="text-3xl font-semibold text-slate-900 tracking-tight">
-          Gestor de Clientes
-        </h1>
-        <p class="text-slate-500 text-sm max-w-lg">
-          Acesse os hubs de ferramentas e repositórios XML de cada unidade da sua carteira.
-        </p>
+        <h1 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink">Gestor de Clientes</h1>
+        <p class="text-[13px] text-risco max-w-lg">Acesse os hubs de ferramentas e repositórios XML de cada unidade da sua carteira.</p>
       </div>
 
-      <div class="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-        <div class="relative group flex-grow md:w-80">
-          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search class="h-4 w-4 text-slate-400" />
-          </div>
+      <div class="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+        <div class="relative flex-grow md:w-72">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-risco pointer-events-none" :stroke-width="1.8" />
           <input
             v-model="busca"
             type="text"
             placeholder="Buscar razão social ou CNPJ..."
-            class="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-md leading-5 bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-accent focus:border-brand-accent sm:text-sm transition-colors"
+            class="block w-full pl-9 pr-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink placeholder-risco outline-none focus:border-bronze transition-colors"
           />
         </div>
         <div class="flex gap-2">
-          <button
-            @click="isCreateModalOpen = true"
-            class="inline-flex items-center px-4 py-2 border border-slate-300 text-sm font-medium rounded-md shadow-sm text-slate-700 bg-white hover:bg-slate-50 transition-colors gap-2"
-          >
-            <Building2 class="w-4 h-4 text-slate-400" />
+          <UiButton variant="ghost" @click="isCreateModalOpen = true">
+            <Building2 class="w-4 h-4 text-risco" :stroke-width="1.8" />
             Nova Empresa
-          </button>
-          <button
-            @click="router.push('/analisador')"
-            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-brand-accent hover:bg-blue-700 transition-colors gap-2"
-          >
-            <Plus class="w-4 h-4" />
+          </UiButton>
+          <UiButton @click="router.push('/analisador')">
+            <Plus class="w-4 h-4" :stroke-width="2" />
             Processar Novo SPED
-          </button>
+          </UiButton>
         </div>
       </div>
     </header>
 
     <!-- Lista de Empresas -->
-    <section class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <section class="bg-sheet rounded-md border border-line overflow-hidden card-shadow">
       <div v-if="loading" class="p-12 text-center space-y-3">
-        <div class="inline-block w-8 h-8 border-2 border-slate-200 border-t-brand-accent rounded-full animate-spin"></div>
-        <p class="text-slate-500 text-sm font-medium">Buscando empresas no servidor...</p>
+        <div class="inline-block w-7 h-7 border-2 border-line border-t-bronze rounded-full animate-spin"></div>
+        <p class="text-risco text-[13px]">Buscando empresas no servidor...</p>
       </div>
 
       <div v-else-if="empresasFiltradas.length > 0">
         <!-- Cabeçalho da Tabela -->
-        <div class="hidden md:grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <div class="hidden md:grid grid-cols-12 gap-4 px-5 py-2.5 bg-paper border-b border-line text-[10px] font-semibold text-risco uppercase tracking-[.08em]">
           <div class="col-span-5">Cliente</div>
           <div class="col-span-3">CNPJ</div>
           <div class="col-span-1 text-center">UF</div>
@@ -182,23 +171,23 @@ async function criarEmpresa() {
         </div>
 
         <!-- Itens -->
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-line">
           <div
             v-for="empresa in empresasFiltradas"
             :key="empresa.id"
             @click="selecionarEmpresa(empresa)"
-            class="group grid grid-cols-1 md:grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-slate-50 cursor-pointer transition-colors"
+            class="group grid grid-cols-1 md:grid-cols-12 gap-4 px-5 py-3.5 items-center hover:bg-paper cursor-pointer transition-colors"
           >
             <!-- Info Principal -->
             <div class="col-span-5 flex items-center gap-3">
-              <div class="w-10 h-10 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-400 flex-shrink-0 group-hover:border-blue-200 group-hover:text-brand-accent transition-all">
-                <Building2 class="w-5 h-5" />
+              <div class="w-9 h-9 rounded-md border border-line bg-paper flex items-center justify-center text-risco flex-shrink-0 group-hover:border-bronze/40 group-hover:text-bronze transition-all">
+                <Building2 class="w-5 h-5" :stroke-width="1.6" />
               </div>
               <div class="flex flex-col min-w-0">
-                <h4 class="text-sm font-semibold text-slate-900 truncate">
+                <h4 class="text-[13px] font-medium text-ink truncate">
                   {{ empresa.nome_fantasia || empresa.nome_empresa }}
                 </h4>
-                <p class="text-xs text-slate-500 truncate" v-if="empresa.nome_fantasia">
+                <p class="text-[11px] text-risco truncate" v-if="empresa.nome_fantasia">
                   {{ empresa.nome_empresa }}
                 </p>
               </div>
@@ -206,30 +195,30 @@ async function criarEmpresa() {
 
             <!-- CNPJ -->
             <div class="col-span-3 flex items-center md:block">
-              <span class="md:hidden text-xs font-semibold text-slate-400 uppercase mr-2">CNPJ:</span>
-              <span class="text-sm font-mono text-slate-600">{{ formatCNPJ(empresa.cnpj) }}</span>
+              <span class="md:hidden text-[10px] font-semibold text-risco uppercase mr-2">CNPJ:</span>
+              <span class="text-[12px] font-mono text-ink">{{ formatCNPJ(empresa.cnpj) }}</span>
             </div>
 
             <!-- UF -->
             <div class="col-span-1 flex items-center md:justify-center">
-              <span class="md:hidden text-xs font-semibold text-slate-400 uppercase mr-2">UF:</span>
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
+              <span class="md:hidden text-[10px] font-semibold text-risco uppercase mr-2">UF:</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-paper border border-line text-ink">
                 {{ empresa.uf }}
               </span>
             </div>
 
             <!-- Ações -->
-            <div class="col-span-3 flex justify-end items-center gap-4">
+            <div class="col-span-3 flex justify-end items-center gap-3">
               <button
                 @click.stop="confirmDelete(empresa, $event)"
-                class="p-1 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                class="p-1 rounded-md text-risco hover:text-lacre hover:bg-lacre/5 transition-colors"
                 title="Excluir Empresa"
               >
-                <Trash2 class="w-4 h-4" />
+                <Trash2 class="w-4 h-4" :stroke-width="1.6" />
               </button>
-              <div class="text-sm font-medium text-brand-accent flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+              <div class="text-[12px] font-medium text-bronze flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
                 Acessar
-                <ChevronRight class="w-4 h-4" />
+                <ChevronRight class="w-4 h-4" :stroke-width="1.8" />
               </div>
             </div>
           </div>
@@ -238,13 +227,13 @@ async function criarEmpresa() {
 
       <!-- Empty/Search State -->
       <div v-else class="p-16 text-center">
-        <Building2 class="mx-auto h-12 w-12 text-slate-300" />
-        <h3 class="mt-4 text-sm font-medium text-slate-900">Nenhum cliente via SPED</h3>
-        <p class="mt-1 text-sm text-slate-500">
+        <Building2 class="mx-auto h-11 w-11 text-line" :stroke-width="1.4" />
+        <h3 class="mt-4 text-[13px] font-medium text-ink">Nenhum cliente via SPED</h3>
+        <p class="mt-1 text-[13px] text-risco">
           Processe um arquivo SPED no Motor de Auditoria para cadastrá-lo automaticamente.
         </p>
-        <div class="mt-6">
-          <button v-if="busca" @click="busca = ''" class="text-sm text-brand-accent hover:text-blue-800 font-medium">
+        <div class="mt-5">
+          <button v-if="busca" @click="busca = ''" class="text-[13px] text-bronze hover:opacity-80 font-medium">
             Limpar filtros de pesquisa
           </button>
         </div>
@@ -252,49 +241,44 @@ async function criarEmpresa() {
     </section>
 
     <!-- Footer Stats -->
-    <footer v-if="!loading && empresas.length > 0" class="flex items-center text-xs text-slate-400">
-      <span class="font-medium mr-1 text-slate-500">{{ empresas.length }}</span> clientes indexados a partir dos arquivos SPED.
+    <footer v-if="!loading && empresas.length > 0" class="flex items-center text-[12px] text-risco">
+      <span class="font-medium mr-1 text-ink">{{ empresas.length }}</span> clientes indexados a partir dos arquivos SPED.
     </footer>
 
     <!-- ===================== MODAL NOVA EMPRESA ===================== -->
     <div v-if="isCreateModalOpen" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-      <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div class="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" @click="isCreateModalOpen = false"></div>
-        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg w-full relative">
-          <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-            <div class="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
-              <h3 class="text-lg leading-6 font-medium text-slate-900">Cadastrar Nova Empresa</h3>
-              <button @click="isCreateModalOpen = false" class="text-slate-400 hover:text-slate-500">
+      <div class="flex items-end sm:items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-ink/40 transition-opacity" @click="isCreateModalOpen = false"></div>
+        <div class="relative bg-sheet rounded-md border border-line w-full sm:max-w-lg card-shadow">
+          <div class="px-6 pt-5 pb-4">
+            <div class="flex justify-between items-center border-b border-line pb-3 mb-4">
+              <h3 class="font-display text-[16px] font-semibold text-ink">Cadastrar Nova Empresa</h3>
+              <button @click="isCreateModalOpen = false" class="text-risco hover:text-ink transition-colors">
                 <X class="w-5 h-5"/>
               </button>
             </div>
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-slate-700">CNPJ (Apenas números)*</label>
-                <input type="text" v-model="novaEmpresa.cnpj" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-brand-accent focus:border-brand-accent sm:text-sm" />
+            <div class="space-y-3.5">
+              <div class="space-y-1">
+                <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">CNPJ (apenas números)*</label>
+                <input type="text" v-model="novaEmpresa.cnpj" class="w-full px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink font-mono outline-none focus:border-bronze transition-colors" />
               </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700">Razão Social*</label>
-                <input type="text" v-model="novaEmpresa.nome_empresa" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-brand-accent focus:border-brand-accent sm:text-sm" />
+              <div class="space-y-1">
+                <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Razão Social*</label>
+                <input type="text" v-model="novaEmpresa.nome_empresa" class="w-full px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors" />
               </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700">Nome Fantasia</label>
-                <input type="text" v-model="novaEmpresa.nome_fantasia" class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-brand-accent focus:border-brand-accent sm:text-sm" />
+              <div class="space-y-1">
+                <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Nome Fantasia</label>
+                <input type="text" v-model="novaEmpresa.nome_fantasia" class="w-full px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors" />
               </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700">UF</label>
-                <input type="text" v-model="novaEmpresa.uf" maxlength="2" placeholder="Ex: SP" class="mt-1 block w-20 border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-brand-accent focus:border-brand-accent sm:text-sm" />
+              <div class="space-y-1">
+                <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">UF</label>
+                <input type="text" v-model="novaEmpresa.uf" maxlength="2" placeholder="Ex: SP" class="w-20 px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink uppercase outline-none focus:border-bronze transition-colors" />
               </div>
             </div>
           </div>
-          <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse border-t border-slate-100">
-            <button @click="criarEmpresa" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-brand-accent text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm">
-              Salvar Empresa
-            </button>
-            <button @click="isCreateModalOpen = false" type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-              Cancelar
-            </button>
+          <div class="bg-paper px-6 py-3 flex flex-row-reverse gap-2 border-t border-line rounded-b-md">
+            <UiButton @click="criarEmpresa">Salvar Empresa</UiButton>
+            <UiButton variant="ghost" @click="isCreateModalOpen = false">Cancelar</UiButton>
           </div>
         </div>
       </div>
@@ -302,42 +286,34 @@ async function criarEmpresa() {
 
     <!-- ===================== MODAL CONFIRMAR EXCLUSÃO ===================== -->
     <div v-if="isDeleteModalOpen" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-      <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div class="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" @click="isDeleteModalOpen = false"></div>
-        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md w-full relative">
-          <div class="bg-white px-6 pt-6 pb-4">
+      <div class="flex items-end sm:items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-ink/40 transition-opacity" @click="isDeleteModalOpen = false"></div>
+        <div class="relative bg-sheet rounded-md border border-line w-full sm:max-w-md card-shadow">
+          <div class="px-6 pt-6 pb-4">
             <div class="flex items-start gap-4">
-              <div class="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-red-100">
-                <Trash2 class="h-6 w-6 text-red-600" />
+              <div class="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-md bg-lacre/10">
+                <Trash2 class="h-5 w-5 text-lacre" :stroke-width="1.6" />
               </div>
               <div>
-                <h3 class="text-lg font-semibold text-slate-900">Excluir Cliente</h3>
-                <p class="mt-2 text-sm text-slate-500">
-                  Tem certeza que deseja excluir a empresa <strong>{{ empresaToDelete?.nome_empresa }}</strong>?<br/><br/>
-                  <span class="text-red-600 font-semibold">Esta ação é irreversível</span> e apagará permanentemente todos os arquivos SPED processados, XMLs e notas fiscais vinculadas a este cliente.
+                <h3 class="font-display text-[16px] font-semibold text-ink">Excluir Cliente</h3>
+                <p class="mt-2 text-[13px] text-risco leading-relaxed">
+                  Tem certeza que deseja excluir a empresa <strong class="text-ink">{{ empresaToDelete?.nome_empresa }}</strong>?<br/><br/>
+                  <span class="text-lacre font-semibold">Esta ação é irreversível</span> e apagará permanentemente todos os arquivos SPED processados, XMLs e notas fiscais vinculadas a este cliente.
                 </p>
               </div>
             </div>
           </div>
-          <div class="bg-gray-50 px-4 py-3 sm:px-6 flex flex-row-reverse gap-3 border-t border-slate-100">
+          <div class="bg-paper px-6 py-3 flex flex-row-reverse gap-2 border-t border-line rounded-b-md">
             <button
               @click="deletarEmpresa"
               :disabled="deletando"
               type="button"
-              class="inline-flex items-center justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              class="inline-flex items-center justify-center gap-2 rounded-md px-[13px] py-[7px] bg-lacre text-white text-[13px] font-medium hover:opacity-85 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
             >
-              <span v-if="deletando" class="mr-2 inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              <span v-if="deletando" class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
               {{ deletando ? 'Excluindo...' : 'Sim, Excluir Permanentemente' }}
             </button>
-            <button
-              @click="isDeleteModalOpen = false"
-              :disabled="deletando"
-              type="button"
-              class="inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 transition-colors"
-            >
-              Cancelar
-            </button>
+            <UiButton variant="ghost" @click="isDeleteModalOpen = false" :disabled="deletando">Cancelar</UiButton>
           </div>
         </div>
       </div>
@@ -348,14 +324,14 @@ async function criarEmpresa() {
       <div
         v-if="toast.show"
         :class="[
-          'fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3 rounded-lg shadow-xl text-sm font-semibold text-white',
-          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          'fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-4 py-3 rounded-md text-[13px] font-medium text-white card-shadow',
+          toast.type === 'success' ? 'bg-conforme' : 'bg-lacre'
         ]"
       >
-        <span v-if="toast.type === 'success'" class="text-lg">✓</span>
-        <span v-else class="text-lg">✕</span>
+        <span v-if="toast.type === 'success'" class="text-base">✓</span>
+        <span v-else class="text-base">✕</span>
         {{ toast.message }}
-        <button @click="toast.show = false" class="ml-2 text-white opacity-70 hover:opacity-100 font-bold">×</button>
+        <button @click="toast.show = false" class="ml-2 text-white/70 hover:text-white font-bold">×</button>
       </div>
     </transition>
 
@@ -363,6 +339,9 @@ async function criarEmpresa() {
 </template>
 
 <style scoped>
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
+}
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
 }

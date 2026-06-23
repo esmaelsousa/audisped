@@ -1,17 +1,18 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { usuario, setUsuario, token } from '../store';
-import { 
-  User, 
-  Mail, 
-  Lock, 
-  Save, 
-  CheckCircle2, 
+import {
+  User,
+  Mail,
+  Lock,
+  Save,
+  CheckCircle2,
   AlertCircle,
   Loader2,
   Camera
 } from 'lucide-vue-next';
 import axios from 'axios';
+import UiButton from '../components/ui/UiButton.vue';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -48,9 +49,9 @@ const handleSubmit = async () => {
     form.value.senha = '';
     form.value.confirmarSenha = '';
   } catch (err) {
-    status.value = { 
-      type: 'error', 
-      message: err.response?.data?.message || 'Erro ao atualizar perfil.' 
+    status.value = {
+      type: 'error',
+      message: err.response?.data?.message || 'Erro ao atualizar perfil.'
     };
   } finally {
     loading.value = false;
@@ -59,45 +60,46 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8 bg-brand-surface min-h-screen">
+  <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
     <!-- Header -->
-    <div class="mb-10 text-center sm:text-left">
-      <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight sm:text-4xl">Meu Perfil</h1>
-      <p class="mt-2 text-lg text-slate-600">Gerencie suas informações pessoais e configurações de segurança.</p>
+    <div class="mb-8">
+      <h1 class="font-display text-[26px] font-semibold tracking-[-0.01em] text-ink">Meu Perfil</h1>
+      <p class="mt-1 text-[13px] text-risco">Gerencie suas informações pessoais e configurações de segurança.</p>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Left Column: User Summary Card -->
-      <div class="space-y-6">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div class="bg-gradient-to-br from-brand-accent to-blue-700 h-24 relative">
-            <div class="absolute -bottom-12 left-1/2 -translate-x-1/2 sm:left-6 sm:translate-x-0">
+      <div class="space-y-5">
+        <div class="bg-sheet rounded-md border border-line overflow-hidden card-shadow">
+          <!-- faixa grafite sólida (sem gradiente) -->
+          <div class="bg-graphite h-20 relative">
+            <div class="absolute -bottom-10 left-6">
               <div class="relative group">
-                <div class="w-24 h-24 rounded-full border-4 border-white bg-slate-100 flex items-center justify-center text-brand-accent shadow-md overflow-hidden transition-all group-hover:brightness-90">
-                  <User class="w-12 h-12" v-if="!usuario?.avatar" />
+                <div class="w-20 h-20 rounded-full border-4 border-sheet bg-paper flex items-center justify-center text-bronze overflow-hidden">
+                  <User class="w-10 h-10" :stroke-width="1.6" v-if="!usuario?.avatar" />
                   <img v-else :src="usuario.avatar" class="w-full h-full object-cover" />
                 </div>
-                <button class="absolute bottom-0 right-0 p-1.5 bg-white rounded-full border border-slate-200 shadow-sm text-slate-500 hover:text-brand-accent transition-colors" title="Alterar Foto (Em breve)">
+                <button class="absolute bottom-0 right-0 p-1.5 bg-sheet rounded-full border border-line text-risco hover:text-bronze transition-colors" title="Alterar Foto (Em breve)">
                   <Camera class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
           </div>
-          <div class="pt-14 pb-8 px-6 text-center sm:text-left">
-            <h2 class="text-xl font-bold text-slate-900">{{ usuario?.nome || 'Usuário' }}</h2>
-            <p class="text-sm text-slate-500 mb-4">{{ usuario?.email }}</p>
-            <div class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+          <div class="pt-13 pb-6 px-6 mt-2">
+            <h2 class="font-display text-[17px] font-semibold text-ink">{{ usuario?.nome || 'Usuário' }}</h2>
+            <p class="text-[12px] text-risco mb-3">{{ usuario?.email }}</p>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-bronze/10 text-bronze border border-bronze/20">
               Administrador do Sistema
-            </div>
+            </span>
           </div>
         </div>
 
-        <div class="bg-blue-50 border border-blue-100 rounded-xl p-5">
+        <div class="bg-bronze/[0.04] border border-bronze/15 rounded-md p-4">
           <div class="flex gap-3">
-            <AlertCircle class="w-5 h-5 text-blue-600 shrink-0" />
+            <AlertCircle class="w-4 h-4 text-bronze shrink-0 mt-0.5" :stroke-width="1.8" />
             <div>
-              <h4 class="text-sm font-semibold text-blue-900">Segurança de Dados</h4>
-              <p class="text-xs text-blue-700 mt-1 leading-relaxed">
+              <h4 class="text-[13px] font-semibold text-ink">Segurança de Dados</h4>
+              <p class="text-[12px] text-risco mt-1 leading-relaxed">
                 Suas informações são processadas de acordo com as normas da LGPD. Nunca compartilhe sua senha.
               </p>
             </div>
@@ -106,42 +108,42 @@ const handleSubmit = async () => {
       </div>
 
       <!-- Right Column: Edit Form -->
-      <div class="lg:col-span-2 space-y-6">
-        <form @submit.prevent="handleSubmit" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 space-y-8">
-          
+      <div class="lg:col-span-2">
+        <form @submit.prevent="handleSubmit" class="bg-sheet rounded-md border border-line p-6 sm:p-7 space-y-7 card-shadow">
+
           <!-- Basic Info Section -->
           <section>
-            <div class="flex items-center gap-2 mb-6 border-b border-slate-100 pb-2">
-              <div class="w-1 h-6 bg-brand-accent rounded-full"></div>
-              <h3 class="text-lg font-bold text-slate-900">Dados Pessoais</h3>
+            <div class="flex items-center gap-2 mb-5 border-b border-line pb-2.5">
+              <div class="w-1 h-5 bg-bronze rounded-full"></div>
+              <h3 class="font-display text-[15px] font-semibold text-ink">Dados Pessoais</h3>
             </div>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div class="space-y-1.5">
-                <label for="nome" class="text-sm font-semibold text-slate-700">Nome Completo</label>
+                <label for="nome" class="block text-[11px] uppercase tracking-wide text-risco font-medium">Nome Completo</label>
                 <div class="relative">
-                  <User class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    id="nome" 
-                    v-model="form.nome" 
-                    type="text" 
-                    required 
-                    class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-brand-accent/20 focus:border-brand-accent outline-none transition-all"
+                  <User class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco" :stroke-width="1.8" />
+                  <input
+                    id="nome"
+                    v-model="form.nome"
+                    type="text"
+                    required
+                    class="w-full pl-9 pr-3 py-2.5 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors"
                     placeholder="Seu nome completo"
                   />
                 </div>
               </div>
 
               <div class="space-y-1.5">
-                <label for="email" class="text-sm font-semibold text-slate-700">E-mail Corporativo</label>
+                <label for="email" class="block text-[11px] uppercase tracking-wide text-risco font-medium">E-mail Corporativo</label>
                 <div class="relative">
-                  <Mail class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    id="email" 
-                    v-model="form.email" 
-                    type="email" 
-                    required 
-                    class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-brand-accent/20 focus:border-brand-accent outline-none transition-all"
+                  <Mail class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco" :stroke-width="1.8" />
+                  <input
+                    id="email"
+                    v-model="form.email"
+                    type="email"
+                    required
+                    class="w-full pl-9 pr-3 py-2.5 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors"
                     placeholder="exemplo@empresa.com"
                   />
                 </div>
@@ -151,36 +153,36 @@ const handleSubmit = async () => {
 
           <!-- Security Section -->
           <section>
-            <div class="flex items-center gap-2 mb-6 border-b border-slate-100 pb-2">
-              <div class="w-1 h-6 bg-brand-accent rounded-full"></div>
-              <h3 class="text-lg font-bold text-slate-900 text-slate-900">Alterar Senha</h3>
+            <div class="flex items-center gap-2 mb-5 border-b border-line pb-2.5">
+              <div class="w-1 h-5 bg-bronze rounded-full"></div>
+              <h3 class="font-display text-[15px] font-semibold text-ink">Alterar Senha</h3>
             </div>
-            <p class="text-xs text-slate-500 mb-4 italic">Deixe em branco para manter a senha atual.</p>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <p class="text-[12px] text-risco mb-4">Deixe em branco para manter a senha atual.</p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div class="space-y-1.5">
-                <label for="senha" class="text-sm font-semibold text-slate-700">Nova Senha</label>
+                <label for="senha" class="block text-[11px] uppercase tracking-wide text-risco font-medium">Nova Senha</label>
                 <div class="relative">
-                  <Lock class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    id="senha" 
-                    v-model="form.senha" 
-                    type="password" 
-                    class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-brand-accent/20 focus:border-brand-accent outline-none transition-all"
+                  <Lock class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco" :stroke-width="1.8" />
+                  <input
+                    id="senha"
+                    v-model="form.senha"
+                    type="password"
+                    class="w-full pl-9 pr-3 py-2.5 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors"
                     placeholder="••••••••"
                   />
                 </div>
               </div>
 
               <div class="space-y-1.5">
-                <label for="confirmarSenha" class="text-sm font-semibold text-slate-700">Confirmar Nova Senha</label>
+                <label for="confirmarSenha" class="block text-[11px] uppercase tracking-wide text-risco font-medium">Confirmar Nova Senha</label>
                 <div class="relative">
-                  <Lock class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    id="confirmarSenha" 
-                    v-model="form.confirmarSenha" 
-                    type="password" 
-                    class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-brand-accent/20 focus:border-brand-accent outline-none transition-all"
+                  <Lock class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-risco" :stroke-width="1.8" />
+                  <input
+                    id="confirmarSenha"
+                    v-model="form.confirmarSenha"
+                    type="password"
+                    class="w-full pl-9 pr-3 py-2.5 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors"
                     placeholder="••••••••"
                   />
                 </div>
@@ -190,25 +192,21 @@ const handleSubmit = async () => {
 
           <!-- Status Message -->
           <div v-if="status.message" :class="[
-            'p-4 rounded-xl flex items-center gap-3 transition-all duration-300',
-            status.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
+            'p-3.5 rounded-md flex items-center gap-3 border',
+            status.type === 'success' ? 'bg-conforme/[0.06] text-conforme border-conforme/25' : 'bg-lacre/[0.06] text-lacre border-lacre/25'
           ]">
-            <CheckCircle2 v-if="status.type === 'success'" class="w-5 h-5" />
-            <AlertCircle v-else class="w-5 h-5" />
-            <span class="text-sm font-medium">{{ status.message }}</span>
+            <CheckCircle2 v-if="status.type === 'success'" class="w-5 h-5" :stroke-width="1.8" />
+            <AlertCircle v-else class="w-5 h-5" :stroke-width="1.8" />
+            <span class="text-[13px] font-medium">{{ status.message }}</span>
           </div>
 
           <!-- Actions -->
-          <div class="flex items-center justify-end pt-4 gap-4">
-            <button 
-              type="submit" 
-              :disabled="loading"
-              class="inline-flex items-center gap-2 px-6 py-3 bg-brand-accent hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 active:scale-95 transition-all text-sm uppercase tracking-wide"
-            >
+          <div class="flex items-center justify-end pt-2">
+            <UiButton type="submit" :disabled="loading" class="py-[9px] px-5 disabled:opacity-50">
               <Loader2 v-if="loading" class="w-4 h-4 animate-spin" />
-              <Save v-else class="w-4 h-4" />
+              <Save v-else class="w-4 h-4" :stroke-width="1.8" />
               Salvar Alterações
-            </button>
+            </UiButton>
           </div>
         </form>
       </div>
@@ -217,13 +215,11 @@ const handleSubmit = async () => {
 </template>
 
 <style scoped>
-.bg-brand-surface {
-  background-color: #f8fafc;
+.card-shadow {
+  box-shadow: 0 1px 4px 0 rgba(18, 24, 32, 0.07);
 }
-.text-brand-accent {
-  color: #2563eb;
-}
-.bg-brand-accent {
-  background-color: #2563eb;
+/* compensa o avatar que extrapola a faixa grafite (-bottom-10 => 40px) */
+.pt-13 {
+  padding-top: 3.25rem;
 }
 </style>
