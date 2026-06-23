@@ -7,6 +7,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { empresaSelecionada, setArquivoInfo, setEmpresaSelecionada, idArquivoSped, setIdArquivoSped, arquivoInfo, auditErros, auditResumoGerencial, auditResumoEstoque, resetArquivoSped, token } from '../store'
 import { Loader2 } from 'lucide-vue-next'
 import NfItens from '../components/NfItens.vue'
+import MetricRuler from '../components/analisador/MetricRuler.vue'
+import BlockCoverage from '../components/analisador/BlockCoverage.vue'
+import OccurrenceTable from '../components/analisador/OccurrenceTable.vue'
+import TotalizerGauge from '../components/analisador/TotalizerGauge.vue'
 
 const route = useRoute();
 const router = useRouter();
@@ -1376,6 +1380,95 @@ const statusAnpGeral = computed(() => {
     if (es.some(x => x.status === 'WARNING')) return 'WARNING';
     return 'OK';
 });
+
+// ── Aferição: métricas para MetricRuler (aba Alertas) ────────────────────────
+const afericaoMetrics = computed(() => {
+    const total = auditErros.value.length;
+    const criticos = auditErros.value.filter(e => e.tipo_erro === 'CRITICAL').length;
+    const avisos = auditErros.value.filter(e => e.tipo_erro === 'WARNING').length;
+    const conformes = total === 0 ? 1 : 0; // sem erros = arquivo conforme
+    const metrics = [
+        { label: 'Total de alertas', value: total, severity: total === 0 ? 'conforme' : criticos > 0 ? 'lacre' : 'variacao' },
+        { label: 'Críticos', value: criticos, severity: criticos > 0 ? 'lacre' : 'conforme' },
+        { label: 'Avisos', value: avisos, severity: avisos > 0 ? 'variacao' : 'conforme' },
+    ];
+    if (total === 0) {
+        metrics.push({ label: 'Status', value: 'OK', severity: 'conforme' });
+    }
+    return metrics;
+});
+
+// ── Aferição: cobertura por bloco SPED (derivado dos registros com erro) ──────
+const afericaoBlocks = computed(() => {
+    // Extrai o registro de cada regra_id (ex: CRIT-1310-01 → 1310, RTAX-C170-01 → C170)
+    // e mapeia para seu bloco pai (1xxx→1, Cxxx→C, Dxxx→D, etc.)
+    const blocoMap = new Map(); // bloco → { temCritico, temAviso }
+    auditErros.value.forEach(erro => {
+        const parts = erro.regra_id.split('-');
+        const reg = parts.length > 1 ? parts[1] : 'OUTROS';
+        // Extrai o bloco: primeiro caractere uppercase ou numérico primeiro dígito
+        const bloco = reg.match(/^[A-Za-z]/) ? reg[0].toUpperCase() : reg[0];
+        const entry = blocoMap.get(bloco) || { temCritico: false, temAviso: false };
+        if (erro.tipo_erro === 'CRITICAL') entry.temCritico = true;
+        else entry.temAviso = true;
+        blocoMap.set(bloco, entry);
+    });
+    return Array.from(blocoMap.entries()).map(([code, v]) => ({
+        code,
+        status: v.temCritico ? 'lacre' : 'variacao',
+    })).sort((a, b) => a.code.localeCompare(b.code));
+});
+
+// ── Aferição: linhas para OccurrenceTable ────────────────────────────────────
+const afericaoRows = computed(() => {
+    return filteredAuditErros.value.map(erro => {
+        const parts = erro.regra_id ? erro.regra_id.split('-') : [];
+        const registro = parts.length > 1 ? parts[1] : (erro.regra_id || 'GERAL');
+        // severity: CRITICAL → lacre; WARNING → variacao; demais → conforme
+        const severity = erro.tipo_erro === 'CRITICAL' ? 'lacre'
+                       : erro.tipo_erro === 'WARNING'  ? 'variacao'
+                       : 'conforme';
+        // origem: inferida pelo prefixo da regra
+        const prefixo = parts[0] || '';
+        const origem = prefixo === 'RTAX' ? 'fiscal'
+                     : prefixo === 'CRIT' ? 'fiscal'
+                     : prefixo === 'CAD'  ? 'manual'
+                     : prefixo === 'DOC'  ? 'injecao'
+                     : prefixo === 'EST'  ? 'auto'
+                     : 'auto';
+        return {
+            severity,
+            registro,
+            campo: erro.titulo_erro || erro.regra_id,
+            // from: linha raw do SPED (se disponível e não vazia)
+            from: erro.conteudo_linha && erro.conteudo_linha.trim() ? erro.conteudo_linha.trim() : undefined,
+            to: erro.descricao_erro ? erro.descricao_erro.replace(/\*\*/g, '') : '—',
+            origem,
+        };
+    });
+});
+
+// ── Aferição: TotalizerGauge — variação de estoque do pior combustível ────────
+// Só exibido se houver dados reais de estoque com variação numérica
+const afericaoGauge = computed(() => {
+    const es = auditResumoGerencial.value?.estoqueResumo || [];
+    if (!es.length) return null;
+    // Pega o combustível com maior variação percentual
+    const pior = es.reduce((acc, x) => {
+        const v = Math.abs(parseFloat(x.variacao_perc) || 0);
+        return v > (Math.abs(parseFloat(acc.variacao_perc) || 0)) ? x : acc;
+    }, es[0]);
+    const varPerc = Math.abs(parseFloat(pior.variacao_perc) || 0);
+    if (varPerc === 0 && es.every(x => (parseFloat(x.variacao_perc) || 0) === 0)) return null;
+    return {
+        label: `Variação estoque — ${pior.nome_combustivel || pior.cod_item || 'Comb.'}`,
+        value: varPerc.toFixed(2) + '%',
+        min: 0,
+        max: 1.2, // teto visual: 2× a tolerância ANP
+        limit: 0.6,
+        current: varPerc,
+    };
+});
 </script>
 
 <template>
@@ -2720,6 +2813,54 @@ const statusAnpGeral = computed(() => {
 
     <!-- Conteúdo: Lista de Erros -->
     <div v-if="activeTab === 'erros'" class="space-y-6">
+       <!-- ── CABEÇALHO + SISTEMA AFERIÇÃO ────────────────────────────────── -->
+       <div class="space-y-4">
+         <!-- Cabeçalho de tela -->
+         <div class="flex items-baseline gap-3">
+           <h2 class="font-display text-[22px] font-semibold text-ink leading-none tracking-tight">
+             Auditoria SPED
+           </h2>
+           <span v-if="arquivoInfo?.periodo" class="font-mono text-[13px] text-risco">
+             {{ arquivoInfo.periodo }}
+           </span>
+           <span v-if="empresaSelecionada?.nome_empresa" class="text-[13px] text-risco truncate max-w-[260px]">
+             · {{ empresaSelecionada.nome_empresa }}
+           </span>
+         </div>
+
+         <!-- MetricRuler: contadores reais de alertas -->
+         <MetricRuler :metrics="afericaoMetrics" />
+
+         <!-- TotalizerGauge: variação de estoque (só quando há dado real) -->
+         <TotalizerGauge
+           v-if="afericaoGauge"
+           :label="afericaoGauge.label"
+           :value="afericaoGauge.value"
+           :min="afericaoGauge.min"
+           :max="afericaoGauge.max"
+           :limit="afericaoGauge.limit"
+           :current="afericaoGauge.current"
+         />
+
+         <!-- BlockCoverage: blocos SPED com ocorrências (só quando há erros) -->
+         <BlockCoverage v-if="afericaoBlocks.length > 0" :blocks="afericaoBlocks" />
+       </div>
+       <!-- ── FIM AFERIÇÃO ──────────────────────────────────────────────────── -->
+
+       <!-- OccurrenceTable: substitui a apresentação principal dos erros -->
+       <OccurrenceTable v-if="afericaoRows.length > 0" :rows="afericaoRows">
+         <template #header-action>
+           <!-- Filtros de sub-aba preservados via botões existentes abaixo -->
+         </template>
+         <template #footer>
+           <span class="text-[11px] text-risco">
+             {{ afericaoRows.length }} ocorrência(s) ·
+             {{ errosPorTipo.criticos }} crítico(s) ·
+             {{ errosPorTipo.avisos }} aviso(s)
+           </span>
+         </template>
+       </OccurrenceTable>
+
        <!-- Navegação de Sub-abas de Erros -->
        <div v-if="auditErros.length > 0" class="flex flex-wrap gap-2 pb-2 border-b border-slate-100 max-w-4xl mx-auto">
           <button 
