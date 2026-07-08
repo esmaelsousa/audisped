@@ -1,5 +1,9 @@
 node_modules
 dist
 .env
+.env.*
 *.log
+uploads
+tests/golden
+.git
 .DS_Store

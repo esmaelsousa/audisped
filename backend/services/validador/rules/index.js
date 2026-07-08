@@ -38,4 +38,16 @@ module.exports = [
     require('./r_e210_saldo'),         // APUR-E210-SALDO-01: saldo do E210 (recolher/credor a transportar) incoerente
     require('./r_e116_codrec'),        // DOC-E116-CODREC-01: E116 sem COD_REC (código de receita) — preenchido no export
     require('./r_0100_contador'),      // DOC-0100-CONTADOR-01: 0100 (contabilista) sem CPF/CRC (manual — dado externo)
+    // Catálogo E-Auditoria (2026-07-07/08) — detecção reproduz o E-Auditoria; gates de auto-correção
+    // no coletor (localhost), ver docs/superpowers/plans/REVISAO-CROSS-EMPRESA-2026-07-08.md.
+    require('./r_c100_vl_doc'),        // DOC-C100-VLDOC-01 (E-Aud 2890): VL_DOC ≠ total apurado
+    require('./r_c170_icms_sem_base'), // DOC-C170-ICMSSEMBASE-01 (E-Aud 2075): ALIQ>0 sem base
+    require('./r_c190_icms_sem_base'), // DOC-C190-ICMSSEMBASE-01 (E-Aud 2951): ALIQ>0 sem base
+    require('./r_c190_red_bc'),        // DOC-C190-REDBC-01 (E-Aud 2800): VL_RED_BC × CST
+    require('./r_9900_regblc'),        // EST-9900-REGBLC-01 (E-Aud 2037): REG_BLC ausente no 9900
+    require('./r_c190_vl_icms'),       // DOC-C190-VLICMS-01 (E-Aud 2481): VL_ICMS(C190) ≠ Σ VL_ICMS(C170)
+    require('./r_0400_codnat_cfop'),   // CAD-0400-CFOP-01 (E-Aud 2441): COD_NAT com CFOP (só-detecção)
+    require('./r_0206_sem_1300'),      // COMB-0206-1300-01 (E-Aud 2321): produto ANP sem LMC (só-detecção)
+    require('./r_c170_cod_cta'),       // DOC-C170-CODCTA-01 (E-Aud 2451): COD_CTA vazio (só-detecção)
+    require('./r_c100_5929'),          // DOC-C100-5929-01 (E-Aud 1003): 5929/6929 com valores (só-detecção)
 ];

@@ -275,6 +275,171 @@ t('E116 COD_REC: no-op sem codRec', () => { const { preencherE116CodRecVazio } =
 t('chaveNatural: 0100 resolve por CNPJ do escritório', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|CONTABILIDADE| | |13937073000156|44695000|'.split('|')), '13937073000156'); });
 t('chaveNatural: 0100 cai p/ NOME quando sem CNPJ', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|JOAO CONTADOR| | | |'.split('|')), 'JOAO CONTADOR'); });
 
+// ---------- money.js (E-Auditoria) ----------
+const money = require('../services/validador/money');
+t('money.toCents parseia vírgula e milhar', () => {
+    assert.strictEqual(money.toCents('639,32'), 63932);
+    assert.strictEqual(money.toCents('1.377.049,87'), 137704987);
+    assert.strictEqual(money.toCents(''), 0);
+});
+t('money.icmsCents usa HALF-UP (1,025 -> 1,03)', () => {
+    assert.strictEqual(money.icmsCents(500, money.aliqBp('20,50')), 103); // 5,00*20,5% = 1,025 -> 1,03
+    assert.strictEqual(money.icmsCents(63932, money.aliqBp('20,50')), 13106); // 131,0606 -> 131,06
+});
+t('money.fromCents formata', () => {
+    assert.strictEqual(money.fromCents(13106), '131,06');
+    assert.strictEqual(money.fromCents(103), '1,03');
+    assert.strictEqual(money.fromCents(0), '0,00');
+});
+
+// ---------- chaveNatural C190 + blindagem de chave vazia (E-Auditoria F4) ----------
+t('chaveNatural do C190 = chaveC100#CST|CFOP|ALIQ', () => {
+    const { chaveNatural } = require('../services/validador/correcoes');
+    const f = '|C190|000|1102|20,50|1086,84|639,32|131,05|0,00|0,00|0,00|0,00||'.split('|');
+    assert.strictEqual(chaveNatural('C190', f, 'CHV44'), 'CHV44#000|1102|20.5');
+});
+t('chave vazia (C100 mod 01 sem chave) não é corrigível', () => {
+    const semChv = '|C100|0|1|PART|01|00|1|500||01012022|01012022|100,00||0|100,00|0|0|0|0|0|18,00|0|0|0|0|';
+    const r = run(H([semChv]));
+    assert.ok(r.erros.every(e => e.registro !== 'C100' || e.corrigivel === false));
+});
+
+// ---------- engine propaga refEAuditoria ----------
+t('engine propaga refEAuditoria da regra', () => {
+    const regrasMod = require('../services/validador/rules');
+    regrasMod.push({ id: 'TMP-REF', bloco: 'C', registro: 'C100', titulo: 't', refEAuditoria: '9999',
+        detectar: () => [{ linha: 1, campo: 'x', detalhe: 'd' }] });
+    const r = validar({ linhas: [], porReg: new Map(), blocos: new Set(['C']) });
+    regrasMod.pop();
+    const e = r.erros.find(x => x.regra_id === 'TMP-REF');
+    assert.ok(e && e.refEAuditoria === '9999');
+});
+
+// ---------- DOC-C100-VLDOC-01 (E-Aud 2890) ----------
+const C100vd = (vldoc, merc, out, emit = '0') => `|C100|1|${emit}||65|00|001|80138|CHV|03062026|03062026|${vldoc}|2|0,00|0,00|${merc}|9|0,00|0,00|${out}|0,00|0,00|0,00|0,00|0,00|`;
+t('2890 dispara quando VL_DOC ignora VL_OUT_DA', () => {
+    assert.ok(fires(H([C100vd('2903,78', '2903,78', '156,78')]), 'DOC-C100-VLDOC-01'));
+});
+t('2890 NÃO dispara quando VL_DOC bate', () => {
+    assert.ok(!fires(H([C100vd('3060,56', '2903,78', '156,78')]), 'DOC-C100-VLDOC-01'));
+});
+t('2890 emissão PRÓPRIA (VL_DOC==VL_MERC, delta==VL_OUT_DA) → zera VL_OUT_DA (campo 20), não toca VL_DOC', () => {
+    const e = run(H([C100vd('2903,78', '2903,78', '156,78', '0')])).erros.find(x => x.regra_id === 'DOC-C100-VLDOC-01');
+    assert.strictEqual(e.campoIdx, 20);
+    assert.strictEqual(e.valorSugerido, '0,00');
+    assert.strictEqual(e.classeCorrecao, 'fiscal-deterministico');
+});
+t('2890 emissão de TERCEIROS → recompõe VL_DOC (campo 12)', () => {
+    const e = run(H([C100vd('2903,78', '2903,78', '156,78', '1')])).erros.find(x => x.regra_id === 'DOC-C100-VLDOC-01');
+    assert.strictEqual(e.campoIdx, 12);
+    assert.strictEqual(e.valorSugerido, '3060,56');
+});
+
+// ---------- DOC-C170-ICMSSEMBASE-01 (E-Aud 2075) ----------
+const C170ub = `|C170|1|X|BICO|1|PC|100,00|0,00|0|090|1556|1556|0,00|20,50|0,00|0,00|0,00|0,00|0|||0,00|0,00|0,00|04||||||04|||`;
+t('2075 dispara: ALIQ 20,50 com BC 0 e ICMS 0', () => {
+    assert.ok(fires(H([C100(CHAVE()), C170ub]), 'DOC-C170-ICMSSEMBASE-01'));
+});
+t('2075 sugere zerar a alíquota (campo 14)', () => {
+    const e = run(H([C100(CHAVE()), C170ub])).erros.find(x => x.regra_id === 'DOC-C170-ICMSSEMBASE-01');
+    assert.strictEqual(e.campoIdx, 14);
+    assert.strictEqual(e.valorSugerido, '0,00');
+});
+
+// ---------- DOC-C190-ICMSSEMBASE-01 (E-Aud 2951) ----------
+const C190ub = `|C190|090|1556|20,50|100,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
+t('2951 dispara: C190 ALIQ 20,50 com BC 0', () => {
+    assert.ok(fires(H([C100(CHAVE()), C190ub]), 'DOC-C190-ICMSSEMBASE-01'));
+});
+t('2951 sugere zerar alíquota (campo 4)', () => {
+    const e = run(H([C100(CHAVE()), C190ub])).erros.find(x => x.regra_id === 'DOC-C190-ICMSSEMBASE-01');
+    assert.strictEqual(e.campoIdx, 4);
+});
+
+// ---------- DOC-C190-REDBC-01 (E-Aud 2800) ----------
+const C190red = `|C190|090|1556|20,50|100,00|0,00|0,00|0,00|0,00|1146,82|0,00||`;
+t('2800 dispara: VL_RED_BC com CST 090', () => {
+    assert.ok(fires(H([C100(CHAVE(), { sit: '00' }), C190red]), 'DOC-C190-REDBC-01'));
+});
+t('2800 NÃO dispara com CST x20', () => {
+    const c190ok = `|C190|020|1556|20,50|100,00|50,00|10,25|0,00|0,00|50,00|0,00||`;
+    assert.ok(!fires(H([C100(CHAVE(), { sit: '00' }), c190ok]), 'DOC-C190-REDBC-01'));
+});
+
+// ---------- EST-9900-REGBLC-01 (E-Aud 2037) ----------
+t('2037 dispara p/ 9900 de registro ausente (D100)', () => {
+    assert.ok(fires(H(['|9900|D100|5|', '|9900|C100|1|']), 'EST-9900-REGBLC-01'));
+});
+t('2037 NÃO dispara p/ 9900 de registro presente', () => {
+    assert.ok(!fires(H([C100(CHAVE()), '|9900|C100|1|']), 'EST-9900-REGBLC-01'));
+});
+t('2037 severidade por QTD (painel §2.5): QTD>0 ausente → BLOQ (omissão); QTD 0 → ADV', () => {
+    const r = run(H(['|9900|D100|5|', '|9900|C500|0|']));
+    const eD = r.erros.find(e => e.regra_id === 'EST-9900-REGBLC-01' && (e.detalhe || '').includes('D100'));
+    const eC = r.erros.find(e => e.regra_id === 'EST-9900-REGBLC-01' && (e.detalhe || '').includes('C500'));
+    assert.strictEqual(eD.severidade, 'BLOQ');
+    assert.strictEqual(eC.severidade, 'ADV');
+});
+
+// ---------- DOC-C190-VLICMS-01 (E-Aud 2481) — fórmula CORRETA do painel: C190 vs Σ VL_ICMS(C170) ----------
+const C170vi = (item, cst, cfop, aliq, vlIcms) => `|C170|${item}|IT${item}|DESC|1|UN|100,00|0|0|${cst}|${cfop}|0|100,00|${aliq}|${vlIcms}|0|0||||0,00|0,00|0,00|04||||||04|||`;
+t('2481 dispara: VL_ICMS do C190 ≠ Σ VL_ICMS dos C170 (mesmo CST|CFOP|ALIQ)', () => {
+    const c190 = `|C190|000|1102|20,50|200,00|200,00|99,99|0|0|0,00|0,00||`; // ΣC170=41,00, C190=99,99
+    assert.ok(fires(H([C100(CHAVE()), C170vi('1', '000', '1102', '20,50', '20,50'), C170vi('2', '000', '1102', '20,50', '20,50'), c190]), 'DOC-C190-VLICMS-01'));
+});
+t('2481 NÃO dispara quando C190 = Σ C170 (mesmo com round(BC×ALIQ) diferente — arredondamento legítimo)', () => {
+    const c190 = `|C190|000|1102|20,50|5,00|5,00|1,02|0|0|0,00|0,00||`; // ΣC170=1,02 (=C190), embora round(5,00×20,5%)=1,03
+    assert.ok(!fires(H([C100(CHAVE()), C170vi('1', '000', '1102', '20,50', '0,51'), C170vi('2', '000', '1102', '20,50', '0,51'), c190]), 'DOC-C190-VLICMS-01'));
+});
+
+// ---------- CAD-0400-CFOP-01 (E-Aud 2441) ----------
+t('2441 dispara p/ COD_NAT 1652', () => {
+    assert.ok(fires(H(['|0400|1652|COMPRA DE COMBUSTIVEL|']), 'CAD-0400-CFOP-01'));
+});
+t('2441 NÃO dispara p/ código próprio 001', () => {
+    assert.ok(!fires(H(['|0400|001|VENDA BALCAO|']), 'CAD-0400-CFOP-01'));
+});
+t('2441 é SÓ-DETECÇÃO (nunca corrigível: COD_NAT é FK)', () => {
+    const e = run(H(['|0400|1652|COMPRA DE COMBUSTIVEL|'])).erros.find(x => x.regra_id === 'CAD-0400-CFOP-01');
+    assert.strictEqual(e.campoIdx, null);        // engine normaliza campoIdx ausente → null
+    assert.strictEqual(e.corrigivel, false);     // sem campoIdx → não corrigível
+    assert.strictEqual(e.classeCorrecao, 'manual');
+});
+
+// ---------- COMB-0206-1300-01 (E-Aud 2321) ----------
+t('2321 dispara p/ produto com 0206 sem 1300', () => {
+    const txt = H(['|0200|46|LUBRAX|||||27||||', '|0206|620501001|', r1300('1', '01062026', '0', '0', '0', '0', '0', '0', '0', '0')]);
+    assert.ok(fires(txt, 'COMB-0206-1300-01'));
+});
+t('2321 NÃO dispara quando o produto tem 1300', () => {
+    const txt = H(['|0200|1|GASOLINA|||||27||||', '|0206|320101001|', r1300('1', '01062026', '0', '0', '0', '0', '0', '0', '0', '0')]);
+    assert.ok(!fires(txt, 'COMB-0206-1300-01'));
+});
+t('2321 gate (a): arquivo SEM nenhum 1300 → não dispara (distribuidora/sem LMC)', () => {
+    assert.ok(!fires(H(['|0200|46|LUBRAX|||||27||||', '|0206|620501001|']), 'COMB-0206-1300-01'));
+});
+
+// ---------- DOC-C170-CODCTA-01 (E-Aud 2451) ----------
+const C170semCta = `|C170|1|4|GASOLINA|1|L|100,00|0,00|0|061|1652|1652|0,00|0,00|0,00|0,00|0,00|0,00|0|||0,00|0,00|0,00|04||||||04||||`;
+t('2451 dispara quando COD_CTA vazio', () => {
+    assert.ok(fires(H([C100(CHAVE()), C170semCta]), 'DOC-C170-CODCTA-01'));
+});
+t('2451 sem 0500 → detalhe marca legítimo e não é corrigível', () => {
+    const e = run(H([C100(CHAVE()), C170semCta])).erros.find(x => x.regra_id === 'DOC-C170-CODCTA-01');
+    assert.ok(/leg[íi]timo|desconsider/i.test(e.detalhe));
+    assert.strictEqual(e.campoIdx, null);
+});
+
+// ---------- DOC-C100-5929-01 (E-Aud 1003) ----------
+t('1003 dispara p/ 5929 com ICMS', () => {
+    const c190 = `|C190|061|5929|20,50|9574,80|160,00|32,80|0,00|0,00|0,00|0,00||`;
+    assert.ok(fires(H([C100(CHAVE()), c190]), 'DOC-C100-5929-01'));
+});
+t('1003 NÃO dispara p/ 5929 zerado', () => {
+    const c190 = `|C190|061|5929|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
+    assert.ok(!fires(H([C100(CHAVE()), c190]), 'DOC-C100-5929-01'));
+});
+
 // ---------- resultado ----------
 console.log(`\nValidador — suíte unitária: ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('\nFALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }
