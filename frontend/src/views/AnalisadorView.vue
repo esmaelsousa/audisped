@@ -341,6 +341,54 @@ async function loadSaidasMod65() {
     finally { loadingSaidas65.value = false; }
 }
 
+// --- Importador de valores CFOP 5929 ("venda com cupom" — vêm zeradas no SPED) ---
+const imp5929Aberto = ref(false);
+const imp5929File = ref(null);
+const imp5929Loading = ref(false);
+const imp5929Result = ref(null);   // { resumo, casadas, multiC190, orfas, parsed }
+const imp5929Msg = ref('');
+const imp5929InputRef = ref(null);
+
+function imp5929PickFile(ev) {
+    imp5929File.value = (ev.target.files && ev.target.files[0]) || null;
+    imp5929Result.value = null; imp5929Msg.value = '';
+}
+
+// Limpa o cache das saídas e recarrega a sub-aba atual (p/ refletir os valores ajustados na hora).
+async function recarregarSaidas() {
+    saidasMod65.value = []; saidasMod55.value = [];
+    if (activeSaidasSubTab.value === '55') await loadSaidasMod55();
+    else await loadSaidasMod65();
+}
+
+async function imp5929Enviar(modo) {
+    if (!idArquivoSped.value) { imp5929Msg.value = 'Abra um arquivo SPED primeiro.'; return; }
+    if (modo !== 'reverter' && !imp5929File.value) { imp5929Msg.value = 'Selecione o relatório de notas (CSV/TXT).'; return; }
+    if (modo === 'aplicar' && !confirm('Gravar os valores nas notas 5929? O SPED exportado passará a sair com esses valores (original preservado; reversível).')) return;
+    if (modo === 'reverter' && !confirm('Reverter todos os ajustes das notas 5929 deste arquivo? Volta ao SPED original.')) return;
+    imp5929Loading.value = true; imp5929Msg.value = '';
+    try {
+        const token = localStorage.getItem('token');
+        const fd = new FormData();
+        fd.append('modo', modo);
+        if (imp5929File.value) fd.append('arquivo', imp5929File.value);
+        const res = await axios.post(`${API_BASE_URL}/api/analisador/importar-5929/${idArquivoSped.value}`, fd, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        imp5929Result.value = res.data;
+        if (modo === 'aplicar') {
+            imp5929Msg.value = `✓ Aplicado: ${res.data.aplicadasC100} nota(s) ajustada(s) (R$ ${(res.data.resumo?.somaCasadas || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}). Veja na sub-aba "Resumo p/ CFOP" (5929). O download já sai com os valores.`;
+            await recarregarSaidas();
+        } else if (modo === 'reverter') {
+            imp5929Msg.value = `✓ Revertido: ${res.data.revertidasC100} nota(s) voltaram ao original.`;
+            imp5929Result.value = null;
+            await recarregarSaidas();
+        }
+    } catch (e) {
+        imp5929Msg.value = e.response?.data?.message || ('Erro: ' + e.message);
+    } finally { imp5929Loading.value = false; }
+}
+
 watch(activeSaidasSubTab, (sub) => {
     if (sub === '55') loadSaidasMod55();
     else loadSaidasMod65();
@@ -2043,6 +2091,67 @@ const statusAnpGeral = computed(() => {
               <button @click="activeSaidasSubTab = '55'" :class="activeSaidasSubTab === '55' ? 'bg-white shadow text-brand-accent' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all">📄 NF-e (Modelo 55)</button>
             </div>
             <input v-if="activeSaidasSubTab === '55'" v-model="buscaSaidas" type="text" placeholder="Buscar NF ou Cliente..." class="px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-brand-accent w-56 shadow-sm" />
+            <button @click="imp5929Aberto = !imp5929Aberto" class="px-4 py-2 rounded-xl text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 whitespace-nowrap">
+              💵 Importar valores 5929
+            </button>
+          </div>
+        </div>
+
+        <!-- PAINEL: Importar valores de notas CFOP 5929 -->
+        <div v-if="imp5929Aberto" class="px-6 py-5 border-b border-amber-100 bg-amber-50/40 space-y-3">
+          <div>
+            <p class="text-sm font-bold text-slate-800">Importar valores das notas CFOP 5929 (venda com cupom)</p>
+            <p class="text-xs text-slate-500 mt-0.5">Notas 5929 vêm <b>zeradas</b> no SPED. Envie o relatório de NOTAS EMITIDAS do ERP (CSV/TXT). Casamos por nº + série e gravamos o valor (original preservado, reversível).</p>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <input ref="imp5929InputRef" type="file" accept=".csv,.txt,.CSV,.TXT" class="hidden" @change="imp5929PickFile" />
+            <button @click="imp5929InputRef && imp5929InputRef.click()" class="px-3 py-2 rounded-lg text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50">
+              📂 {{ imp5929File ? imp5929File.name : 'Escolher arquivo' }}
+            </button>
+            <button @click="imp5929Enviar('preview')" :disabled="imp5929Loading || !imp5929File" class="px-4 py-2 rounded-lg text-xs font-bold text-white bg-slate-600 hover:bg-slate-700 disabled:bg-slate-300">
+              {{ imp5929Loading ? 'Processando…' : 'Pré-visualizar' }}
+            </button>
+            <button v-if="imp5929Result && imp5929Result.casadas?.length" @click="imp5929Enviar('aplicar')" :disabled="imp5929Loading" class="px-4 py-2 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300">
+              ✓ Aplicar {{ imp5929Result.casadas.length }} nota(s)
+            </button>
+            <button @click="imp5929Enviar('reverter')" :disabled="imp5929Loading" class="px-4 py-2 rounded-lg text-xs font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50">
+              ⟲ Reverter ajustes
+            </button>
+            <span v-if="imp5929Msg" class="text-xs font-semibold" :class="imp5929Msg.startsWith('✓') ? 'text-emerald-600' : 'text-red-600'">{{ imp5929Msg }}</span>
+          </div>
+          <!-- Resumo do casamento -->
+          <div v-if="imp5929Result && imp5929Result.resumo" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+            <div class="bg-white rounded-xl border border-slate-100 p-3">
+              <p class="text-[10px] uppercase font-bold text-slate-400">No relatório</p>
+              <p class="text-lg font-bold text-slate-700">{{ imp5929Result.resumo.relTotalNotas }}</p>
+              <p class="text-[10px] text-slate-400">R$ {{ imp5929Result.resumo.relValorTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2}) }}</p>
+            </div>
+            <div class="bg-emerald-50 rounded-xl border border-emerald-200 p-3">
+              <p class="text-[10px] uppercase font-bold text-emerald-500">Casadas (aplicáveis)</p>
+              <p class="text-lg font-bold text-emerald-700">{{ imp5929Result.resumo.casadas }}</p>
+              <p class="text-[10px] text-emerald-500">R$ {{ imp5929Result.resumo.somaCasadas.toLocaleString('pt-BR', {minimumFractionDigits: 2}) }}</p>
+            </div>
+            <div class="rounded-xl border p-3" :class="imp5929Result.resumo.multiC190 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'">
+              <p class="text-[10px] uppercase font-bold text-amber-500">Múltiplos C190</p>
+              <p class="text-lg font-bold text-amber-700">{{ imp5929Result.resumo.multiC190 }}</p>
+              <p class="text-[10px] text-amber-500">aplicadas (valor em 1 linha)</p>
+            </div>
+            <div class="rounded-xl border p-3" :class="imp5929Result.resumo.orfas ? 'bg-red-50 border-red-200' : 'bg-white border-slate-100'">
+              <p class="text-[10px] uppercase font-bold text-red-400">Órfãs (não no SPED)</p>
+              <p class="text-lg font-bold text-red-600">{{ imp5929Result.resumo.orfas }}</p>
+              <p class="text-[10px] text-red-400">conferir no ERP</p>
+            </div>
+          </div>
+          <!-- Listas de pendências -->
+          <div v-if="imp5929Result && (imp5929Result.orfas?.length || imp5929Result.multiC190?.length)" class="grid md:grid-cols-2 gap-3">
+            <div v-if="imp5929Result.orfas?.length" class="bg-white rounded-xl border border-red-100 p-3">
+              <p class="text-[10px] uppercase font-bold text-red-500 mb-1">Órfãs — no relatório, ausentes no SPED como 5929 ({{ imp5929Result.orfas.length }})</p>
+              <p class="text-[11px] font-mono text-slate-600 break-words">{{ imp5929Result.orfas.map(o => o.num + ' (R$' + o.valor + ')').join(', ') }}</p>
+            </div>
+            <div v-if="imp5929Result.multiC190?.length" class="bg-white rounded-xl border border-amber-100 p-3">
+              <p class="text-[10px] uppercase font-bold text-amber-500 mb-1">Múltiplos C190 — valor total lançado em 1 linha; revise a quebra por CST se necessário ({{ imp5929Result.multiC190.length }})</p>
+              <p class="text-[11px] font-mono text-slate-600 break-words">{{ imp5929Result.multiC190.map(o => o.num + ' (R$' + o.valor + ')').join(', ') }}</p>
+            </div>
           </div>
         </div>
 

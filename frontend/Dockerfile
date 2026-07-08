@@ -15,8 +15,9 @@ RUN node -v && npm -v
 # Copiar arquivos de dependência
 COPY package*.json ./
 
-# Instalação limpa das dependências
-RUN npm install
+# Instalação das dependências — força incluir devDependencies (vite, tailwind, plugin-vue
+# fazem o build e estão em devDependencies; com NODE_ENV=production o npm as pularia).
+RUN npm install --include=dev
 
 # Copiar código-fonte completo
 COPY . .
@@ -29,6 +30,9 @@ FROM nginx:stable-alpine AS production-stage
 
 # Limpar diretório padrão
 RUN rm -rf /usr/share/nginx/html/*
+
+# Config do nginx com fallback SPA (Vue Router history mode) + gzip
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copiar o build do estágio anterior
 COPY --from=build-stage /app/dist /usr/share/nginx/html

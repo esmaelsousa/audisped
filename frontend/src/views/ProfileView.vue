@@ -13,7 +13,8 @@ import {
 } from 'lucide-vue-next';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// Base vazia => caminhos relativos (/api/...). Em produção o Caddy roteia /api para o backend.
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const form = ref({
   nome: usuario.value?.nome || '',

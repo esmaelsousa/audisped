@@ -22,6 +22,7 @@ function validar(model) {
                 severidade: a.severidade || regra.severidade || 'ADV',
                 classeCorrecao: a.classeCorrecao || regra.classeCorrecao || 'manual',
                 jaCorrigidoNoExport: (a.jaCorrigidoNoExport ?? !!regra.jaCorrigidoNoExport),
+                refEAuditoria: (regra.refEAuditoria || null),
                 titulo: regra.titulo,
                 linha: (a.linha ?? null),
                 campo: a.campo || '',
@@ -58,7 +59,7 @@ function validar(model) {
     for (const e of erros) {
         e.chaveNatural = (e.linha != null) ? (chavePorLinha.get(e.linha) ?? null) : null;
         // Corrigível no sistema = sabemos onde (chaveNatural) e qual campo (campoIdx).
-        e.corrigivel = !!(e.chaveNatural != null && e.campoIdx != null);
+        e.corrigivel = !!(e.chaveNatural != null && e.chaveNatural !== '' && e.campoIdx != null); // [F4] chave vazia não é corrigível
     }
 
     return {

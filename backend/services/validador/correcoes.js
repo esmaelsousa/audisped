@@ -47,6 +47,10 @@ function chaveNatural(reg, f, curChaveC100) {
         case 'C170': return curChaveC100 + '#' + String(f[2] || '').trim(); // chave da NF + NUM_ITEM
         case 'H005': return String(f[4] || '').trim() || 'unico'; // MOT_INV (estável; corrige DT_INV)
         case '1360': return String(f[2] || '').trim() || 'unico'; // NUM_LACRE (corrige DT_APLICACAO)
+        case 'C190': { // analítico: chave da NF + CST|CFOP|ALIQ (única por NF). Aplica correção de VL_ICMS/ALIQ/VL_RED_BC.
+            const aliq = String(parseFloat(String(f[4] || '0').replace(',', '.')) || 0);
+            return curChaveC100 + '#' + String(f[2] || '').trim() + '|' + String(f[3] || '').trim() + '|' + aliq;
+        }
         default: return null; // registro ainda não suportado p/ correção por chave
     }
 }
@@ -80,7 +84,7 @@ function aplicar(outputLines, correcoes) {
         if (reg === 'C100') curChaveC100 = String(f[9] || '').replace(/\D/g, '');
         let kn = chaveNatural(reg, f, curChaveC100);
         if (reg === 'H005' && kn != null) kn = ordinalH005(kn, h005Cont);
-        if (kn == null) continue;
+        if (kn == null || kn === '') continue; // [F4] nunca casar chave vazia (C100 de papel/avulsa) → correção na NF errada
         const cs = idx.get(reg + '::' + kn);
         if (!cs) continue;
         let mudou = false;

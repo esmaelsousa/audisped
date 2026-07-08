@@ -1,0 +1,75 @@
+name: audisped
+
+# Stack de produção do AudiSped (VPS Hostinger).
+# Borda: Caddy (HTTPS automático) -> frontend (nginx) e backend (Express).
+# Banco e backend NÃO publicam porta no host: só Caddy expõe 80/443.
+#
+# Subir:   docker compose -f docker-compose.prod.yml up -d --build
+# Logs:    docker compose -f docker-compose.prod.yml logs -f
+# Atualizar: git pull && docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: audisped-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [audisped-net]
+
+  backend:
+    build:
+      context: ./backend
+    image: audisped-backend:latest
+    container_name: audisped-backend
+    restart: always
+    init: true
+    env_file: ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # bind mount: persiste SPED/XML enviados e facilita backup/rsync da carga inicial (1,9 GB)
+      - ./data/uploads:/app/uploads
+    networks: [audisped-net]
+
+  frontend:
+    build:
+      context: ./frontend
+    image: audisped-frontend:latest
+    container_name: audisped-frontend
+    restart: always
+    depends_on: [backend]
+    networks: [audisped-net]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: audisped-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend, backend]
+    networks: [audisped-net]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  audisped-net:
+    driver: bridge

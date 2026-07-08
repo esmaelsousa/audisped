@@ -287,7 +287,15 @@ onMounted(async () => {
         const res = await axios.get(`${API_BASE_URL}/api/arquivos/empresa/${empresaSelecionada.value.id}`, {
             headers: { Authorization: `Bearer ${token.value}` }
         });
-        spedFiles.value = res.data;
+        // Ordena por período de apuração (cronológico), não pela ordem de upload.
+        // Aceita "YYYY-MM-DD a ..." ou "DDMMAAAA" → chave YYYYMM ordenável.
+        const chavePeriodo = (p) => {
+            const s = String(p || '');
+            let m = s.match(/(\d{4})-(\d{2})-\d{2}/);   if (m) return m[1] + m[2];
+            m = s.match(/(\d{2})(\d{2})(\d{4})/);        if (m) return m[3] + m[2];
+            return s;
+        };
+        spedFiles.value = (res.data || []).sort((a, b) => chavePeriodo(a.periodo_apuracao).localeCompare(chavePeriodo(b.periodo_apuracao)));
     } catch(e) {
         console.error('Erro ao carregar SPEDs', e);
     }
