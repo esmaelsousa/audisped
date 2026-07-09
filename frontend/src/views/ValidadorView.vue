@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { empresaSelecionada, idArquivoSped, setArquivoInfo, setEmpresaSelecionada } from '../store';
-import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2 } from 'lucide-vue-next';
+import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Wand2, Info, Download } from 'lucide-vue-next';
 import UiButton from '@/components/ui/UiButton.vue';
 
 const loading = ref(false);
@@ -13,6 +13,10 @@ const resultadoId = ref(null);   // id do arquivo (do banco) a que o resultado A
 const filtroBloco = ref('');
 const filtroSev = ref('');
 const expandido = ref(null);
+const buscaErro = ref('');           // filtro de texto (tipo/registro/código) — estilo E-Auditor
+const grupoAberto = ref(null);       // regra_id do grupo com ocorrências expandidas
+const dicaAberta = ref(null);        // regra_id do grupo com a "dica" (explicação) aberta
+const occAberta = ref(null);         // keyErro da ocorrência individual expandida
 
 // --- Seletor empresa → período (igual ao LMC; só arquivos IMPORTADOS no banco) ---
 const empresas = ref([]);
@@ -63,11 +67,59 @@ const authHeader = () => {
 
 const errosFiltrados = computed(() => {
   if (!resultado.value) return [];
+  const q = normTxt(buscaErro.value.trim());
   return resultado.value.erros.filter(e =>
     (!filtroBloco.value || e.bloco === filtroBloco.value) &&
-    (!filtroSev.value || e.severidade === filtroSev.value)
+    (!filtroSev.value || e.severidade === filtroSev.value) &&
+    (!q || normTxt(`${e.titulo || ''} ${e.registro || ''} ${e.regra_id || ''} ${e.refEAuditoria || ''}`).includes(q))
   );
 });
+
+// Agrupa os erros por TIPO (regra) — estilo E-Auditor: 1 linha por tipo, com contagem, código e dica.
+const errosAgrupados = computed(() => {
+  const m = new Map();
+  for (const e of errosFiltrados.value) {
+    let g = m.get(e.regra_id);
+    if (!g) { g = { regra_id: e.regra_id, titulo: e.titulo, registro: e.registro, bloco: e.bloco, codigo: e.refEAuditoria || '—', severidade: e.severidade, instrucaoERP: e.instrucaoERP, ocorrencias: [] }; m.set(e.regra_id, g); }
+    g.ocorrencias.push(e);
+    if (e.severidade === 'BLOQ') g.severidade = 'BLOQ'; // grupo é bloqueante se qualquer ocorrência for
+  }
+  return [...m.values()].sort((a, b) => (a.severidade !== b.severidade ? (a.severidade === 'BLOQ' ? -1 : 1) : b.ocorrencias.length - a.ocorrencias.length));
+});
+
+// Categoria de ocorrência (nomenclatura do E-Auditor), por código; fallback por severidade.
+const CATEGORIA_COD = {
+  '2890': 'Divergências de Valores', '2075': 'Divergências de Valores', '2951': 'Divergências de Valores', '2800': 'Divergências de Valores', '2481': 'Divergências de Valores', '2023': 'Divergências de Valores', '2033': 'Divergências de Valores',
+  '2441': 'Conteúdo Inválido', '2451': 'Conteúdo Inválido',
+  '2037': 'Estrutura do Arquivo',
+  '2321': 'Outros Alertas', '1003': 'Outros Alertas', '2973': 'Outros Alertas',
+};
+const categoriaOcorrencia = (g) => CATEGORIA_COD[g.codigo] || (g.severidade === 'BLOQ' ? 'Divergências de Valores' : 'Outros Alertas');
+const corCategoria = (g) => {
+  const c = categoriaOcorrencia(g);
+  if (c === 'Divergências de Valores') return 'bg-lacre/10 text-lacre border-lacre/25';
+  if (c === 'Conteúdo Inválido') return 'bg-variacao/10 text-variacao border-variacao/25';
+  if (c === 'Estrutura do Arquivo') return 'bg-bronze/10 text-bronze border-bronze/25';
+  return 'bg-paper text-risco border-line';
+};
+function toggleGrupo(k) { grupoAberto.value = grupoAberto.value === k ? null : k; }
+function toggleDica(k) { dicaAberta.value = dicaAberta.value === k ? null : k; }
+function toggleOcc(e) {
+  const k = keyErro(e);
+  occAberta.value = occAberta.value === k ? null : k;
+  if (occAberta.value === k && e.corrigivel && valoresCorrecao.value[k] === undefined) {
+    valoresCorrecao.value = { ...valoresCorrecao.value, [k]: (e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : '' };
+  }
+}
+// Exporta o relatório de inconsistências (agrupado por tipo) em CSV pt-BR (Excel-friendly).
+function baixarInconsistencias() {
+  const linhas = [['Tipo de ocorrência', 'Registro', 'Ocorrências', 'Código', 'Categoria de ocorrência', 'Severidade']];
+  for (const g of errosAgrupados.value) linhas.push([g.titulo, g.registro, g.ocorrencias.length, g.codigo, categoriaOcorrencia(g), g.severidade === 'BLOQ' ? 'Bloqueante' : 'Advertência']);
+  const csv = linhas.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = `inconsistencias_${resultadoId.value || 'sped'}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
 
 async function carregarEmpresas() {
   try {
@@ -150,6 +202,12 @@ const salvando = ref(null);
 const msgCorr = ref('');
 const keyErro = (e) => `${e.regra_id}|${e.chaveNatural}|${e.campoIdx}`;
 
+// --- "Corrigir todas as seguras" (lote determinístico: preview → aplicar → desfazer) ---
+const previewLote = ref(null);       // resultado do dry-run (preview, não grava)
+const showPreviewLote = ref(false);
+const corrigindoLote = ref(false);
+const loteInfo = ref(null);          // { lote_id, total } do último lote aplicado
+
 async function carregarCorrecoes() {
   if (!resultadoId.value) { correcoes.value = []; return; }
   try {
@@ -222,6 +280,51 @@ async function revalidar() {
   } finally { loading.value = false; }
 }
 
+// Prévia do lote: pergunta ao servidor QUANTAS/QUAIS correções seguras seriam aplicadas (não grava).
+async function previewCorrigirTudo() {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um SPED do banco primeiro.'; return; }
+  corrigindoLote.value = true; msgCorr.value = ''; previewLote.value = null;
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/validador/corrigir-lote/${resultadoId.value}`, { dry_run: true }, { headers: authHeader() });
+    previewLote.value = res.data;
+    if (!res.data.total) msgCorr.value = 'Nenhuma correção segura pendente (tudo já corrigido, ou só há itens de revisão manual).';
+    else showPreviewLote.value = true;
+  } catch (e) {
+    msgCorr.value = e.response?.data?.message || ('Erro ao gerar a prévia: ' + e.message);
+  } finally { corrigindoLote.value = false; }
+}
+
+// Aplica o lote (grava val_correcoes) → recarrega a lista → re-valida sobre o SPED corrigido.
+async function aplicarCorrigirTudo() {
+  if (!resultadoId.value) return;
+  corrigindoLote.value = true; msgCorr.value = '';
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/validador/corrigir-lote/${resultadoId.value}`, {}, { headers: authHeader() });
+    loteInfo.value = res.data.lote_id ? { lote_id: res.data.lote_id, total: res.data.total } : null;
+    showPreviewLote.value = false;
+    await carregarCorrecoes();
+    msgCorr.value = `${res.data.total} correção(ões) segura(s) aplicada(s). Revalidando…`;
+    await revalidar();
+  } catch (e) {
+    msgCorr.value = e.response?.data?.message || ('Erro ao aplicar o lote: ' + e.message);
+  } finally { corrigindoLote.value = false; }
+}
+
+// Desfaz o último lote inteiro (reverte todas as correções daquele lote_id).
+async function desfazerLote() {
+  if (!resultadoId.value || !loteInfo.value?.lote_id) return;
+  corrigindoLote.value = true; msgCorr.value = '';
+  try {
+    const res = await axios.delete(`${API_BASE_URL}/api/validador/corrigir-lote/${resultadoId.value}/${encodeURIComponent(loteInfo.value.lote_id)}`, { headers: authHeader() });
+    msgCorr.value = `${res.data.desfeitas || 0} correção(ões) do lote desfeita(s). Revalidando…`;
+    loteInfo.value = null;
+    await carregarCorrecoes();
+    await revalidar();
+  } catch (e) {
+    msgCorr.value = e.response?.data?.message || ('Erro ao desfazer: ' + e.message);
+  } finally { corrigindoLote.value = false; }
+}
+
 function baixarCorrigido() {
   if (!resultadoId.value) return;
   const t = localStorage.getItem('token') || '';
@@ -231,6 +334,7 @@ function baixarCorrigido() {
 // Relatório "o que foi corrigido": re-exporta (revalidar grava o changelog e o devolve em .alteracoes)
 const alteracoes = ref(null);
 const loadingAlt = ref(false);
+const baixandoPdf = ref(false);
 async function verAlteracoes() {
   if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
   loadingAlt.value = true; erro.value = '';
@@ -270,11 +374,38 @@ async function vincularCodItem(e) {
   finally { salvandoVinc.value = null; }
 }
 
-// Relatório consolidado em PDF (para enviar à contabilidade / setor fiscal)
-function baixarRelatorioPdf() {
+// Relatório consolidado em PDF (para enviar à contabilidade / setor fiscal).
+// Busca via axios como BLOB (com Authorization) para conseguir TRATAR erro: se o export interno
+// abortar (422 CAP_TANQUE / 502), o backend responde JSON — aqui mostramos a mensagem em vez de
+// o navegador engolir o download em silêncio ou navegar para fora do app (bug do <a href> anterior).
+async function baixarRelatorioPdf() {
   if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
-  const t = localStorage.getItem('token') || '';
-  window.open(`${API_BASE_URL}/api/validador/relatorio-correcoes/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
+  baixandoPdf.value = true;
+  msgCorr.value = 'Gerando o relatório PDF…';
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/validador/relatorio-correcoes/${resultadoId.value}`, {
+      headers: authHeader(), responseType: 'blob',
+    });
+    // nome do arquivo vindo do Content-Disposition (fallback genérico)
+    const cd = res.headers['content-disposition'] || '';
+    const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    const filename = (m && decodeURIComponent(m[1])) || `Correcoes_SPED_${resultadoId.value}.pdf`;
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    msgCorr.value = 'Relatório PDF baixado (confira os downloads do navegador).';
+  } catch (e) {
+    // o backend pode ter respondido um JSON de erro (422/502) COMO blob — extrai a mensagem real
+    let msg = e.message;
+    try {
+      const txt = (e.response?.data instanceof Blob) ? await e.response.data.text() : '';
+      const j = txt ? JSON.parse(txt) : null;
+      msg = j?.message || j?.erro || txt || msg;
+    } catch (_) { /* mantém msg genérica */ }
+    msgCorr.value = 'Erro ao gerar o relatório: ' + msg;
+  } finally { baixandoPdf.value = false; }
 }
 
 // Fase B — ligar/desligar correções. Só fiscais/injeções; estruturais sempre aplicadas.
@@ -428,6 +559,10 @@ onMounted(async () => {
           <UiButton variant="ghost" @click="revalidar" :disabled="loading" class="disabled:opacity-50">
             <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" /> Re-validar (sobre o SPED corrigido)
           </UiButton>
+          <UiButton @click="previewCorrigirTudo" :disabled="corrigindoLote || loading" class="disabled:opacity-50">
+            <Loader2 v-if="corrigindoLote" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><Wand2 v-else class="w-4 h-4" :stroke-width="1.8" /> Corrigir todas as seguras
+          </UiButton>
+          <button v-if="loteInfo" @click="desfazerLote" :disabled="corrigindoLote" class="text-[11px] text-lacre hover:opacity-80 font-medium disabled:opacity-50">↩ desfazer último lote ({{ loteInfo.total }})</button>
           <UiButton variant="ghost" @click="verAlteracoes" :disabled="loadingAlt" class="disabled:opacity-50">
             <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><span v-else>📋</span> O que foi corrigido
           </UiButton>
@@ -486,7 +621,7 @@ onMounted(async () => {
           <span class="text-[13px] font-semibold text-ink">📋 O que foi corrigido</span>
           <span class="text-[11px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-0.5 rounded-md">{{ alteracoes.total }} alteração(ões)</span>
           <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-medium text-risco bg-paper border border-line px-2 py-0.5 rounded-md">{{ k }}: {{ n }}</span>
-          <button @click="baixarRelatorioPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">📄 Relatório (PDF)</button>
+          <button @click="baixarRelatorioPdf" :disabled="baixandoPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">{{ baixandoPdf ? 'Gerando…' : '📄 Relatório (PDF)' }}</button>
           <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar ✕</button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
@@ -510,11 +645,11 @@ onMounted(async () => {
                   <span class="shrink-0 text-[9px] font-medium uppercase px-1.5 py-0.5 rounded-md border"
                     :class="{ 'bg-bronze/10 text-bronze border-bronze/25': it.origem==='injecao', 'bg-variacao/10 text-variacao border-variacao/25': it.origem==='fiscal', 'bg-conforme/10 text-conforme border-conforme/25': it.origem==='manual', 'bg-paper text-risco border-line': it.origem==='auto', 'bg-lacre/10 text-lacre border-lacre/25': it.origem==='remocao' }">{{ it.origem }}</span>
                   <span class="min-w-0 flex-1">
-                    <b class="text-ink">{{ it.campo || it.escopo }}</b>:
+                    <b class="text-ink">{{ it.campo || it.escopo }}</b><span v-if="it.qtd > 1" class="text-[10px] font-bold text-variacao ml-1">×{{ it.qtd }}</span>:
                     <span class="text-risco line-through break-all">{{ it.antes || '—' }}</span>
                     <span class="text-risco mx-1">→</span>
                     <span class="font-mono text-conforme break-all">{{ it.depois }}</span>
-                    <span class="block text-[10px] text-risco italic">{{ it.motivo }}</span>
+                    <span class="block text-[10px] text-risco italic">{{ it.motivo }}<span v-if="it.regraId" class="font-mono not-italic opacity-70"> · {{ it.regraId }}</span></span>
                   </span>
                   <button v-if="EXCLUIVEIS.has(it.regraId)" @click="toggleSkip(it.regraId, chaveSkip(it), true)" :disabled="loadingAlt"
                     title="Não aplicar esta correção no SPED corrigido"
@@ -531,73 +666,114 @@ onMounted(async () => {
       <!-- Filtros + lista de erros -->
       <div v-if="resultado.erros.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
         <div class="px-5 py-3 border-b border-line flex items-center gap-3 flex-wrap">
-          <span class="text-[13px] font-semibold text-ink">Erros encontrados</span>
-          <select v-model="filtroBloco" class="text-[12px] bg-sheet border border-line rounded-md px-2 py-1 text-ink outline-none focus:border-bronze transition-colors">
+          <AlertTriangle class="w-4 h-4 text-lacre shrink-0" :stroke-width="1.8" />
+          <span class="text-[13px] font-semibold text-ink">Inconsistências e cruzamentos no arquivo</span>
+          <button @click="baixarInconsistencias" class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 transition-opacity" title="Baixar o relatório de inconsistências (CSV)">
+            <Download class="w-3.5 h-3.5" :stroke-width="1.8" /> Baixar
+          </button>
+        </div>
+        <div class="px-5 py-2.5 border-b border-line flex items-center gap-2 flex-wrap">
+          <input v-model="buscaErro" type="text" placeholder="filtrar por tipo, registro ou código…" class="flex-1 min-w-[180px] h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors" />
+          <select v-model="filtroBloco" class="h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors">
             <option value="">Todos os blocos</option>
             <option v-for="b in resultado.resumo.blocosPresentes" :key="b" :value="b">{{ nomeBloco(b) }}</option>
           </select>
-          <select v-model="filtroSev" class="text-[12px] bg-sheet border border-line rounded-md px-2 py-1 text-ink outline-none focus:border-bronze transition-colors">
+          <select v-model="filtroSev" class="h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors">
             <option value="">Toda severidade</option>
             <option value="BLOQ">Bloqueantes</option>
             <option value="ADV">Advertências</option>
           </select>
-          <span class="text-[12px] text-risco ml-auto font-mono">{{ errosFiltrados.length }} de {{ resultado.erros.length }}</span>
+          <span class="text-[11px] text-risco font-mono ml-auto">{{ errosAgrupados.length }} tipo(s) · {{ errosFiltrados.length }} ocorrência(s)</span>
         </div>
 
-        <div class="divide-y divide-line max-h-[60vh] overflow-y-auto">
-          <div v-for="(e, i) in errosFiltrados" :key="i">
-            <button @click="toggle(i)" class="w-full text-left px-5 py-3 hover:bg-paper flex items-start gap-3 transition-colors">
-              <span class="px-2 py-0.5 rounded-md text-[9px] font-medium uppercase tracking-wide shrink-0 mt-0.5 border"
-                :class="e.severidade === 'BLOQ' ? 'bg-lacre/10 text-lacre border-lacre/25' : 'bg-variacao/10 text-variacao border-variacao/25'">
-                {{ e.severidade === 'BLOQ' ? 'BLOQUEANTE' : 'ADVERTÊNCIA' }}
-              </span>
-              <div class="min-w-0 flex-1">
-                <p class="text-[13px] font-medium text-ink truncate">{{ e.titulo }}</p>
-                <p class="text-[11px] text-risco font-mono">{{ e.regra_id }} · {{ e.registro }} · linha {{ e.linha ?? '-' }}</p>
-              </div>
-              <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-medium text-white bg-conforme px-1.5 py-0.5 rounded-md shrink-0 mt-0.5">✓ corrigido por você</span>
-              <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-1.5 py-0.5 rounded-md shrink-0 mt-0.5">auto no download</span>
-              <component :is="expandido === i ? ChevronUp : ChevronDown" class="w-4 h-4 text-risco shrink-0 mt-0.5" :stroke-width="1.8" />
-            </button>
-            <div v-if="expandido === i" class="px-5 pb-4 pt-1 bg-paper text-[12px] space-y-2">
-              <div v-if="e.corrigidoPeloUsuario" class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-3 text-conforme">
-                <b>✓ Você já corrigiu este item.</b> Ele ainda aparece aqui porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Re-validar (sobre o SPED corrigido)"</b> ou baixe o SPED corrigido para confirmar — a correção é aplicada no arquivo final.
-              </div>
-              <p class="text-ink">{{ e.detalhe }}</p>
-              <div class="grid sm:grid-cols-2 gap-2">
-                <div v-if="e.valorAtual !== '' && e.valorAtual != null"><span class="text-risco">Valor atual:</span> <span class="font-mono text-ink break-all">{{ e.valorAtual }}</span></div>
-                <div v-if="e.valorSugerido !== undefined && e.valorSugerido !== ''"><span class="text-risco">Sugestão:</span> <span class="font-mono text-conforme break-all">{{ e.valorSugerido }}</span></div>
-              </div>
-              <div class="bg-sheet border border-line rounded-md p-3">
-                <p class="text-[10px] uppercase tracking-wide font-medium text-risco mb-1">Como corrigir no ERP</p>
-                <p class="text-ink">{{ e.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
-              </div>
-              <!-- DOC-C170-01: vincular o COD_ITEM órfão a um produto 0200 cadastrado (lista suspensa) -->
-              <div v-if="e.regra_id === 'DOC-C170-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
-                <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Vincular a um produto cadastrado (0200)</p>
-                <p class="text-[11px] text-risco mb-2">Este COD_ITEM não existe no 0200. Selecione o produto correspondente do posto — vale para <b>todas</b> as notas com esse item.</p>
-                <div class="flex items-center gap-2">
-                  <select v-model="vincSel[keyErro(e)]" @focus="carregarProdutos0200" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors">
-                    <option value="">{{ loadingProds ? 'carregando produtos...' : (produtos0200.length ? 'selecione o produto…' : 'clique para carregar…') }}</option>
-                    <option v-for="p in produtos0200" :key="p.cod_item" :value="p.cod_item">{{ p.cod_item }} — {{ p.descr }}{{ p.ncm ? ' (NCM ' + p.ncm + ')' : '' }}</option>
-                  </select>
-                  <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">Vincular</button>
-                </div>
-              </div>
-              <div v-if="e.corrigivel && resultadoId" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
-                <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Corrigir no sistema</p>
-                <div class="flex items-center gap-2">
-                  <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">
-                  <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">
-                    {{ salvando === keyErro(e) ? 'Salvando…' : 'Salvar correção' }}
-                  </button>
-                </div>
-                <p v-if="e.permiteVazio" class="text-[9px] text-risco mt-1 italic">Campo opcional: deixe vazio para apagar o conteúdo inválido, ou informe o código correto.</p>
-                <p class="text-[10px] text-risco mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
-              </div>
-              <p class="text-[10px] text-risco">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>
-            </div>
-          </div>
+        <div class="overflow-x-auto max-h-[65vh] overflow-y-auto">
+          <table class="w-full text-[12px] min-w-[700px]">
+            <thead class="sticky top-0 z-10">
+              <tr class="bg-paper text-[10px] uppercase tracking-wide text-risco">
+                <th class="w-8"></th>
+                <th class="text-left px-3 py-2 font-medium">Tipo de ocorrência</th>
+                <th class="text-left px-3 py-2 font-medium whitespace-nowrap">Registro</th>
+                <th class="text-center px-3 py-2 font-medium whitespace-nowrap">Ocorr.</th>
+                <th class="text-center px-3 py-2 font-medium">Código</th>
+                <th class="text-left px-3 py-2 font-medium whitespace-nowrap">Categoria</th>
+                <th class="w-12 text-center px-2 py-2 font-medium">Dica</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              <template v-for="g in errosAgrupados" :key="g.regra_id">
+                <!-- Linha do grupo (1 por tipo de ocorrência) -->
+                <tr class="hover:bg-paper cursor-pointer" @click="toggleGrupo(g.regra_id)">
+                  <td class="px-2 text-center align-top pt-3"><component :is="grupoAberto === g.regra_id ? ChevronUp : ChevronDown" class="w-4 h-4 text-risco inline" :stroke-width="1.7" /></td>
+                  <td class="px-3 py-2.5">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle shrink-0" :class="g.severidade === 'BLOQ' ? 'bg-lacre' : 'bg-variacao'"></span>
+                    <span class="text-ink">{{ g.titulo }}</span>
+                  </td>
+                  <td class="px-3 py-2.5 align-top"><span class="font-mono text-bronze whitespace-nowrap">{{ g.registro }}</span></td>
+                  <td class="px-3 py-2.5 text-center align-top font-mono font-semibold text-ink">{{ g.ocorrencias.length }}</td>
+                  <td class="px-3 py-2.5 text-center align-top font-mono text-risco">{{ g.codigo }}</td>
+                  <td class="px-3 py-2.5 align-top"><span class="text-[10px] px-2 py-0.5 rounded-md border whitespace-nowrap" :class="corCategoria(g)">{{ categoriaOcorrencia(g) }}</span></td>
+                  <td class="px-2 py-2.5 text-center align-top"><button @click.stop="toggleDica(g.regra_id)" class="hover:opacity-70 transition-opacity" title="Ver explicação do erro"><Info class="w-4 h-4 inline" :stroke-width="1.8" :class="dicaAberta === g.regra_id ? 'text-bronze' : 'text-risco'" /></button></td>
+                </tr>
+                <!-- Dica (explicação do erro) -->
+                <tr v-if="dicaAberta === g.regra_id">
+                  <td colspan="7" class="px-6 py-3 bg-bronze/[0.04] border-t border-bronze/15 text-[12px] space-y-1">
+                    <p class="text-ink"><b>O que é:</b> {{ g.titulo }}</p>
+                    <p class="text-ink"><b>Como corrigir:</b> {{ g.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
+                    <p class="text-[10px] text-risco">Código E-Auditoria {{ g.codigo }} · {{ categoriaOcorrencia(g) }} · {{ g.severidade === 'BLOQ' ? 'Bloqueante' : 'Advertência' }} · registro {{ g.registro }}</p>
+                  </td>
+                </tr>
+                <!-- Ocorrências individuais (com "corrigir") -->
+                <tr v-if="grupoAberto === g.regra_id">
+                  <td colspan="7" class="p-0 bg-paper">
+                    <div class="max-h-[42vh] overflow-y-auto divide-y divide-line">
+                      <div v-for="(e, i) in g.ocorrencias" :key="i">
+                        <button @click="toggleOcc(e)" class="w-full text-left px-6 py-2 hover:bg-sheet flex items-center gap-3 text-[11px] transition-colors">
+                          <span class="font-mono text-risco shrink-0">L{{ e.linha ?? '-' }}</span>
+                          <span class="min-w-0 flex-1 truncate text-ink">{{ e.detalhe }}</span>
+                          <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-medium text-white bg-conforme px-1.5 py-0.5 rounded-md shrink-0">✓ corrigido</span>
+                          <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-1.5 py-0.5 rounded-md shrink-0">auto no download</span>
+                          <component :is="occAberta === keyErro(e) ? ChevronUp : ChevronDown" class="w-3.5 h-3.5 text-risco shrink-0" :stroke-width="1.7" />
+                        </button>
+                        <div v-if="occAberta === keyErro(e)" class="px-6 pb-4 pt-1 bg-sheet text-[12px] space-y-2">
+                          <div v-if="e.corrigidoPeloUsuario" class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-3 text-conforme">
+                            <b>✓ Você já corrigiu este item.</b> Ele ainda aparece porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Re-validar"</b> ou baixe o SPED corrigido para confirmar.
+                          </div>
+                          <p class="text-ink">{{ e.detalhe }}</p>
+                          <div class="grid sm:grid-cols-2 gap-2">
+                            <div v-if="e.valorAtual !== '' && e.valorAtual != null"><span class="text-risco">Valor atual:</span> <span class="font-mono text-ink break-all">{{ e.valorAtual }}</span></div>
+                            <div v-if="e.valorSugerido !== undefined && e.valorSugerido !== ''"><span class="text-risco">Sugestão:</span> <span class="font-mono text-conforme break-all">{{ e.valorSugerido }}</span></div>
+                          </div>
+                          <!-- DOC-C170-01: vincular o COD_ITEM órfão a um produto 0200 cadastrado -->
+                          <div v-if="e.regra_id === 'DOC-C170-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                            <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Vincular a um produto cadastrado (0200)</p>
+                            <p class="text-[11px] text-risco mb-2">Este COD_ITEM não existe no 0200. Selecione o produto correspondente — vale para <b>todas</b> as notas com esse item.</p>
+                            <div class="flex items-center gap-2">
+                              <select v-model="vincSel[keyErro(e)]" @focus="carregarProdutos0200" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors">
+                                <option value="">{{ loadingProds ? 'carregando produtos...' : (produtos0200.length ? 'selecione o produto…' : 'clique para carregar…') }}</option>
+                                <option v-for="p in produtos0200" :key="p.cod_item" :value="p.cod_item">{{ p.cod_item }} — {{ p.descr }}{{ p.ncm ? ' (NCM ' + p.ncm + ')' : '' }}</option>
+                              </select>
+                              <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">Vincular</button>
+                            </div>
+                          </div>
+                          <!-- Corrigir no sistema -->
+                          <div v-if="e.corrigivel && resultadoId" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                            <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Corrigir no sistema</p>
+                            <div class="flex items-center gap-2">
+                              <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">
+                              <button @click="salvarCorrecao(e)" :disabled="salvando === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">{{ salvando === keyErro(e) ? 'Salvando…' : 'Salvar correção' }}</button>
+                            </div>
+                            <p v-if="e.permiteVazio" class="text-[9px] text-risco mt-1 italic">Campo opcional: deixe vazio para apagar o conteúdo inválido, ou informe o código correto.</p>
+                            <p class="text-[10px] text-risco mt-1">A correção entra no SPED ao baixar. Original preservado.</p>
+                          </div>
+                          <p class="text-[10px] text-risco">Classe de correção: {{ classeLabel(e.classeCorrecao) }}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -609,6 +785,43 @@ onMounted(async () => {
         Validado contra {{ resultado.resumo.regrasExecutadas }} regra(s) do catálogo. O PVA pode ter validações adicionais — este módulo cresce de forma incremental.
       </p>
     </template>
+
+    <!-- Modal: prévia do "Corrigir todas as seguras" -->
+    <div v-if="showPreviewLote && previewLote" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showPreviewLote = false">
+      <div class="bg-sheet rounded-lg border border-line shadow-xl max-w-lg w-full max-h-[85vh] overflow-auto">
+        <div class="px-5 py-4 border-b border-line">
+          <h3 class="text-[15px] font-semibold text-ink">Corrigir todas as seguras</h3>
+          <p class="text-[12px] text-risco mt-0.5">Prévia — <b>nada é gravado</b> até você confirmar. Só entram correções <b>determinísticas</b> (bloqueantes, com valor exato e gate fiscal). Itens de revisão manual ficam de fora.</p>
+        </div>
+        <div class="px-5 py-4 space-y-3">
+          <div class="text-[13px] text-ink"><b class="text-conforme text-[20px] align-middle">{{ previewLote.total }}</b> correção(ões) segura(s) a aplicar:</div>
+          <div class="border border-line rounded-md divide-y divide-line">
+            <div v-for="(n, rid) in previewLote.porRegra" :key="rid" class="flex items-center justify-between px-3 py-2 text-[12px]">
+              <span class="font-mono text-risco">{{ rid }}</span>
+              <span class="font-medium text-ink">{{ n }}×</span>
+            </div>
+          </div>
+          <div v-if="previewLote.amostra && previewLote.amostra.length" class="bg-paper border border-line rounded-md p-3">
+            <p class="text-[10px] uppercase tracking-wide font-medium text-risco mb-1.5">Exemplos</p>
+            <div class="space-y-1 text-[11px]">
+              <div v-for="(a, i) in previewLote.amostra" :key="i" class="flex items-center gap-2 font-mono">
+                <span class="text-risco shrink-0">{{ a.registro }}·L{{ a.linha }}·c{{ a.campoIdx }}</span>
+                <span class="text-risco line-through">{{ a.valorAtual }}</span>
+                <span class="text-risco">→</span>
+                <span class="text-conforme">{{ a.valorSugerido }}</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-[11px] text-risco">Aplicado como um <b>lote reversível</b> — dá para desfazer tudo num clique. O arquivo original nunca é alterado: a correção só entra no “SPED corrigido”.</p>
+        </div>
+        <div class="px-5 py-4 border-t border-line flex items-center justify-end gap-2">
+          <button @click="showPreviewLote = false" class="px-3 h-9 rounded-md text-[12px] font-medium text-risco hover:bg-paper transition-colors">Cancelar</button>
+          <button @click="aplicarCorrigirTudo" :disabled="corrigindoLote" class="px-4 h-9 rounded-md text-[12px] font-medium text-white bg-conforme hover:opacity-85 disabled:opacity-50 transition-opacity inline-flex items-center gap-1.5">
+            <Loader2 v-if="corrigindoLote" class="w-4 h-4 animate-spin" :stroke-width="1.8" /> Aplicar {{ previewLote.total }} correção(ões)
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
