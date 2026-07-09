@@ -243,6 +243,34 @@ async function removerCorrecao(c) {
   } catch (err) { msgCorr.value = err.response?.data?.message || ('Erro ao remover: ' + err.message); }
 }
 
+// --- Correções a aplicar: AGRUPADAS por registro+campo+valor (idênticas viram "×742") ---
+const grupoCorrAberto = ref(null);
+const CAMPO_NOME_CORR = {
+  'C100:12': 'VL_DOC', 'C100:16': 'VL_MERC', 'C100:20': 'VL_OUT_DA',
+  'C170:10': 'CST_ICMS', 'C170:11': 'CFOP', 'C170:13': 'VL_BC_ICMS', 'C170:14': 'ALIQ_ICMS', 'C170:15': 'VL_ICMS', 'C170:37': 'COD_CTA',
+  'C190:2': 'CST_ICMS', 'C190:3': 'CFOP', 'C190:4': 'ALIQ_ICMS', 'C190:6': 'VL_BC_ICMS', 'C190:7': 'VL_ICMS', 'C190:10': 'VL_RED_BC',
+  '0000:10': 'IE', '0100:3': 'CPF', '0100:4': 'CRC', '0400:3': 'COD_NAT',
+};
+const nomeCampoCorr = (reg, i) => CAMPO_NOME_CORR[`${reg}:${i}`] || ('campo ' + i);
+const correcoesAgrupadas = computed(() => {
+  const m = new Map();
+  for (const c of correcoes.value) {
+    const k = `${c.registro}|${c.campo_idx}|${c.valor_corrigido}|${c.regra_id || ''}`;
+    let g = m.get(k);
+    if (!g) { g = { key: k, registro: c.registro, campo_idx: c.campo_idx, valor_corrigido: c.valor_corrigido, regra_id: c.regra_id || '', itens: [] }; m.set(k, g); }
+    g.itens.push(c);
+  }
+  return [...m.values()].sort((a, b) => b.itens.length - a.itens.length);
+});
+function toggleGrupoCorr(k) { grupoCorrAberto.value = grupoCorrAberto.value === k ? null : k; }
+async function removerGrupoCorrecao(g) {
+  if (!confirm(`Remover as ${g.itens.length} correção(ões) de ${g.registro} · ${nomeCampoCorr(g.registro, g.campo_idx)}?`)) return;
+  for (const c of g.itens) {
+    try { await axios.delete(`${API_BASE_URL}/api/validador/correcoes/${c.id}`, { headers: authHeader() }); } catch (_) {}
+  }
+  await carregarCorrecoes();
+}
+
 // --- Correção direta de cadastro (IE do 0000, contabilista do 0100) ---
 // O PVA rejeita IE por divergência de cadastro/SEFAZ (não dá p/ detectar por dígito) e exige CPF/CRC
 // do contador. Aqui o usuário digita o valor correto → grava em val_correcoes → o export já aplica.
@@ -335,18 +363,32 @@ function baixarCorrigido() {
 const alteracoes = ref(null);
 const loadingAlt = ref(false);
 const baixandoPdf = ref(false);
+// "O que foi corrigido" = SÓ MOSTRA (read-only) o relatório do que já foi corrigido no ÚLTIMO
+// export deste arquivo. NÃO re-exporta / NÃO re-corrige o SPED (antes chamava POST /revalidar, que
+// rodava a correção de novo a cada clique). Para re-processar existe o botão "Re-validar".
 async function verAlteracoes() {
   if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
-  loadingAlt.value = true; erro.value = '';
+  loadingAlt.value = true; erro.value = ''; msgCorr.value = '';
   try {
-    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
-    resultado.value = res.data; // atualiza os erros residuais também
-    alteracoes.value = res.data.alteracoes || { total: 0, agrupado: [], totais: {} };
+    const r = await axios.get(`${API_BASE_URL}/api/validador/alteracoes/${resultadoId.value}`, { headers: authHeader() });
+    if (r.data?.semExport) {
+      // ainda não houve export deste arquivo → não há changelog persistido p/ relatar
+      alteracoes.value = null;
+      msgCorr.value = 'Ainda não há relatório deste arquivo. Clique em "Baixar SPED corrigido" (ou "Re-validar") para gerar o SPED — aí o "o que foi corrigido" fica disponível.';
+    } else {
+      alteracoes.value = r.data;
+    }
   } catch (e) {
-    // fallback: lê o último changelog persistido
-    try { const r = await axios.get(`${API_BASE_URL}/api/validador/alteracoes/${resultadoId.value}`, { headers: authHeader() }); alteracoes.value = r.data; }
-    catch (_) { erro.value = e.response?.data?.message || ('Erro ao carregar o relatório: ' + e.message); }
+    erro.value = e.response?.data?.message || ('Erro ao carregar o relatório: ' + e.message);
   } finally { loadingAlt.value = false; }
+}
+
+// Re-exporta (aplicando os skips atuais) e atualiza erros residuais + o relatório. Usado após LIGAR/
+// DESLIGAR uma correção — ação explícita que muda o resultado do export. NÃO é o botão "O que foi corrigido".
+async function reexportarEAtualizarRelatorio() {
+  const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+  resultado.value = res.data;
+  alteracoes.value = res.data.alteracoes || { total: 0, agrupado: [], totais: {} };
 }
 
 // DOC-C170-01 — vincular COD_ITEM órfão a um produto 0200 (lista suspensa, estilo PVA)
@@ -420,11 +462,10 @@ async function toggleSkip(regraId, chave, ativo) {
   loadingAlt.value = true;
   try {
     await axios.post(`${API_BASE_URL}/api/validador/skip`, { id_sped_arquivo: resultadoId.value, regra_id: regraId, chave: chave || '', ativo }, { headers: authHeader() });
-    await verAlteracoes(); // re-exporta e atualiza relatório + erros residuais
+    await reexportarEAtualizarRelatorio(); // re-exporta (reflete o skip) e atualiza relatório + erros residuais
   } catch (e) {
     erro.value = e.response?.data?.message || ('Erro ao alterar a correção: ' + e.message);
-    loadingAlt.value = false;
-  }
+  } finally { loadingAlt.value = false; }
 }
 
 onMounted(async () => {
@@ -569,17 +610,33 @@ onMounted(async () => {
           <span v-if="msgCorr" class="text-[12px] font-medium" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-lacre' : 'text-conforme'">{{ msgCorr }}</span>
         </div>
         <div v-if="correcoes.length" class="border border-line rounded-md overflow-hidden">
-          <div class="px-3 py-2 bg-paper text-[11px] uppercase tracking-wide font-medium text-risco">Correções a aplicar no SPED corrigido ({{ correcoes.length }})</div>
-          <table class="w-full text-[11px]">
-            <tbody class="divide-y divide-line">
-              <tr v-for="c in correcoes" :key="c.id" class="hover:bg-paper">
-                <td class="px-3 py-1.5 font-mono text-risco">{{ c.registro }}</td>
-                <td class="px-3 py-1.5 text-risco">campo {{ c.campo_idx }}</td>
-                <td class="px-3 py-1.5"><span class="text-risco line-through mr-1">{{ c.valor_original || '—' }}</span><span class="font-mono text-conforme">{{ c.valor_corrigido }}</span></td>
-                <td class="px-3 py-1.5 text-right"><button @click="removerCorrecao(c)" class="text-[10px] text-lacre hover:opacity-80 font-medium">remover</button></td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="px-3 py-2 bg-paper text-[11px] uppercase tracking-wide font-medium text-risco flex items-center gap-2 flex-wrap">
+            <span>Correções a aplicar no SPED corrigido ({{ correcoes.length }})</span>
+            <span class="normal-case opacity-70">· {{ correcoesAgrupadas.length }} tipo(s)</span>
+          </div>
+          <div class="divide-y divide-line max-h-[45vh] overflow-y-auto">
+            <template v-for="g in correcoesAgrupadas" :key="g.key">
+              <div class="flex items-center gap-2 px-3 py-2 hover:bg-paper text-[11px]">
+                <button @click="toggleGrupoCorr(g.key)" class="flex items-center gap-2 min-w-0 flex-1 text-left">
+                  <component :is="grupoCorrAberto === g.key ? ChevronUp : ChevronDown" class="w-3.5 h-3.5 text-risco shrink-0" :stroke-width="1.7" />
+                  <span class="font-mono text-bronze shrink-0">{{ g.registro }}</span>
+                  <span class="text-ink shrink-0">{{ nomeCampoCorr(g.registro, g.campo_idx) }}</span>
+                  <span v-if="g.itens.length > 1" class="text-[10px] font-bold text-variacao shrink-0">×{{ g.itens.length }}</span>
+                  <span class="text-risco truncate">→ <span class="font-mono text-conforme">{{ g.valor_corrigido }}</span></span>
+                </button>
+                <button @click="removerGrupoCorrecao(g)" class="text-[10px] text-lacre hover:opacity-80 font-medium shrink-0">remover{{ g.itens.length > 1 ? ' todas' : '' }}</button>
+              </div>
+              <div v-if="grupoCorrAberto === g.key" class="bg-paper max-h-[30vh] overflow-y-auto divide-y divide-line">
+                <div v-for="c in g.itens" :key="c.id" class="flex items-center gap-2 px-3 py-1.5 pl-8 text-[10px]">
+                  <span class="font-mono text-risco truncate min-w-0 flex-1" :title="c.chave_natural">{{ c.chave_natural || '—' }}</span>
+                  <span class="text-risco line-through shrink-0">{{ c.valor_original || '—' }}</span>
+                  <span class="text-risco shrink-0">→</span>
+                  <span class="font-mono text-conforme shrink-0">{{ c.valor_corrigido }}</span>
+                  <button @click="removerCorrecao(c)" class="text-lacre hover:opacity-80 font-medium shrink-0">remover</button>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
         <p class="text-[11px] text-risco">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
       </div>
@@ -625,13 +682,14 @@ onMounted(async () => {
           <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar ✕</button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
-        <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-variacao/[0.06] border-b border-variacao/20">
-          <p class="text-[11px] font-medium text-variacao mb-1.5">⏸️ Correções desligadas por você ({{ alteracoes.skips.length }}) — NÃO aplicadas (o erro pode voltar no PVA):</p>
-          <div class="flex flex-wrap gap-2">
-            <span v-for="(s, i) in alteracoes.skips" :key="i" class="inline-flex items-center gap-1.5 text-[10px] bg-sheet border border-variacao/25 rounded-md px-2 py-0.5">
-              <span class="font-medium text-variacao">{{ rotuloRegra(s.regra_id) }}<span v-if="s.chave" class="font-mono"> · {{ s.chave }}</span></span>
-              <button @click="toggleSkip(s.regra_id, s.chave, false)" :disabled="loadingAlt" class="text-conforme hover:opacity-80 font-medium">reativar ↺</button>
-            </span>
+        <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-variacao/[0.06] border-b border-variacao/25">
+          <p class="text-[11px] font-semibold text-variacao mb-2">⏸️ Correções DESLIGADAS por você ({{ alteracoes.skips.length }}) — <b>não estão sendo aplicadas</b> (o erro pode voltar no PVA). Clique em <b>Religar</b> para voltar a aplicar:</p>
+          <div class="space-y-1.5">
+            <div v-for="(s, i) in alteracoes.skips" :key="i" class="flex items-center gap-2 bg-sheet border border-variacao/25 rounded-md px-3 py-1.5">
+              <span class="shrink-0 text-[9px] font-bold uppercase text-variacao bg-variacao/10 border border-variacao/30 rounded px-1.5 py-0.5">off</span>
+              <span class="min-w-0 flex-1 text-[11px] font-medium text-ink">{{ rotuloRegra(s.regra_id) }}<span v-if="s.chave" class="font-mono text-risco"> · {{ s.chave }}</span></span>
+              <button @click="toggleSkip(s.regra_id, s.chave, false)" :disabled="loadingAlt" class="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-white bg-conforme hover:opacity-85 disabled:opacity-50 rounded-md px-2.5 py-1 transition-opacity" title="Voltar a aplicar esta correção">↻ Religar</button>
+            </div>
           </div>
         </div>
         <div v-if="!alteracoes.total" class="px-5 py-6 text-[13px] text-risco italic text-center">Nenhuma correção aplicada neste arquivo (o SPED já estava coerente nos pontos que tratamos).</div>
@@ -652,9 +710,9 @@ onMounted(async () => {
                     <span class="block text-[10px] text-risco italic">{{ it.motivo }}<span v-if="it.regraId" class="font-mono not-italic opacity-70"> · {{ it.regraId }}</span></span>
                   </span>
                   <button v-if="EXCLUIVEIS.has(it.regraId)" @click="toggleSkip(it.regraId, chaveSkip(it), true)" :disabled="loadingAlt"
-                    title="Não aplicar esta correção no SPED corrigido"
-                    class="shrink-0 self-center text-[9px] font-medium text-lacre hover:text-white hover:bg-lacre border border-lacre/25 rounded-md px-1.5 py-0.5 transition-colors">desligar</button>
-                  <span v-else class="shrink-0 self-center text-[9px] text-risco" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela)">🔒</span>
+                    title="Desligar: parar de aplicar esta correção. Para RELIGAR depois, use a faixa amarela 'Correções desligadas' no topo deste relatório."
+                    class="shrink-0 self-center text-[9px] font-medium text-lacre hover:text-white hover:bg-lacre border border-lacre/25 rounded-md px-1.5 py-0.5 transition-colors">⏻ desligar</button>
+                  <span v-else class="shrink-0 self-center text-[9px] text-risco" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela); não pode ser desligada">🔒 fixa</span>
                 </div>
               </div>
             </div>
@@ -687,32 +745,41 @@ onMounted(async () => {
         </div>
 
         <div class="overflow-x-auto max-h-[65vh] overflow-y-auto">
-          <table class="w-full text-[12px] min-w-[700px]">
+          <table class="w-full table-fixed text-[12px]">
+            <colgroup>
+              <col class="w-7" />
+              <col />
+              <col class="w-16" />
+              <col class="w-12" />
+              <col class="w-14" />
+              <col class="w-24 sm:w-32" />
+              <col class="w-9" />
+            </colgroup>
             <thead class="sticky top-0 z-10">
               <tr class="bg-paper text-[10px] uppercase tracking-wide text-risco">
-                <th class="w-8"></th>
+                <th></th>
                 <th class="text-left px-3 py-2 font-medium">Tipo de ocorrência</th>
-                <th class="text-left px-3 py-2 font-medium whitespace-nowrap">Registro</th>
-                <th class="text-center px-3 py-2 font-medium whitespace-nowrap">Ocorr.</th>
-                <th class="text-center px-3 py-2 font-medium">Código</th>
-                <th class="text-left px-3 py-2 font-medium whitespace-nowrap">Categoria</th>
-                <th class="w-12 text-center px-2 py-2 font-medium">Dica</th>
+                <th class="text-center px-1 py-2 font-medium">Reg.</th>
+                <th class="text-center px-1 py-2 font-medium">Ocorr.</th>
+                <th class="text-center px-1 py-2 font-medium">Cód.</th>
+                <th class="text-left px-2 py-2 font-medium">Categoria</th>
+                <th class="text-center px-1 py-2 font-medium">Dica</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-line">
               <template v-for="g in errosAgrupados" :key="g.regra_id">
                 <!-- Linha do grupo (1 por tipo de ocorrência) -->
-                <tr class="hover:bg-paper cursor-pointer" @click="toggleGrupo(g.regra_id)">
-                  <td class="px-2 text-center align-top pt-3"><component :is="grupoAberto === g.regra_id ? ChevronUp : ChevronDown" class="w-4 h-4 text-risco inline" :stroke-width="1.7" /></td>
-                  <td class="px-3 py-2.5">
-                    <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle shrink-0" :class="g.severidade === 'BLOQ' ? 'bg-lacre' : 'bg-variacao'"></span>
+                <tr class="hover:bg-paper cursor-pointer align-top" @click="toggleGrupo(g.regra_id)">
+                  <td class="px-1 text-center pt-3"><component :is="grupoAberto === g.regra_id ? ChevronUp : ChevronDown" class="w-4 h-4 text-risco inline" :stroke-width="1.7" /></td>
+                  <td class="px-3 py-2.5 break-words">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" :class="g.severidade === 'BLOQ' ? 'bg-lacre' : 'bg-variacao'"></span>
                     <span class="text-ink">{{ g.titulo }}</span>
                   </td>
-                  <td class="px-3 py-2.5 align-top"><span class="font-mono text-bronze whitespace-nowrap">{{ g.registro }}</span></td>
-                  <td class="px-3 py-2.5 text-center align-top font-mono font-semibold text-ink">{{ g.ocorrencias.length }}</td>
-                  <td class="px-3 py-2.5 text-center align-top font-mono text-risco">{{ g.codigo }}</td>
-                  <td class="px-3 py-2.5 align-top"><span class="text-[10px] px-2 py-0.5 rounded-md border whitespace-nowrap" :class="corCategoria(g)">{{ categoriaOcorrencia(g) }}</span></td>
-                  <td class="px-2 py-2.5 text-center align-top"><button @click.stop="toggleDica(g.regra_id)" class="hover:opacity-70 transition-opacity" title="Ver explicação do erro"><Info class="w-4 h-4 inline" :stroke-width="1.8" :class="dicaAberta === g.regra_id ? 'text-bronze' : 'text-risco'" /></button></td>
+                  <td class="px-1 py-2.5 text-center font-mono text-bronze break-all">{{ g.registro }}</td>
+                  <td class="px-1 py-2.5 text-center font-mono font-semibold text-ink">{{ g.ocorrencias.length }}</td>
+                  <td class="px-1 py-2.5 text-center font-mono text-risco break-all">{{ g.codigo }}</td>
+                  <td class="px-2 py-2.5"><span class="inline-block text-[10px] leading-tight px-1.5 py-0.5 rounded-md border" :class="corCategoria(g)">{{ categoriaOcorrencia(g) }}</span></td>
+                  <td class="px-1 py-2.5 text-center"><button @click.stop="toggleDica(g.regra_id)" class="hover:opacity-70 transition-opacity" title="Ver explicação do erro"><Info class="w-4 h-4 inline" :stroke-width="1.8" :class="dicaAberta === g.regra_id ? 'text-bronze' : 'text-risco'" /></button></td>
                 </tr>
                 <!-- Dica (explicação do erro) -->
                 <tr v-if="dicaAberta === g.regra_id">
