@@ -6378,6 +6378,36 @@ app.get('/api/validador/produtos-0200/:id', authMiddleware, async (req, res) => 
     } finally { dbClient.release(); }
 });
 
+// Lista de CEST para a lista suspensa do erro DOC-0200-CEST-01. Dois modos (querystring):
+//   ?ncm=<ncm> → CEST cujo ncm_prefix é prefixo do NCM do produto (sugestão por NCM)
+//   ?q=<termo> → busca em todos os CEST por código/cest_fmt/descrição ("buscar em todos")
+// Retorna [{ cest, cest_fmt, descricao, segmento }]. Sem tabela cest → [] (degradação segura).
+app.get('/api/validador/cest-sugeridos', authMiddleware, async (req, res) => {
+    const ncm = String(req.query.ncm || '').replace(/\D/g, '');
+    const q = String(req.query.q || '').trim();
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        let r;
+        if (q) {
+            if (q.length < 2) return res.json([]); // evita varrer os 1.370 com 1 caractere
+            r = await dbClient.query(
+                `SELECT DISTINCT ON (cest) cest, cest_fmt, descricao, segmento FROM cest
+                 WHERE cest ILIKE $1 OR cest_fmt ILIKE $1 OR descricao ILIKE $1
+                 ORDER BY cest, id LIMIT 50`, [`%${q}%`]);
+        } else if (ncm) {
+            r = await dbClient.query(
+                `SELECT DISTINCT ON (cest) cest, cest_fmt, descricao, segmento FROM cest
+                 WHERE $1 LIKE ncm_prefix || '%' ORDER BY cest, id LIMIT 100`, [ncm]);
+        } else {
+            return res.json([]);
+        }
+        res.json(r.rows);
+    } catch (e) {
+        res.json([]); // tabela cest ausente/vazia → lista vazia, não quebra a UI
+    } finally { dbClient.release(); }
+});
+
 // Salva/remove o vínculo COD_ITEM órfão (C170) → produto 0200 (de-para por arquivo).
 app.post('/api/validador/cod-item-map', authMiddleware, async (req, res) => {
     const idArq = parseInt(req.body.id_sped_arquivo);

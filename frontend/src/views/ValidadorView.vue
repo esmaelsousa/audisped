@@ -114,6 +114,8 @@ function toggleOcc(e) {
   if (occAberta.value === k && e.regra_id === 'COMB-1350-1360-01' && lacreData.value[k] === undefined) {
     lacreData.value = { ...lacreData.value, [k]: primeiroDiaPeriodo() };
   }
+  // DOC-0200-CEST-01: carrega os CEST sugeridos pelo NCM do produto ao abrir a ocorrência.
+  if (occAberta.value === k && e.regra_id === 'DOC-0200-CEST-01') { carregarCestPorNcm(e); }
 }
 // Exporta o relatório de inconsistências (agrupado por tipo) em CSV pt-BR (Excel-friendly).
 function baixarInconsistencias() {
@@ -469,6 +471,55 @@ async function vincularCodItem(e) {
     await analisar(); // re-analisa → o erro do item passa a aparecer como "✓ corrigido por você"
   } catch (err) { erro.value = err.response?.data?.message || ('Erro ao vincular: ' + err.message); }
   finally { salvandoVinc.value = null; }
+}
+
+// DOC-0200-CEST-01 — lista suspensa de CEST (sugeridos pelo NCM do produto + "buscar em todos")
+const cestOpcoes = ref({});       // keyErro -> [{cest, cest_fmt, descricao, segmento}]
+const cestSel = ref({});          // keyErro -> cest selecionado (7 díg)
+const cestBusca = ref({});        // keyErro -> termo de busca
+const cestBuscaAberta = ref({});  // keyErro -> bool (mostra o campo "buscar em todos")
+const cestSemST = ref({});        // keyErro -> bool (produto sem ST → salva CEST vazio)
+const carregandoCest = ref({});   // keyErro -> bool
+const salvandoCest = ref(null);
+async function carregarCestPorNcm(e) {
+  const k = keyErro(e);
+  if (cestOpcoes.value[k] !== undefined || carregandoCest.value[k]) return; // já carregado
+  carregandoCest.value = { ...carregandoCest.value, [k]: true };
+  try {
+    const r = await axios.get(`${API_BASE_URL}/api/validador/cest-sugeridos`, { params: { ncm: e.ncm || '' }, headers: authHeader() });
+    cestOpcoes.value = { ...cestOpcoes.value, [k]: r.data || [] };
+  } catch (_) { cestOpcoes.value = { ...cestOpcoes.value, [k]: [] }; }
+  finally { carregandoCest.value = { ...carregandoCest.value, [k]: false }; }
+}
+async function buscarCest(e) {
+  const k = keyErro(e);
+  const q = (cestBusca.value[k] || '').trim();
+  if (q.length < 2) { msgCorr.value = 'Digite ao menos 2 caracteres para buscar.'; return; }
+  carregandoCest.value = { ...carregandoCest.value, [k]: true }; msgCorr.value = '';
+  try {
+    const r = await axios.get(`${API_BASE_URL}/api/validador/cest-sugeridos`, { params: { q }, headers: authHeader() });
+    cestOpcoes.value = { ...cestOpcoes.value, [k]: r.data || [] };
+    if (!(r.data || []).length) msgCorr.value = `Nenhum CEST encontrado para "${q}".`;
+  } catch (_) { cestOpcoes.value = { ...cestOpcoes.value, [k]: [] }; }
+  finally { carregandoCest.value = { ...carregandoCest.value, [k]: false }; }
+}
+async function salvarCest(e) {
+  if (!resultadoId.value) { msgCorr.value = 'Valide um SPED do banco primeiro.'; return; }
+  const k = keyErro(e);
+  const semST = !!cestSemST.value[k];
+  const valor = semST ? '' : String(cestSel.value[k] || '').trim();
+  if (!semST && valor === '') { msgCorr.value = 'Selecione um CEST na lista ou marque "produto sem ST".'; return; }
+  salvandoCest.value = k; msgCorr.value = '';
+  try {
+    await axios.post(`${API_BASE_URL}/api/validador/corrigir`, {
+      id_sped_arquivo: resultadoId.value, regra_id: e.regra_id, registro: '0200',
+      chave_natural: e.chaveNatural, campo_idx: 13, valor_original: e.valorAtual, valor_corrigido: valor,
+    }, { headers: authHeader() });
+    msgCorr.value = 'CEST salvo. Clique em "Re-validar" para conferir; o SPED baixado já sai corrigido.';
+    await carregarCorrecoes();
+  } catch (err) {
+    msgCorr.value = err.response?.data?.message || ('Erro ao salvar CEST: ' + err.message);
+  } finally { salvandoCest.value = null; }
 }
 
 // Relatório consolidado em PDF (para enviar à contabilidade / setor fiscal).
@@ -897,8 +948,29 @@ onMounted(async () => {
                             </div>
                             <p class="text-[10px] text-risco mt-1">A data já vem com o 1º dia do período — edite se precisar. O lacre entra no SPED ao baixar; original preservado. Você também pode corrigir no ERP.</p>
                           </div>
-                          <!-- Corrigir no sistema -->
-                          <div v-if="e.corrigivel && resultadoId" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                          <!-- DOC-0200-CEST-01: lista suspensa de CEST (sugeridos pelo NCM + buscar em todos) -->
+                          <div v-if="e.regra_id === 'DOC-0200-CEST-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                            <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Corrigir o CEST</p>
+                            <p class="text-[11px] text-risco mb-2">Produto <b class="font-mono text-ink">{{ e.chaveNatural }}</b><span v-if="e.ncm"> · NCM <b class="font-mono text-ink">{{ e.ncm }}</b></span>. Escolha o CEST correto na lista.</p>
+                            <div class="flex flex-wrap items-center gap-2">
+                              <select v-model="cestSel[keyErro(e)]" :disabled="cestSemST[keyErro(e)]" class="flex-1 min-w-0 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors disabled:opacity-40">
+                                <option value="">{{ carregandoCest[keyErro(e)] ? 'carregando…' : ((cestOpcoes[keyErro(e)] || []).length ? 'selecione o CEST…' : 'nenhum sugerido — use “buscar em todos”') }}</option>
+                                <option v-for="o in (cestOpcoes[keyErro(e)] || [])" :key="o.cest" :value="o.cest">{{ o.cest_fmt }} — {{ o.descricao }}</option>
+                              </select>
+                              <button @click="salvarCest(e)" :disabled="salvandoCest === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">{{ salvandoCest === keyErro(e) ? 'Salvando…' : 'Salvar CEST' }}</button>
+                            </div>
+                            <div class="flex items-center gap-3 mt-1.5 flex-wrap">
+                              <button @click="cestBuscaAberta[keyErro(e)] = !cestBuscaAberta[keyErro(e)]" class="text-[11px] text-bronze hover:opacity-70 transition-opacity">🔍 não achei — buscar em todos</button>
+                              <label class="text-[11px] text-risco flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="cestSemST[keyErro(e)]" class="accent-bronze"> produto sem ST (deixar vazio)</label>
+                            </div>
+                            <div v-if="cestBuscaAberta[keyErro(e)]" class="flex items-center gap-2 mt-1.5">
+                              <input v-model="cestBusca[keyErro(e)]" @keyup.enter="buscarCest(e)" type="text" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 text-ink outline-none focus:border-bronze transition-colors" placeholder="buscar por código ou descrição… (mín. 2 caracteres)">
+                              <button @click="buscarCest(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 shrink-0 transition-opacity">Buscar</button>
+                            </div>
+                            <p class="text-[10px] text-risco mt-1">A correção entra no SPED ao baixar. Original preservado. Você também pode corrigir no ERP.</p>
+                          </div>
+                          <!-- Corrigir no sistema (campo livre genérico — exceto CEST, que tem lista própria acima) -->
+                          <div v-if="e.corrigivel && resultadoId && e.regra_id !== 'DOC-0200-CEST-01'" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
                             <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Corrigir no sistema</p>
                             <div class="flex items-center gap-2">
                               <input v-model="valoresCorrecao[keyErro(e)]" type="text" class="flex-1 h-8 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" :placeholder="e.permiteVazio ? 'deixe vazio para remover, ou digite o valor' : ((e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : 'novo valor')">

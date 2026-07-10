@@ -30,6 +30,7 @@ function validar(model) {
                 permiteVazio: (a.permiteVazio ?? false), // correção pode salvar valor vazio (ex.: apagar COD_BARRA)
                 valorAtual: (a.valorAtual ?? ''),
                 valorSugerido: a.valorSugerido,
+                ncm: (a.ncm ?? null),             // contexto opcional (ex.: CEST usa p/ sugerir por NCM)
                 detalhe: a.detalhe || '',
                 instrucaoERP: (typeof regra.instrucaoERP === 'function' ? regra.instrucaoERP(a) : (regra.instrucaoERP || '')),
             });

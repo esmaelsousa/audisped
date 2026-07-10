@@ -26,16 +26,17 @@ module.exports = {
         for (const l of (model.porReg.get('0200') || [])) {
             const cestRaw = String(l.f[13] || '').trim();
             if (!cestRaw) continue; // sem CEST é válido (nem todo produto tem ST)
+            const ncm = String(l.f[8] || '').trim(); // COD_NCM — a UI usa p/ sugerir CEST por NCM
             const cest = digits(cestRaw);
             if (cest.length !== 7) {
-                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'CEST', campoIdx: 13, severidade: 'BLOQ', permiteVazio: true, valorAtual: cestRaw, valorSugerido: '', detalhe: `CEST "${cestRaw}" não tem 7 dígitos.` });
+                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'CEST', campoIdx: 13, severidade: 'BLOQ', permiteVazio: true, valorAtual: cestRaw, valorSugerido: '', ncm, detalhe: `CEST "${cestRaw}" não tem 7 dígitos.` });
                 continue;
             }
             if (!dom.cestSet.has(cest)) {
                 // ADVERTÊNCIA (não BLOQ): nossa tabela CEST pode não estar 100% completa — não bloquear
                 // um CEST válido por estar faltando na base. O usuário confirma/apaga. (Promover a BLOQ
                 // quando a tabela for conferida 100% contra os anexos oficiais.)
-                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'CEST', campoIdx: 13, severidade: 'ADV', permiteVazio: true, valorAtual: cestRaw, valorSugerido: '', detalhe: `CEST ${cestRaw} não localizado na Tabela CEST (Conv. 142/2018). Confirme o CEST; se o produto não é de substituição tributária, deixe vazio.` });
+                erros.push({ bloco: '0', registro: '0200', linha: l.n, campo: 'CEST', campoIdx: 13, severidade: 'ADV', permiteVazio: true, valorAtual: cestRaw, valorSugerido: '', ncm, detalhe: `CEST ${cestRaw} não localizado na Tabela CEST (Conv. 142/2018). Confirme o CEST; se o produto não é de substituição tributária, deixe vazio.` });
                 continue;
             }
             // CEST existe na tabela → OK. (NÃO conferimos CEST×NCM por prefixo — vide nota no topo do arquivo.)

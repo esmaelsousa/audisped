@@ -130,6 +130,7 @@ t('cest -: CEST válido + NCM casa não dispara', () => assert.ok(!comDom(['|020
 t('cest -: CEST existe (não checamos NCM por prefixo) não dispara', () => assert.ok(!comDom(['|0200|P1|X| | |UN|00|39233090| |39| |20,50|0600200|']).some(e => e.regra_id === 'DOC-0200-CEST-01')));
 t('cest -: sem CEST não dispara', () => assert.ok(!comDom(['|0200|P1|X| | |UN|00|39233090| |39| |20,50||']).some(e => e.regra_id === 'DOC-0200-CEST-01')));
 t('cest -: sem domínio carregado não valida (degradação segura)', () => assert.ok(!fires(H(['|0200|P1|X| | |UN|00|39233090| |39| |20,50|9999999|']), 'DOC-0200-CEST-01')));
+t('cest: erro carrega e.ncm (NCM do produto) p/ a lista suspensa', () => { const e = comDom(['|0200|P1|BOMBONA| | |UN|00|39233090| |39| |20,50|1708704|']).find(x => x.regra_id === 'DOC-0200-CEST-01'); assert.equal(e.ncm, '39233090'); });
 
 // DOC-C190-01 (combinação C190 sem C170)
 t('c190 +: combinação ausente no C170 dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5405' })]), 'DOC-C190-01')));
