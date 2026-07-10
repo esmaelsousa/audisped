@@ -77,7 +77,7 @@ erDiagram
     }
 ```
 
-> `de_para_xml` e `regras_fiscais` ganham `rede_id` (per-tenant — decisão #10). `cad_cfops`/`ncm`/`cest`/catálogo seguem globais (read-only).
+> ⚠️ **REVISTO (§13.1 do plano):** só `de_para_xml` ganha `rede_id` (per-tenant). **`regras_fiscais` fica GLOBAL** (motor do export; per-tenant regride o SPED aos valores crus do XML). `cad_cfops`/`ncm`/`cest`/catálogo seguem globais (read-only).
 
 ---
 

@@ -20,7 +20,7 @@
 | 7 | Entitlement de módulo | no nível **rede** (aplica a todos os CNPJs dela) — _por-CNPJ fica como evolução_ |
 | 8 | Escopo do Escritório | **todos os CNPJs da rede** no v1 (`usuario_empresas` reservado p/ escopo fino) |
 | 9 | CNPJ entre redes | **`UNIQUE(cnpj, rede_id)`** — cada rede tem sua própria linha do CNPJ (resolve §12.4) |
-| 10 | `de_para_xml` / `regras_fiscais` | **per-tenant** — herdam `rede_id` via `id_empresa` + backfill; `cad_cfops`/`ncm`/`cest`/`cad_*`/catálogo = **globais read-only** (write só super_admin) (resolve §12.6) |
+| 10 | `de_para_xml` / `regras_fiscais` | **⚠️ REVISTO em §13.1:** só `de_para_xml` fica **per-tenant** (herda `rede_id` via `id_empresa`); **`regras_fiscais` VOLTA A GLOBAL read-only** (per-tenant regride o export aos valores crus do XML). `cad_cfops`/`ncm`/`cest`/`cad_*`/catálogo = **globais read-only** (write só super_admin) |
 | 11 | Autocadastro (`/api/auth/register`) | **FECHADO** — você/admin provisiona; sem signup público (resolve §12 risco médio) |
 
 > Itens 6-8 são **assunções** confirmáveis; o resto é decisão explícita.
@@ -329,8 +329,88 @@ Com 🔴/🟠/🟡 incorporados, o plano **funciona 100% sem impactar funções 
 
 ### 12.1 Decisões fechadas pós-avaliação (com o usuário)
 - **§12.4 → resolvido:** `empresas` ganha `UNIQUE(cnpj, rede_id)` (cada rede tem sua linha do CNPJ). O upsert do upload casa por `(cnpj, rede_id)`.
-- **§12.6 → resolvido:** `de_para_xml` e `regras_fiscais` viram **per-tenant** (coluna `rede_id`, herdada via `id_empresa` no backfill; export passa a ler o de-para/regra DA REDE). ⚠️ **O backfill desses dois é inegociável** — sem `rede_id` neles, o export regride aos valores crus do XML (memória itens 14/18/20/21). `cad_cfops`/`ncm`/`cest`/`cad_credenciadoras`/`cad_apuracao_e116`/catálogo do validador = **globais read-only** (escrita só super_admin).
+- **§12.6 → ⚠️ REVISTO em §13.1:** só `de_para_xml` vira **per-tenant** (coluna `rede_id` via `id_empresa`; afeta a **próxima injeção**, não o re-export). **`regras_fiscais` NÃO vira per-tenant** — a 2ª auditoria confirmou no código que elas são o motor GLOBAL do export (`id_empresa` NULL) e o export nem passa tenant no contexto; um `WHERE rede_id=$1` faria as regras sumirem e o export de TODAS as empresas regrediria aos valores crus do XML (memória itens 14/18/20/21). Fica **global read-only**. `cad_cfops`/`ncm`/`cest`/`cad_credenciadoras`/`cad_apuracao_e116`/catálogo do validador = **globais read-only** (escrita só super_admin).
 - **Autocadastro → resolvido:** `/api/auth/register` **fechado**; criação de usuário só por super_admin (cria admins/redes) e admin (cria escritório da sua rede).
 - Demais itens 🔴/🟠/🟡 do §12 seguem como pré-requisitos técnicos da Fase 0/1 (não dependem de decisão comercial).
 
-**Status do plano: FECHADO e seguro para iniciar a Fase 0.**
+### 12.2 Decisões pós-framing (2026-07-10, com o usuário)
+- **Papéis: passam a ser QUATRO** (era 3). Novo papel **`staff`** = **time fiscal INTERNO do SaaS**.
+  - `staff` é **cross-tenant só de DADOS**: vê e trabalha (analisa/corrige/exporta) **todas as redes**
+    (bypass do `scopeRede`, igual super_admin p/ leitura de dados). `usuarios.rede_id = NULL` (como super_admin).
+  - `staff` **NÃO** acessa: cobrança, suspensão, gestão de contas, config de `modulos_contratados`,
+    transições de estado §4 — tudo isso continua **só super_admin**. Rotas `/api/admin/*` de billing/contas
+    negam `staff`.
+  - Autorização por **eixos separados** (não hierarquia linear): (a) *acesso a dados* — super_admin & staff = todas
+    as redes; admin & escritorio = a própria rede; (b) *gestão de contas/billing* — só super_admin; (c) *gestão de
+    usuários da rede* — admin (da sua rede) e super_admin; (d) *DELETE de dados* — ≥ admin & staff (escritorio bloqueado).
+- **Reset de senha (cliente esqueceu):** senha **temporária + troca obrigatória no 1º login**.
+  - `usuarios` ganha **`precisa_trocar_senha BOOLEAN NOT NULL DEFAULT FALSE`**.
+  - **`POST /api/admin/usuarios/:id/reset-senha`**: **super_admin** reseta qualquer um; **admin** só usuários
+    da **própria rede** (`staff`/`escritorio` NÃO resetam ninguém). Gera/define senha temporária (bcrypt) +
+    `precisa_trocar_senha=true`; devolve a temporária **uma vez** p/ o admin repassar.
+  - `POST /api/auth/login` retorna `precisa_trocar_senha`; o front **força a troca** antes de liberar o app.
+  - `PUT /api/auth/profile` (troca de senha) **zera** `precisa_trocar_senha`.
+  - **Auditoria:** registrar quem resetou quem (log estruturado / tabela `auditoria_seguranca`).
+- **Módulos:** confirmado o modelo de 2 camadas do plano (rede contrata em `modulos_contratados`; usuário
+  recebe subconjunto em `usuarios.modulos ⊆` o da rede). Seleção = 1 clique no Console, sem deploy.
+
+**Status do plano: ⚠️ REVISTO pela 2ª auditoria — ver §13.** (papéis = 4; reset de senha incorporado; NÃO executar na ordem/letra atual — ver re-sequenciamento §13.9)
+
+---
+
+## 13. Segunda auditoria de segurança (2026-07-10) — 17 agentes, verificação adversarial
+
+> **Contexto:** auditoria independente por time de agentes especializados (auth, isolamento/IDOR, migração/export, billing), cada achado crítico re-verificado contra o **código real**. Confirma o diagnóstico do §12, mas encontra **3 buracos novos** + **1 decisão travada a reverter** + **1 flanco não auditado**.
+>
+> **Veredito:** **correto = parcial · seguro = parcial · implementável = sim (com re-sequenciamento).** Executar ao pé da letra HOJE **introduziria destruição cross-tenant (§13.4), escalonamento de privilégio (§13.3) e regressão fiscal em massa (§13.1).** Authz é greenfield (0 uso de role/rede_id hoje) → sem legado conflitante.
+>
+> ⚠️ **Números de linha do §1–§12 estão TODOS defasados (drift).** Os refs abaixo foram re-ancorados/verificados; re-conferir antes de editar (§13.6).
+
+### 13.1 🔴 REVERSÃO da Decisão #10 — `regras_fiscais` NÃO pode ser per-tenant
+Confirmado no código: as regras que sustentam o export (coerção CST 60/61→PIS/COFINS 04, monofásico Conv. 199/2022, rebaixe 61→60) são **GLOBAIS** (`id_empresa` NULL) e o export **não passa tenant** no contexto (`casa()` filtra por `ctx.id_empresa`, que o export deixa `undefined` → só casam as globais). Um backfill "via `id_empresa`" é **no-op** para elas, e um filtro `WHERE rede_id=$1` as faria **sumir** → o export de **TODAS** as empresas regrediria aos valores crus do XML (reintroduz erros PVA em massa).
+→ **Nova decisão:** `regras_fiscais` fica **GLOBAL read-only** (write só super_admin). Override por rede, se um dia precisar: coluna `rede_id` **NULLABLE** + `WHERE (rede_id=$1 OR rede_id IS NULL)` + threading do tenant no ctx do export + **golden tests**. `de_para_xml` per-tenant **continua ok** (afeta a próxima injeção, não o re-export — a urgência do backfill estava superdimensionada). *(refs: `services/regrasFiscaisService.js` ~L2/134/172-186; `server.js` ~7797/7887)*
+
+### 13.2 🔴 PASSO 0 — HOTFIX de rotas abertas (exploráveis HOJE, independe do SaaS)
+**Verificado byte-a-byte:** **não há guard global** de auth; `app.use(cors())` é **aberto**; estas rotas **não têm `authMiddleware`**:
+- **`DELETE /api/arquivo/:id` (server.js:9658)** — apaga em cascata o SPED de **qualquer** cliente, por id enumerável, **sem login**.
+- `GET /api/resumo/:id_arquivo` (4828), `/api/estoque-resumo/:id_arquivo` (4996), `/api/resumo/participante/:id_arquivo` (6434) — **vazam dados fiscais**.
+- `GET/POST/DELETE /api/de-para` (10015/10041/10088) — adultera o mapeamento que rege o export.
+
+→ **Aplicar `authMiddleware` nessas 7 rotas + fechar `/api/auth/register` + restringir CORS (allowlist), ANTES de qualquer trabalho de tenant.** É a dívida de risco mais aguda e vale mesmo single-tenant. *(O §12.2 já citava, mas como parte da Fase 1 e com linhas defasadas.)*
+
+### 13.3 🔴 Endpoint de provisioning precisa de clamp server-side (novo)
+Fechar o `/register` só **desloca** a superfície. O endpoint substituto (`POST /api/admin/usuarios`, hoje inexistente) **DEVE ignorar** `role`/`rede_id`/`modulos` do body e derivá-los do **ATOR**: `rede_id = ator.rede_id`; admin só cria `escritorio`; `modulos = interseção(body, rede.contratado)`; só super define `role`/`rede` arbitrários. **Sem isso**: `admin POST role='super_admin'` → escala a super; `rede_id=<outra>` → injeta usuário em outro tenant. **Aceite:** *"admin POST role=super_admin → 403"*.
+
+### 13.4 🟠 A Decisão #9 introduz DESTRUIÇÃO cross-tenant (detalhe novo)
+`UNIQUE(cnpj, rede_id)` sozinho não basta: a **dedup/overwrite** de `sped_arquivos` casa por `cnpj_empresa` TEXT + período (server.js:535) com **cascade DELETE** (542-550) **sem `rede_id`** → a Rede B sobe o **mesmo CNPJ/período** e **apaga a escrituração da Rede A**. E trocar a `UNIQUE` sem trocar o `ON CONFLICT (cnpj)` (server.js:522) **quebra o upload** em runtime (erro 42P10).
+→ Re-chavear a dedup por **`id_empresa`** (`sped_arquivos` já tem); auditar todos os JOINs por `cnpj_empresa` (~3569/4008/5716/7431); `ON CONFLICT (cnpj, rede_id)` + `rede_id` no INSERT; **deploy schema+código atômico**, testado em dump.
+
+### 13.5 🟠 Ownership-check em 3 variantes + tabelas cnpj-keyed (detalhe novo)
+A "receita única" JOIN `sped_arquivos→empresas` **não cobre**: rotas keyed por `:id_empresa` (check próprio), por `:cnpj`/`:chave`, nem tabelas keyed **só por CNPJ sem coluna de tenant** (`lmc_tanques_config`, `lmc_lacres`, `cad_credenciadoras`, `cad_apuracao_e116`). → Documentar as **3 variantes** de ownership e **adicionar `rede_id`/`id_empresa`** a essas tabelas. *(~53 rotas autenticadas hoje sem check.)*
+
+### 13.6 🟡 Reconciliar contradições internas + re-ancorar (novo)
+- **JWT:** §3.1 (embutir `role`/`rede`) **contradiz** §12.7 + diagrama (re-buscar do banco). → Vence o **enrich por `id`** (não embutir `role`/`rede` no token) — torna os tokens atuais forward-compatible e evita privilégio stale cross-tenant por até 24h.
+- **Papéis:** `requireRole(min)` linear não posiciona `staff` sem vazar billing (um guard `requireRole(admin)` admitiria `staff`). → **Capacidades ortogonais**: `canAccessAllTenants`, `canManageBilling` (só super), `canManageUsers`, `canDelete`. Nunca guardar billing com `requireRole(admin)`.
+- **Schema real:** `empresas`/`sped_arquivos` **não existem no repo** (só em produção) e os números de linha estão defasados → **extrair o schema real + re-ancorar** antes de escrever a migração.
+
+### 13.7 Riscos residuais a incorporar
+- **reset-senha:** admin pode resetar **admin-par da mesma rede** (takeover lateral intra-tenant) → restringir alvo a `role='escritorio'`, **igualdade estrita** (nunca NULL-coalescing).
+- **staff sem trilha de auditoria:** acesso/mutação/DELETE cross-tenant a dado fiscal **sem log** é inaceitável num SaaS fiscal → **auditar toda ação de staff**; definir `requireActiveAccount` para staff.
+- **JWT via query string** (server.js:134) vaza em logs/Referer/histórico → **nunca logar** `req.query.token`; downloads com token **one-time**.
+- **tokenInterno do export** (revalidar/relatório, ~6208/6307) carrega `{id, fallback 0}` → sob enrich-por-id, quebra para super/staff (rede NULL) e para `id=0` (role `undefined` → 403); confiar em `id=0` viraria bypass genérico. → **claim de serviço dedicado `{svc:'internal'}`**.
+- **Ordem do `SET NOT NULL`:** popular no INSERT **antes** de travar NOT NULL; **NÃO** aplicar NOT NULL em `de_para_xml`/`regras_fiscais` (globais precisam de NULL). `SET NOT NULL`/`ADD UNIQUE` tomam `ACCESS EXCLUSIVE` (curto aqui — tabelas pequenas); o rótulo "metadata-only, sem lock" é impreciso.
+- **`cad_credenciadoras`/`cad_apuracao_e116`** são **ESCRITAS** no fluxo normal de export/injeção (0150/E116) → travá-las como "write só super_admin" quebra a função para admin/escritório. **Separar** write administrativo (super) de write de sistema (durante o export).
+
+### 13.8 ⚠️ Cobrança/Billing NÃO foi auditada
+A 4ª dimensão (Cobrança/Descontos/Máquina de Estados de Acesso) **falhou na execução** (retornou placeholder). Todo o billing segue **sem cobertura** neste laudo → **NÃO-GO para o módulo de cobrança** até auditá-lo de fato.
+
+### 13.9 Re-sequenciamento (substitui a ordem de largada do §5)
+1. **PASSO 0 (agora):** HOTFIX §13.2.
+2. **Fase 0 — GO condicional a:** (a) schema real + backup; (b) `regras_fiscais` **fora** do per-tenant (§13.1); (c) dedup por `id_empresa` + `UNIQUE`/`ON CONFLICT` atômicos (§13.4); (d) clamp do provisioning (§13.3); (e) ownership 3 variantes + `rede_id` nas tabelas cnpj-keyed (§13.5); (f) contradições reconciliadas (§13.6).
+3. **Fase 1+ (isolamento):** como no §5, já com os itens acima.
+4. **Billing:** **NÃO-GO** até §13.8.
+
+**Critérios de aceite mínimos antes de expor multi-tenant:** `admin POST role=super_admin → 403`; `token Rede A → arquivo Rede B → 403` em **todas** as rotas `:param`; `staff → 403 em /api/admin/* de billing`; `revalidar/relatório de rede suspensa continua funcionando` (claim de serviço); **golden tests do export idênticos antes/depois** (não-regressão fiscal); upload/retificação/export validados em **dump de produção** (não-destruição cross-tenant).
+
+### 13.10 Status
+**GO CONDICIONAL.** Diagnóstico correto e implementável; **seguro só depois dos 8 must-fix (§13.1–13.6)**. PASSO 0 (§13.2) é imediato e independente do SaaS. Billing em NÃO-GO (§13.8).
