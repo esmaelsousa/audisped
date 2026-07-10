@@ -5975,6 +5975,13 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
             const correcoesSvc = require('./services/validador/correcoes');
             const corrs = await correcoesSvc.buscarCorrecoes(dbClient, arquivoId);
             const set = new Set(corrs.map(c => `${c.registro}::${c.chave_natural}::${c.campo_idx}`));
+            // Bombas (1350) já com lacre cadastrado em lmc_lacres → o erro COMB-1350-1360-01 daquela
+            // SERIE vira "corrigido" (o export injeta o 1360 via injetarLacres1360). chaveNatural=SERIE.
+            let bombasLacradas = new Set();
+            try {
+                const rLac = await dbClient.query(`SELECT DISTINCT serie_bomba FROM lmc_lacres WHERE regexp_replace(cnpj,'\\D','','g') = $1`, [String(model.cnpj || '').replace(/\D/g, '')]);
+                bombasLacradas = new Set(rLac.rows.map(r => String(r.serie_bomba || '').trim()));
+            } catch (_) { /* tabela lmc_lacres pode não existir ainda */ }
             // de-para de COD_ITEM (DOC-C170-01): erro do item órfão vira "corrigido" quando há vínculo
             let codMapSet = new Set();
             try {
@@ -5986,7 +5993,8 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
             for (const e of resultado.erros) {
                 const porCampo = e.chaveNatural != null && e.campoIdx != null && set.has(`${e.registro}::${e.chaveNatural}::${e.campoIdx}`);
                 const porCodMap = e.regra_id === 'DOC-C170-01' && codMapSet.has(String(e.valorAtual || '').trim());
-                if (porCampo || porCodMap) { e.corrigidoPeloUsuario = true; nCorr++; }
+                const porLacre = e.regra_id === 'COMB-1350-1360-01' && e.chaveNatural != null && bombasLacradas.has(String(e.chaveNatural));
+                if (porCampo || porCodMap || porLacre) { e.corrigidoPeloUsuario = true; nCorr++; }
             }
             if (resultado.resumo) resultado.resumo.corrigidosPeloUsuario = nCorr;
         } catch (_) { /* sem correções → segue normal */ }
@@ -6038,6 +6046,117 @@ app.post('/api/validador/corrigir', authMiddleware, async (req, res) => {
     } finally {
         dbClient.release();
     }
+});
+
+// ===== "Corrigir todas as seguras" — aplicação em LOTE das correções determinísticas =====
+// Reproduz o que o E-Auditoria acha e, para o subconjunto SEGURO (BLOQ + corrigível + fiscal-
+// determinístico + com valor sugerido, passando o gate cross-empresa do painel POR REGRA), grava
+// val_correcoes num LOTE (lote_id) — o export já sai corrigido e o lote inteiro é reversível num
+// clique. dry_run=true → só PREVIEW (não grava nada). Regras ⚪ (alerta) e o recompute de VL_DOC
+// de terceiros NÃO entram no auto — ficam para o clique manual, item a item.
+function _loteGateSeguro(e, c100PorChave) {
+    if (!e.corrigivel || e.valorSugerido == null || e.valorSugerido === '') return false;
+    if (e.severidade !== 'BLOQ' || e.classeCorrecao !== 'fiscal-deterministico') return false;
+    switch (e.regra_id) {
+        case 'DOC-C100-VLDOC-01': {
+            // Só o caso PRÓPRIA + despesa acessória (VL_OUT_DA, campo 20) espúria → 0,00. O recompute
+            // de VL_DOC de terceiros (campo 12) fica MANUAL (pode ter FCP-ST/desoneração/importação).
+            if (e.campoIdx !== 20) return false;
+            if (!/^\d{44}$/.test(String(e.chaveNatural || ''))) return false; // chave 44 válida (mod 55/65)
+            const f = c100PorChave.get(String(e.chaveNatural));               // gate painel §2.1: sem ICMS-ST
+            if (f && Math.round((parseFloat(String(f[24] || '0').replace(',', '.')) || 0) * 100) !== 0) return false;
+            return true;
+        }
+        case 'DOC-C170-ICMSSEMBASE-01':
+        case 'DOC-C190-ICMSSEMBASE-01':
+        case 'DOC-C190-REDBC-01':
+            return true; // zerar ALIQ/VL_ICMS/VL_RED_BC quando não há base tributável — determinístico
+        default:
+            return false; // 9900/QTD e regras ⚪ de alerta não entram no auto
+    }
+}
+
+app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id);
+    if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
+    const dryRun = req.body && (req.body.dry_run === true || req.body.dry_run === 'true');
+    const somenteRegras = Array.isArray(req.body?.regras) && req.body.regras.length ? new Set(req.body.regras.map(String)) : null;
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id = $1', [arquivoId]);
+        if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
+        let cam = r.rows[0].caminho_arquivo;
+        try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {}
+        if (!cam || !fs.existsSync(cam)) return res.status(400).json({ message: 'Arquivo físico não localizado.' });
+        const { parseSped } = require('./services/validador/parser');
+        const { validar } = require('./services/validador/engine');
+        const model = parseSped(fs.readFileSync(cam, 'latin1'));
+        model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient);
+        await marcarCadApuracaoE116(model, dbClient);
+        const resultado = validar(model);
+        // índice C100 por chave 44 (p/ o gate do painel ler VL_ICMS_ST do documento)
+        const c100PorChave = new Map();
+        for (const l of (model.porReg.get('C100') || [])) c100PorChave.set(String(l.f[9] || '').replace(/\D/g, ''), l.f);
+        const correcoesSvc = require('./services/validador/correcoes');
+        await correcoesSvc.ensureTabela(dbClient);
+        await dbClient.query(`ALTER TABLE val_correcoes ADD COLUMN IF NOT EXISTS lote_id TEXT`);
+        // correções JÁ ativas (não re-inserir o que já foi corrigido)
+        const jaR = await dbClient.query(`SELECT registro, chave_natural, campo_idx FROM val_correcoes WHERE id_sped_arquivo=$1 AND ativo=TRUE`, [arquivoId]);
+        const jaSet = new Set(jaR.rows.map(c => `${c.registro}::${c.chave_natural}::${c.campo_idx}`));
+        // coleta o conjunto SEGURO, dedup por (registro,chave,campo)
+        const vistos = new Set();
+        const alvo = [];
+        const porRegra = {};
+        for (const e of resultado.erros) {
+            if (somenteRegras && !somenteRegras.has(String(e.regra_id))) continue;
+            if (!_loteGateSeguro(e, c100PorChave)) continue;
+            const k = `${e.registro}::${e.chaveNatural}::${e.campoIdx}`;
+            if (vistos.has(k) || jaSet.has(k)) continue;
+            vistos.add(k);
+            alvo.push(e);
+            porRegra[e.regra_id] = (porRegra[e.regra_id] || 0) + 1;
+        }
+        if (dryRun) {
+            return res.json({
+                preview: true, total: alvo.length, porRegra,
+                amostra: alvo.slice(0, 8).map(e => ({ linha: e.linha, regra_id: e.regra_id, registro: e.registro, campo: e.campo, campoIdx: e.campoIdx, valorAtual: e.valorAtual, valorSugerido: e.valorSugerido, titulo: e.titulo })),
+            });
+        }
+        if (!alvo.length) return res.json({ ok: true, total: 0, porRegra: {}, lote_id: null, message: 'Nada seguro a corrigir (ou já corrigido).' });
+        const loteId = 'LOTE' + Date.now();
+        await dbClient.query('BEGIN');
+        for (const e of alvo) {
+            await dbClient.query(
+                `INSERT INTO val_correcoes (id_sped_arquivo, regra_id, registro, chave_natural, campo_idx, valor_original, valor_corrigido, origem, usuario_id, lote_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,'LOTE',$8,$9)`,
+                [arquivoId, e.regra_id, e.registro, e.chaveNatural, e.campoIdx, e.valorAtual != null ? String(e.valorAtual) : null, String(e.valorSugerido), req.user?.id || null, loteId]
+            );
+        }
+        await dbClient.query('COMMIT');
+        res.json({ ok: true, lote_id: loteId, total: alvo.length, porRegra });
+    } catch (e) {
+        await safeRollback(dbClient);
+        logger.error('Erro no corrigir-lote:', e);
+        res.status(500).json({ message: 'Erro ao corrigir em lote: ' + e.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Desfaz um LOTE inteiro de correções (desativa todas as val_correcoes daquele lote_id).
+app.delete('/api/validador/corrigir-lote/:id/:loteId', authMiddleware, async (req, res) => {
+    const arquivoId = parseInt(req.params.id);
+    const loteId = String(req.params.loteId || '').trim();
+    if (isNaN(arquivoId) || !loteId) return res.status(400).json({ message: 'Parâmetros inválidos.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query(`UPDATE val_correcoes SET ativo=FALSE WHERE id_sped_arquivo=$1 AND lote_id=$2 AND ativo=TRUE`, [arquivoId, loteId]);
+        res.json({ ok: true, desfeitas: r.rowCount });
+    } catch (e) {
+        res.status(500).json({ message: 'Erro ao desfazer o lote: ' + e.message });
+    } finally { dbClient.release(); }
 });
 
 // Lista as correções ativas de um arquivo.
@@ -6218,7 +6337,7 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
         const { gerarRelatorioCorrecoes } = require('./services/validador/relatorioCorrecoes-pdf');
         const docp = new PDFDocument({ size: 'A4', margin: 36, bufferPages: true, autoFirstPage: true });
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename=Correcoes_SPED_${cnpjNum}_${String(arq.periodo_apuracao || '').substring(0, 7)}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=Correcoes_SPED_${cnpjNum}_${String(arq.periodo_apuracao || '').substring(0, 7)}.pdf`);
         docp.pipe(res);
         gerarRelatorioCorrecoes(docp, dados);
         docp.end();
@@ -9288,7 +9407,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             const correcoesSvc = require('./services/validador/correcoes');
             const correcoes = await correcoesSvc.buscarCorrecoes(dbClient, arquivoId);
             if (correcoes.length) {
-                const n = correcoesSvc.aplicar(outputLines, correcoes);
+                const n = correcoesSvc.aplicar(outputLines, correcoes, changelog);
                 logger.info(`[Validador] ${n} correção(ões) de campo aplicada(s) no export do arquivo ${arquivoId}.`);
                 changesApplied += n;
             }

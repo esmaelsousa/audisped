@@ -788,17 +788,39 @@ function realocar0221(linhas) {
 function normalizarUsoConsumoCst90(linhas, log) {
     const USO = new Set(['1407', '1556', '2407', '2556']);
     const cst90 = (cst) => { const s = String(cst || '').padStart(3, '0'); return s.slice(0, 1) + '90'; };
+    const num = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;
+    // Painel fiscal 2026-07-08 (consenso 5/5): uso/consumo (CFOP 1407/1556/2407/2556) não credita ICMS
+    // (LC 87/96 art. 20 §1º + art. 33, I) → CST x90 "Outras" com ICMS PRÓPRIO zerado. O zeramento é feito
+    // EM LOCKSTEP com o relabel (mesmo passo), tornando C170≡C190 (x90|CFOP|0) por construção → o órfão
+    // DOC-C190-01 (combinação CST/CFOP/ALIQ sem item) fica IMPOSSÍVEL, sem depender de casar val_correcoes.
+    // GATE DE ST: se a linha carrega VALOR de ICMS-ST (VL_ICMS_ST≠0), NÃO mexe — a retenção é real, alimenta
+    // o E210 e o CST/valores de ST são preservados. (O painel sugeriu pular todo CST-ST 10/30/60/70; mas o
+    // golden mostrou que os x60 de uso/consumo da base têm VL_ICMS_ST=0 — sem valor de ST a preservar e já
+    // aceitos como x90 há tempo; então o gate mira o VALOR REAL de ST, protegendo a ST de verdade sem
+    // reclassificar silenciosamente arquivos já aceitos.) PRESERVA sempre VL_OPR e VL_BC_ICMS_ST/VL_ICMS_ST.
+    // Só zera campo hoje ≠0 (quem já é 0 fica byte-idêntico). Idempotente: dispara mesmo com CST já x90 mas
+    // ALIQ/VL_RED_BC sujos.
+    const carregaST = (vlIcmsST) => num(vlIcmsST) !== 0;
+    const zeraSeNaoZero = (f, k) => { if (f.length > k && num(f[k]) !== 0) { f[k] = '0,00'; return true; } return false; };
 
-    // 1) Relabel CST -> x90 em C170 e C190 de uso/consumo
+    // 1) Relabel CST -> x90 + zeramento do ICMS PRÓPRIO, em lockstep, para C170 e C190 de uso/consumo.
     let mudou = false;
     for (let i = 0; i < linhas.length; i++) {
         const f = linhas[i].split('|');
-        if (f[1] === 'C170' && f.length > 11 && USO.has(f[11])) {
+        if (f[1] === 'C170' && f.length > 15 && USO.has(f[11])) {
+            if (carregaST(f[18])) continue;                                            // uso/consumo COM valor de ST → não mexer
+            let ch = false;
             const novo = cst90(f[10]);
-            if (f[10] !== novo) { const antes = f[10]; f[10] = novo; linhas[i] = f.join('|'); mudou = true; if (log) log.add({ registro: 'C170', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[11]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
-        } else if (f[1] === 'C190' && f.length > 4 && USO.has(f[3])) {
+            if (f[10] !== novo) { const antes = f[10]; f[10] = novo; ch = true; if (log) log.add({ registro: 'C170', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[11]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+            let z = false; for (const k of [13, 14, 15]) if (zeraSeNaoZero(f, k)) z = true;  // VL_BC_ICMS, ALIQ_ICMS, VL_ICMS
+            if (ch || z) { linhas[i] = f.join('|'); mudou = true; }
+        } else if (f[1] === 'C190' && f.length > 10 && USO.has(f[3])) {
+            if (carregaST(f[9])) continue;                                             // uso/consumo COM valor de ST → não mexer
+            let ch = false;
             const novo = cst90(f[2]);
-            if (f[2] !== novo) { const antes = f[2]; f[2] = novo; linhas[i] = f.join('|'); mudou = true; if (log) log.add({ registro: 'C190', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[3]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+            if (f[2] !== novo) { const antes = f[2]; f[2] = novo; ch = true; if (log) log.add({ registro: 'C190', regraId: 'USO-CONSUMO-X90', motivo: `uso/consumo (CFOP ${f[3]}) → CST x90`, escopo: 'campo', linha: i, campo: 'CST_ICMS', antes, depois: novo, origem: 'fiscal', classe: 'fiscal-deterministico' }); }
+            let z = false; for (const k of [4, 6, 7, 10]) if (zeraSeNaoZero(f, k)) z = true; // ALIQ, VL_BC_ICMS, VL_ICMS, VL_RED_BC (NÃO f5 VL_OPR, NÃO f8/f9 ST)
+            if (ch || z) { linhas[i] = f.join('|'); mudou = true; }
         }
     }
     if (!mudou) return linhas; // nada de uso/consumo a normalizar → byte-idêntico

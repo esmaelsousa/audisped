@@ -24,7 +24,7 @@ async function ensureTabela(db) {
 
 async function buscarCorrecoes(db, idArquivo) {
     try {
-        const r = await db.query(`SELECT regra_id, registro, chave_natural, campo_idx, valor_corrigido FROM val_correcoes WHERE id_sped_arquivo = $1 AND ativo = TRUE`, [idArquivo]);
+        const r = await db.query(`SELECT regra_id, registro, chave_natural, campo_idx, valor_corrigido, valor_original, origem FROM val_correcoes WHERE id_sped_arquivo = $1 AND ativo = TRUE`, [idArquivo]);
         return r.rows;
     } catch (e) {
         // Se a tabela ainda não existe (boot incompleto), trata como "sem correções" — nunca quebra o export.
@@ -46,6 +46,7 @@ function chaveNatural(reg, f, curChaveC100) {
         case 'D100': return String(f[10] || '').replace(/\D/g, '');
         case 'C170': return curChaveC100 + '#' + String(f[2] || '').trim(); // chave da NF + NUM_ITEM
         case 'H005': return String(f[4] || '').trim() || 'unico'; // MOT_INV (estável; corrige DT_INV)
+        case '1350': return String(f[2] || '').trim() || 'unico'; // SERIE da bomba (erro COMB-1350-1360-01 → chaveNatural=SERIE, casa o lacre de lmc_lacres)
         case '1360': return String(f[2] || '').trim() || 'unico'; // NUM_LACRE (corrige DT_APLICACAO)
         case 'C190': { // analítico: chave da NF + CST|CFOP|ALIQ (única por NF). Aplica correção de VL_ICMS/ALIQ/VL_RED_BC.
             const aliq = String(parseFloat(String(f[4] || '0').replace(',', '.')) || 0);
@@ -66,16 +67,60 @@ function ordinalH005(kn, contador) {
     return c > 1 ? kn + '#' + c : kn;
 }
 
+// Nome legível do campo (por registro:índice) para o relatório "o que foi corrigido".
+const CAMPO_NOME = {
+    'C100:12': 'VL_DOC', 'C100:16': 'VL_MERC', 'C100:20': 'VL_OUT_DA',
+    'C170:10': 'CST_ICMS', 'C170:11': 'CFOP', 'C170:13': 'VL_BC_ICMS', 'C170:14': 'ALIQ_ICMS', 'C170:15': 'VL_ICMS', 'C170:37': 'COD_CTA',
+    'C190:2': 'CST_ICMS', 'C190:3': 'CFOP', 'C190:4': 'ALIQ_ICMS', 'C190:6': 'VL_BC_ICMS', 'C190:7': 'VL_ICMS', 'C190:10': 'VL_RED_BC',
+    '0000:10': 'IE', '0100:3': 'CPF (contabilista)', '0100:4': 'CRC', '0100:13': 'EMAIL (contabilista)', '0400:3': 'COD_NAT',
+};
+const nomeCampo = (reg, i) => CAMPO_NOME[`${reg}:${i}`] || ('campo ' + i);
+// Descrição legível da regra do Validador (para o motivo no relatório).
+const REGRA_DESC = {
+    'DOC-C100-VLDOC-01': 'VL_DOC do C100 divergente (despesa acessória espúria zerada)',
+    'DOC-C170-ICMSSEMBASE-01': 'ICMS/alíquota do C170 sem base tributável',
+    'DOC-C190-ICMSSEMBASE-01': 'ICMS/alíquota do C190 sem base tributável',
+    'DOC-C190-REDBC-01': 'VL_RED_BC sem redução de base de cálculo',
+    'CADASTRO': 'Correção de dado cadastral (IE / contabilista)',
+};
+// Registra no changelog as correções aplicadas, AGRUPADAS por (registro, campo, valor, regra, origem)
+// — ex.: 742 notas com o mesmo VL_OUT_DA→0,00 viram 1 linha "×742" (rica e legível, sem 742 linhas).
+function logarAplicadas(lista, log) {
+    const grupos = new Map();
+    for (const a of lista) {
+        const k = `${a.registro}|${a.campo_idx}|${a.depois}|${a.regra_id}|${a.origem}`;
+        const g = grupos.get(k) || { registro: a.registro, campo_idx: a.campo_idx, depois: a.depois, regra_id: a.regra_id, origem: a.origem, qtd: 0, antes: new Set() };
+        g.qtd++; g.antes.add(a.antes);
+        grupos.set(k, g);
+    }
+    for (const g of grupos.values()) {
+        const lote = g.origem === 'LOTE';
+        const antes = g.antes.size === 1 ? [...g.antes][0] : `${g.qtd} valores`;
+        log.add({
+            registro: g.registro,
+            regraId: g.regra_id || '',
+            campo: nomeCampo(g.registro, g.campo_idx),
+            antes, depois: g.depois,
+            origem: 'manual',
+            classe: 'fiscal-deterministico',
+            qtd: g.qtd,
+            motivo: `${REGRA_DESC[g.regra_id] || g.regra_id || 'correção do Validador'} — ${lote ? '“Corrigir todas as seguras”' : 'correção manual'}${g.qtd > 1 ? ` · ${g.qtd} ocorrência(s)` : ''}`,
+        });
+    }
+}
+
 // Aplica as correções in-place em outputLines (array de linhas pipe). Retorna nº de campos alterados.
-function aplicar(outputLines, correcoes) {
+// Se `log` (Changelog) for passado, registra o que foi aplicado (agrupado) para o relatório.
+function aplicar(outputLines, correcoes, log) {
     if (!Array.isArray(outputLines) || !correcoes || !correcoes.length) return 0;
-    const idx = new Map(); // "registro::chave_natural" -> [{campo_idx, valor_corrigido}]
+    const idx = new Map(); // "registro::chave_natural" -> [{campo_idx, valor_corrigido, ...}]
     for (const c of correcoes) {
         const k = c.registro + '::' + c.chave_natural;
         if (!idx.has(k)) idx.set(k, []);
         idx.get(k).push(c);
     }
     let aplicadas = 0;
+    const aplicadasList = [];
     let curChaveC100 = '';
     const h005Cont = new Map();
     for (let i = 0; i < outputLines.length; i++) {
@@ -90,10 +135,15 @@ function aplicar(outputLines, correcoes) {
         let mudou = false;
         for (const c of cs) {
             const ci = Number(c.campo_idx);
-            if (Number.isInteger(ci) && ci > 0 && ci < f.length) { f[ci] = String(c.valor_corrigido); aplicadas++; mudou = true; }
+            if (Number.isInteger(ci) && ci > 0 && ci < f.length) {
+                const antesReal = f[ci];
+                f[ci] = String(c.valor_corrigido); aplicadas++; mudou = true;
+                aplicadasList.push({ registro: c.registro, campo_idx: ci, antes: (c.valor_original != null ? String(c.valor_original) : antesReal), depois: String(c.valor_corrigido), regra_id: c.regra_id || '', origem: c.origem || 'MANUAL' });
+            }
         }
         if (mudou) outputLines[i] = f.join('|');
     }
+    if (log && aplicadasList.length) logarAplicadas(aplicadasList, log);
     return aplicadas;
 }
 

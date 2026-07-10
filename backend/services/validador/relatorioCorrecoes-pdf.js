@@ -19,6 +19,11 @@ const LABEL_REGRA = {
     'COMB-CST-01': 'CST 61→60 (antes da vigência monofásica)',
     'DOC-C170-CFOP-01': 'Correção de CFOP de entrada',
     'USO-CONSUMO-X90': 'Uso/consumo → CST x90',
+    'DOC-C100-VLDOC-01': 'VL_DOC do C100 divergente (despesa acessória espúria)',
+    'DOC-C170-ICMSSEMBASE-01': 'ICMS/alíquota do C170 sem base',
+    'DOC-C190-ICMSSEMBASE-01': 'ICMS/alíquota do C190 sem base',
+    'DOC-C190-REDBC-01': 'VL_RED_BC sem redução de base',
+    'CADASTRO': 'Correção de dado cadastral (IE / contabilista)',
 };
 
 function gerarRelatorioCorrecoes(doc, dados) {
@@ -87,9 +92,10 @@ function gerarRelatorioCorrecoes(doc, dados) {
             for (const it of reg.itens) {
                 ensure(30);
                 const campo = it.campo || it.escopo || '';
-                // linha 1: campo + origem
-                doc.font('Helvetica-Bold').fontSize(8).fillColor(COR_TEXTO).text(campo + '  ', M + 12, doc.y, { continued: true });
-                doc.font('Helvetica').fontSize(7).fillColor(COR_SUAVE).text(`[${LABEL_ORIGEM[it.origem] || it.origem}]`);
+                // linha 1: campo [×qtd] + origem + regra
+                doc.font('Helvetica-Bold').fontSize(8).fillColor(COR_TEXTO).text(campo, M + 12, doc.y, { continued: true });
+                if (it.qtd && it.qtd > 1) doc.font('Helvetica-Bold').fontSize(8).fillColor(COR_ALERTA).text(`  ×${it.qtd}`, { continued: true });
+                doc.font('Helvetica').fontSize(7).fillColor(COR_SUAVE).text(`   [${LABEL_ORIGEM[it.origem] || it.origem}]${it.regraId ? '  ' + it.regraId : ''}`);
                 // linha 2: antes → depois
                 doc.font('Helvetica').fontSize(8).fillColor('#94a3b8').text((it.antes || '—') + '  ', M + 20, doc.y, { continued: true, width: W - 32 });
                 doc.fillColor('#cbd5e1').text('→  ', { continued: true });

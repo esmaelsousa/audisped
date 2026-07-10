@@ -41,7 +41,8 @@ module.exports = {
             if (!propria) {
                 erros.push({ ...base, campo: 'VL_DOC', campoIdx: 12, valorSugerido: fromCents(calc), severidade: 'BLOQ', classeCorrecao: 'fiscal-deterministico' });
             } else if (decl === vlMerc && (calc - decl) === vlOut && vlOut !== 0) {
-                erros.push({ ...base, campo: 'VL_OUT_DA', campoIdx: 20, valorSugerido: '0,00', severidade: 'BLOQ', classeCorrecao: 'fiscal-deterministico', detalhe: base.detalhe + ' Emissão própria: VL_DOC=vNF; despesa acessória (VL_OUT_DA) espúria → zerada.' });
+                // Correção é no VL_OUT_DA (campo 20), NÃO no VL_DOC → "Valor atual" tem de mostrar o VL_OUT_DA (f[20]), não o VL_DOC (f[12]).
+                erros.push({ ...base, valorAtual: f[20], campo: 'VL_OUT_DA', campoIdx: 20, valorSugerido: '0,00', severidade: 'BLOQ', classeCorrecao: 'fiscal-deterministico', detalhe: base.detalhe + ` Emissão própria: VL_DOC=vNF (${f[12]}) preservado; a despesa acessória VL_OUT_DA (${f[20]}) espúria é que vai a 0,00.` });
             } else {
                 erros.push({ ...base, campo: 'VL_DOC', severidade: 'ADV', classeCorrecao: 'manual', detalhe: base.detalhe + ' Emissão própria: VL_DOC é o vNF autorizado na SEFAZ — conferir contra o XML antes de corrigir.' });
             }

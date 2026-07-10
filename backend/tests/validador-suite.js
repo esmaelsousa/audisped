@@ -211,6 +211,13 @@ t('aplicar: H005 único keyed 01 (compat. com correções já gravadas) ainda ap
     assert.equal(l[0].split('|')[2], 'ZZZ');
 });
 
+// COMB-1350-1360-01: o erro carrega chaveNatural = SERIE da bomba (chaveNatural case '1350'),
+// usada pela UI e pela supressão p/ casar o lacre cadastrado (lmc_lacres) à bomba.
+t('1350-1360 erro carrega chaveNatural = SERIE da bomba', () => {
+    const e = run(H(['|1350|41420925|GILBARCO|PHR-2422|1|', '|1370|1|2|12|'])).erros.find(x => x.regra_id === 'COMB-1350-1360-01');
+    assert.equal(e.chaveNatural, '41420925');
+});
+
 // INV-E110-01 (apuração ICMS E110 = Σ E111 por natureza + cascata). COD_AJ_APUR 4ª pos: 0=déb, 2=créd.
 const E110z = '|E110|100,00|0|0,00|0|0,00|0|0,00|0|0|0,00|0|0,00|0,00|0|';
 t('e110 +: f4/f8 zerados com E111 dispara', () => assert.ok(fires(H([E110z, '|E111|BA009999|DIFAL|50,00|', '|E111|BA020003|CIAP|30,00|']), 'INV-E110-01')));
@@ -274,6 +281,13 @@ t('E116 COD_REC: no-op sem codRec', () => { const { preencherE116CodRecVazio } =
 // chaveNatural 0100 (contabilista) — editável por CNPJ do escritório (p/ corrigir CPF/CRC)
 t('chaveNatural: 0100 resolve por CNPJ do escritório', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|CONTABILIDADE| | |13937073000156|44695000|'.split('|')), '13937073000156'); });
 t('chaveNatural: 0100 cai p/ NOME quando sem CNPJ', () => { const { chaveNatural } = require('../services/validador/correcoes'); assert.equal(chaveNatural('0100', '|0100|JOAO CONTADOR| | | |'.split('|')), 'JOAO CONTADOR'); });
+
+// DOC-0100-CONTADOR-01 — CPF/CRC/EMAIL obrigatórios no 0100 (PVA "Campo obrigatório.")
+const O0100 = (cpf = '69798176553', crc = '123', email = 'contador@x.com') => `|0100|ELIAS NUNES DA PURIFICACAO|${cpf}|${crc}|14825524000126|47700000|RUA 26 DE JULHO|782| |SAO JOAO| | |${email}|2928208|`;
+t('0100 contador +: EMAIL vazio dispara', () => { assert.ok(firesDet(H([O0100('69798176553', '123', ' ')]), 'DOC-0100-CONTADOR-01', 'EMAIL')); });
+t('0100 contador +: CPF vazio dispara', () => { assert.ok(firesDet(H([O0100(' ', '123', 'x@x.com')]), 'DOC-0100-CONTADOR-01', 'CPF')); });
+t('0100 contador +: CRC vazio dispara', () => { assert.ok(firesDet(H([O0100('69798176553', ' ', 'x@x.com')]), 'DOC-0100-CONTADOR-01', 'CRC')); });
+t('0100 contador -: CPF+CRC+EMAIL preenchidos não dispara', () => { assert.ok(!fires(H([O0100()]), 'DOC-0100-CONTADOR-01')); });
 
 // ---------- money.js (E-Auditoria) ----------
 const money = require('../services/validador/money');

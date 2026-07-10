@@ -110,6 +110,10 @@ function toggleOcc(e) {
   if (occAberta.value === k && e.corrigivel && valoresCorrecao.value[k] === undefined) {
     valoresCorrecao.value = { ...valoresCorrecao.value, [k]: (e.valorSugerido != null && e.valorSugerido !== '') ? String(e.valorSugerido) : '' };
   }
+  // COMB-1350-1360-01: pré-preenche a data de aplicação com o 1º dia do período (editável).
+  if (occAberta.value === k && e.regra_id === 'COMB-1350-1360-01' && lacreData.value[k] === undefined) {
+    lacreData.value = { ...lacreData.value, [k]: primeiroDiaPeriodo() };
+  }
 }
 // Exporta o relatório de inconsistências (agrupado por tipo) em CSV pt-BR (Excel-friendly).
 function baixarInconsistencias() {
@@ -119,6 +123,16 @@ function baixarInconsistencias() {
   const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = `inconsistencias_${resultadoId.value || 'sped'}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+// Clicar num card do resumo → filtra a tabela de inconsistências por severidade e rola até ela.
+function verErros(sev) {
+  filtroSev.value = sev;
+  filtroBloco.value = '';
+  buscaErro.value = '';
+  requestAnimationFrame(() => {
+    const el = document.getElementById('tabela-inconsistencias');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 async function carregarEmpresas() {
@@ -241,6 +255,47 @@ async function removerCorrecao(c) {
     await axios.delete(`${API_BASE_URL}/api/validador/correcoes/${c.id}`, { headers: authHeader() });
     await carregarCorrecoes();
   } catch (err) { msgCorr.value = err.response?.data?.message || ('Erro ao remover: ' + err.message); }
+}
+
+// --- COMB-1350-1360-01: informar o lacre (1360) da bomba → injeta |1360|NUM_LACRE|DAT_APLICACAO| ---
+// Insere o registro filho 1360 (via val_correcoes, campo_idx=0 = "inserir filho"; reversível).
+const lacreVal = ref({});      // keyErro -> nº do lacre digitado
+const lacreData = ref({});     // keyErro -> data de aplicação (DD/MM/AAAA, exibição; editável)
+const salvandoLacre = ref(null);
+// 1º dia do período do arquivo (DT_INI do 0000) em DD/MM/AAAA — pré-preenche a data (editável).
+function primeiroDiaPeriodo() {
+  const p = String(resultado.value?.arquivo?.periodo || '').split('-')[0] || '';
+  return p.length === 8 ? `${p.slice(0, 2)}/${p.slice(2, 4)}/${p.slice(4, 8)}` : '';
+}
+// Rótulo da bomba a partir da linha 1350 crua (e.valorAtual): "SERIE · FABRICANTE MODELO".
+function bombaLabel(e) {
+  const f = String(e.valorAtual || '').split('|');
+  const serie = (f[2] || '').trim(), fab = (f[3] || '').trim(), mod = (f[4] || '').trim();
+  return [serie, [fab, mod].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || (e.chaveNatural || 'bomba');
+}
+async function salvarLacre(e) {
+  const cnpj = String(resultado.value?.arquivo?.cnpj || '').replace(/\D/g, '');
+  const k = keyErro(e);
+  const serie = String(e.chaveNatural || '').trim();
+  const lacre = (lacreVal.value[k] ?? '').toString().trim();
+  const data = (lacreData.value[k] ?? '').toString().replace(/\D/g, ''); // DD/MM/AAAA -> DDMMAAAA
+  if (!cnpj) { msgCorr.value = 'CNPJ do arquivo não identificado.'; return; }
+  if (!serie) { msgCorr.value = 'Série da bomba não identificada.'; return; }
+  if (lacre === '') { msgCorr.value = 'Informe o número do lacre.'; return; }
+  if (data.length !== 8 || +data.slice(4, 8) < 2000) { msgCorr.value = 'Informe a data de aplicação no formato DD/MM/AAAA (ano ≥ 2000).'; return; }
+  salvandoLacre.value = k; msgCorr.value = '';
+  try {
+    // O cadastro de lacres é POR CNPJ (registro físico, vale p/ todos os períodos). O endpoint
+    // substitui a lista inteira → busca os já cadastrados e mescla esta bomba antes de salvar.
+    const atuais = (await axios.get(`${API_BASE_URL}/api/lmc/lacres/${cnpj}`, { headers: authHeader() })).data || [];
+    const map = new Map(atuais.map(l => [String(l.serie_bomba).trim(), { serie_bomba: String(l.serie_bomba).trim(), num_lacre: String(l.num_lacre).trim(), dt_aplicacao: String(l.dt_aplicacao || '').replace(/\D/g, '') }]));
+    map.set(serie, { serie_bomba: serie, num_lacre: lacre, dt_aplicacao: data });
+    await axios.post(`${API_BASE_URL}/api/lmc/lacres`, { cnpj, lacres: [...map.values()] }, { headers: authHeader() });
+    e.corrigidoPeloUsuario = true; // feedback imediato; "Re-validar" confirma via lmc_lacres
+    msgCorr.value = 'Lacre salvo. Clique em "Re-validar" para confirmar; o SPED baixado já sai com o 1360.';
+  } catch (err) {
+    msgCorr.value = err.response?.data?.message || ('Erro ao salvar lacre: ' + err.message);
+  } finally { salvandoLacre.value = null; }
 }
 
 // --- Correções a aplicar: AGRUPADAS por registro+campo+valor (idênticas viram "×742") ---
@@ -555,18 +610,21 @@ onMounted(async () => {
 
       <!-- Métricas -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
+        <button type="button" @click="verErros('')" class="w-full bg-sheet p-4 rounded-md border card-shadow text-center transition-all hover:shadow-md" :class="filtroSev === '' ? 'border-bronze/50 ring-1 ring-bronze/30' : 'border-line'">
           <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Ocorrências</p>
           <p class="text-[26px] font-display font-semibold text-ink">{{ resultado.resumo.total }}</p>
-        </div>
-        <div class="p-4 rounded-md border card-shadow text-center" :class="resultado.resumo.bloqueantes ? 'bg-lacre/[0.06] border-lacre/25' : 'bg-sheet border-line'">
+          <p class="text-[9px] text-risco/70">clique p/ ver todas</p>
+        </button>
+        <button type="button" @click="verErros('BLOQ')" :disabled="!resultado.resumo.bloqueantes" class="w-full p-4 rounded-md border card-shadow text-center transition-all hover:shadow-md disabled:cursor-default disabled:hover:shadow-none" :class="[resultado.resumo.bloqueantes ? 'bg-lacre/[0.06] border-lacre/25' : 'bg-sheet border-line', filtroSev === 'BLOQ' ? 'ring-1 ring-lacre/40 border-lacre/50' : '']">
           <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Bloqueantes</p>
           <p class="text-[26px] font-display font-semibold" :class="resultado.resumo.bloqueantes ? 'text-lacre' : 'text-ink'">{{ resultado.resumo.bloqueantes }}</p>
-        </div>
-        <div class="p-4 rounded-md border card-shadow text-center" :class="resultado.resumo.advertencias ? 'bg-variacao/[0.06] border-variacao/25' : 'bg-sheet border-line'">
+          <p v-if="resultado.resumo.bloqueantes" class="text-[9px] text-lacre/80 font-medium">clique p/ ver quais</p>
+        </button>
+        <button type="button" @click="verErros('ADV')" :disabled="!resultado.resumo.advertencias" class="w-full p-4 rounded-md border card-shadow text-center transition-all hover:shadow-md disabled:cursor-default disabled:hover:shadow-none" :class="[resultado.resumo.advertencias ? 'bg-variacao/[0.06] border-variacao/25' : 'bg-sheet border-line', filtroSev === 'ADV' ? 'ring-1 ring-variacao/40 border-variacao/50' : '']">
           <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Advertências</p>
           <p class="text-[26px] font-display font-semibold text-variacao">{{ resultado.resumo.advertencias }}</p>
-        </div>
+          <p v-if="resultado.resumo.advertencias" class="text-[9px] text-variacao/80 font-medium">clique p/ ver quais</p>
+        </button>
         <div class="bg-sheet p-4 rounded-md border border-line card-shadow text-center">
           <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Regras executadas</p>
           <p class="text-[26px] font-display font-semibold text-ink">{{ resultado.resumo.regrasExecutadas }}</p>
@@ -722,7 +780,7 @@ onMounted(async () => {
       </div>
 
       <!-- Filtros + lista de erros -->
-      <div v-if="resultado.erros.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
+      <div v-if="resultado.erros.length" id="tabela-inconsistencias" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden scroll-mt-4">
         <div class="px-5 py-3 border-b border-line flex items-center gap-3 flex-wrap">
           <AlertTriangle class="w-4 h-4 text-lacre shrink-0" :stroke-width="1.8" />
           <span class="text-[13px] font-semibold text-ink">Inconsistências e cruzamentos no arquivo</span>
@@ -821,6 +879,23 @@ onMounted(async () => {
                               </select>
                               <button @click="vincularCodItem(e)" :disabled="!vincSel[keyErro(e)] || salvandoVinc === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">Vincular</button>
                             </div>
+                          </div>
+                          <!-- COMB-1350-1360-01: informar o lacre (1360) da bomba → injeta o registro no download -->
+                          <div v-if="e.regra_id === 'COMB-1350-1360-01' && resultadoId && !e.corrigidoPeloUsuario" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">
+                            <p class="text-[10px] uppercase tracking-wide font-medium text-bronze mb-1">Informar o lacre da bomba (registro 1360)</p>
+                            <p class="text-[11px] text-risco mb-2">Bomba <b class="font-mono text-ink">{{ bombaLabel(e) }}</b>. Informe o nº do lacre e a data de aplicação — o SPED baixado passa a conter o 1360.</p>
+                            <div class="flex flex-wrap items-end gap-2">
+                              <div class="flex flex-col">
+                                <label class="text-[9px] text-risco mb-0.5">Nº do lacre (NUM_LACRE)</label>
+                                <input v-model="lacreVal[keyErro(e)]" type="text" class="h-8 w-44 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" placeholder="ex.: PHR-2422">
+                              </div>
+                              <div class="flex flex-col">
+                                <label class="text-[9px] text-risco mb-0.5">Data de aplicação</label>
+                                <input v-model="lacreData[keyErro(e)]" type="text" inputmode="numeric" class="h-8 w-32 text-[12px] bg-sheet border border-line rounded-md px-2 font-mono text-ink outline-none focus:border-bronze transition-colors" placeholder="DD/MM/AAAA">
+                              </div>
+                              <button @click="salvarLacre(e)" :disabled="salvandoLacre === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">{{ salvandoLacre === keyErro(e) ? 'Salvando…' : 'Salvar lacre' }}</button>
+                            </div>
+                            <p class="text-[10px] text-risco mt-1">A data já vem com o 1º dia do período — edite se precisar. O lacre entra no SPED ao baixar; original preservado. Você também pode corrigir no ERP.</p>
                           </div>
                           <!-- Corrigir no sistema -->
                           <div v-if="e.corrigivel && resultadoId" class="bg-bronze/[0.05] border border-bronze/20 rounded-md p-3">

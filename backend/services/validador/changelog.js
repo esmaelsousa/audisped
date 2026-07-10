@@ -7,12 +7,15 @@ class Changelog {
     constructor() { this.entradas = []; }
 
     // e: { bloco?, registro, regraId?, motivo, escopo?, chave?, linha?, campo?, antes, depois, origem?, classe? }
+    // e pode trazer `qtd` (>1) para uma correção AGRUPADA (ex.: 742 notas com o mesmo VL_OUT_DA→0,00
+    // entram como 1 entrada com qtd=742, exibida como "×742" e contada corretamente nos totais).
     add(e) {
         if (!e || !e.registro) return;
         this.entradas.push({
             bloco: e.bloco || String(e.registro).charAt(0),
             registro: String(e.registro),
             regraId: e.regraId || '',
+            refEAuditoria: e.refEAuditoria != null ? String(e.refEAuditoria) : null,
             motivo: e.motivo || '',
             escopo: e.escopo || 'campo',          // campo | linha | registro | bloco | arquivo
             chave: e.chave != null ? String(e.chave) : null,
@@ -22,19 +25,22 @@ class Changelog {
             depois: e.depois != null ? String(e.depois) : '',
             origem: e.origem || 'auto',           // auto | fiscal | manual | injecao | remocao
             classe: e.classe || 'estrutural-seguro',
+            qtd: (e.qtd != null && Number(e.qtd) > 0) ? Number(e.qtd) : 1,
         });
     }
 
-    get total() { return this.entradas.length; }
+    // total REAL de campos corrigidos (soma das quantidades — grupos contam por ocorrência).
+    get total() { return this.entradas.reduce((s, e) => s + (e.qtd || 1), 0); }
 
     // bloco → registro → [itens], com contagens (para a UI agrupada)
     agrupar() {
         const blocos = {};
         for (const e of this.entradas) {
+            const q = e.qtd || 1;
             const b = blocos[e.bloco] || (blocos[e.bloco] = { bloco: e.bloco, total: 0, registros: {} });
-            b.total++;
+            b.total += q;
             const r = b.registros[e.registro] || (b.registros[e.registro] = { registro: e.registro, total: 0, itens: [] });
-            r.total++; r.itens.push(e);
+            r.total += q; r.itens.push(e);
         }
         return Object.values(blocos)
             .map(b => ({ bloco: b.bloco, total: b.total, registros: Object.values(b.registros).sort((x, y) => x.registro.localeCompare(y.registro)) }))
@@ -44,8 +50,9 @@ class Changelog {
     totais() {
         const porOrigem = {}, porClasse = {};
         for (const e of this.entradas) {
-            porOrigem[e.origem] = (porOrigem[e.origem] || 0) + 1;
-            porClasse[e.classe] = (porClasse[e.classe] || 0) + 1;
+            const q = e.qtd || 1;
+            porOrigem[e.origem] = (porOrigem[e.origem] || 0) + q;
+            porClasse[e.classe] = (porClasse[e.classe] || 0) + q;
         }
         return { total: this.total, porOrigem, porClasse };
     }
