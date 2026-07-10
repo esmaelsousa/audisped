@@ -4,6 +4,18 @@
 **Branch:** feat/redesign-validador
 **Regra alvo:** `COMB-1350-1360-01` — "Bomba (1350) sem registro de lacres (1360) obrigatório"
 
+> **ATUALIZAÇÃO (implementação) — pivô de abordagem.** Durante a implementação descobriu-se que o
+> backend de lacres **já existia e estava 90% pronto**: tabela `lmc_lacres` (por CNPJ + série),
+> endpoints `GET /api/lmc/lacres/:cnpj`, `GET /api/lmc/lacres-bombas/:id_arquivo` (feito "p/ a UI"),
+> `POST /api/lmc/lacres`, e a **injeção do 1360 no export** via `injetarLacres1360` (server.js ~9457,
+> lê `lmc_lacres`, insere após o 1350, guard anti-duplicata, antes do recálculo X990). Faltava só a
+> **UI**. Portanto NÃO usamos `val_correcoes` (evita caminho paralelo ao `injetarLacres1360`). A
+> implementação real: (1) `chaveNatural` ganha `case '1350'` → o erro carrega `chaveNatural=SERIE`;
+> (2) supressão no "Analisar" lê `lmc_lacres` (bomba com lacre cadastrado → erro vira "corrigido");
+> (3) frontend: dois campos (lacre + data pré-preenchida/editável) que salvam via `POST /api/lmc/lacres`
+> (mescla por CNPJ). Os lacres passam a valer p/ **todos os períodos** daquele CNPJ (registro físico).
+> As seções abaixo descrevem a proposta original (val_correcoes) e ficam por registro histórico.
+
 ## Problema
 
 O PVA exige que toda BOMBA (registro `1350`) tenha ao menos um registro filho `1360`
