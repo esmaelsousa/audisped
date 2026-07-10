@@ -150,7 +150,7 @@ const authMiddleware = (req, res, next) => {
 };
 
 // --- ROTAS DE AUTENTICAÇÃO ---
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authMiddleware, async (req, res) => {
     const { nome, email, senha } = req.body;
     if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha todos os campos.' });
 
@@ -4825,7 +4825,7 @@ app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE RESUMO (PRESENTE) ---
-app.get('/api/resumo/:id_arquivo', async (req, res) => {
+app.get('/api/resumo/:id_arquivo', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar resumo com ID inválido: ${req.params.id_arquivo} `);
@@ -4993,7 +4993,7 @@ app.get('/api/resumo/:id_arquivo', async (req, res) => {
 });
 
 // --- ROTA DE RESUMO DE ESTOQUE (NOVA - PARA CORREÇÃO DO 404) ---
-app.get('/api/estoque-resumo/:id_arquivo', async (req, res) => {
+app.get('/api/estoque-resumo/:id_arquivo', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         return res.status(400).send({ message: "ID de arquivo inválido." });
@@ -6431,7 +6431,7 @@ app.post('/api/validador/cod-item-map', authMiddleware, async (req, res) => {
 
 
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
-app.get('/api/resumo/participante/:id_arquivo', async (req, res) => {
+app.get('/api/resumo/participante/:id_arquivo', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar resumo de participante com ID inválido: ${req.params.id_arquivo} `);
@@ -9655,7 +9655,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
 });
 
 // --- **ROTA DE EXCLUSÃO (OTIMIZADA ASSÍNCRONA)** ---
-app.delete('/api/arquivo/:id', async (req, res) => {
+app.delete('/api/arquivo/:id', authMiddleware, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de exclusão com ID inválido: ${req.params.id} `);
@@ -10012,7 +10012,7 @@ app.post('/api/regras-fiscais/simular', authMiddleware, async (req, res) => {
 // ENDPOINTS: DE-PARA XML
 // --------------------------------------------------------------------------
 
-app.get('/api/de-para', async (req, res) => {
+app.get('/api/de-para', authMiddleware, async (req, res) => {
     try {
         const { cnpj, id_empresa } = req.query;
         let query = 'SELECT * FROM de_para_xml WHERE 1=1';
@@ -10038,7 +10038,7 @@ app.get('/api/de-para', async (req, res) => {
     }
 });
 
-app.post('/api/de-para', async (req, res) => {
+app.post('/api/de-para', authMiddleware, async (req, res) => {
     try {
         const { id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno,
                 aliq_icms, bc_icms_override, cst_pis, cst_cofins } = req.body;
@@ -10085,7 +10085,7 @@ app.post('/api/de-para', async (req, res) => {
     }
 });
 
-app.delete('/api/de-para/:id', async (req, res) => {
+app.delete('/api/de-para/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         await pool.query('DELETE FROM de_para_xml WHERE id = $1', [id]);
