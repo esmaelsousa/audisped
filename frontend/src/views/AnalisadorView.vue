@@ -1735,6 +1735,7 @@ const afericaoGauge = computed(() => {
           <div class="p-4 rounded-md border card-shadow text-center" :class="concilResult.totais.faltantes ? 'border-lacre/30 bg-lacre/10' : 'border-line bg-sheet'">
             <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Faltantes</p>
             <p class="text-lg font-mono" :class="concilResult.totais.faltantes ? 'text-lacre' : 'text-ink'">{{ concilResult.totais.faltantes }}</p>
+            <p v-if="concilResult.totais.faltantes" class="text-[11px] font-mono text-lacre mt-0.5">{{ fmtBRL(concilResult.totais.faltantes_valor) }}</p>
           </div>
           <div class="p-4 rounded-md border card-shadow text-center" :class="(concilResult.totais.divergencia_valor || concilResult.totais.divergencia_competencia) ? 'border-variacao/30 bg-variacao/10' : 'border-line bg-sheet'">
             <p class="text-[10px] uppercase tracking-wide font-medium text-risco">Divergências</p>
@@ -1760,7 +1761,7 @@ const afericaoGauge = computed(() => {
         <!-- Faltantes -->
         <div v-if="concilResult.faltantes.length" class="bg-sheet rounded-md border border-lacre/20 card-shadow overflow-hidden">
           <div class="px-5 py-3 bg-lacre/10 border-b border-lacre/20 flex items-center justify-between gap-3">
-            <span class="font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</span>
+            <span class="font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }}) · Total {{ fmtBRL(concilResult.totais.faltantes_valor) }}</span>
             <UiButton v-if="acoesInjecaoHabilitadas" @click="aplicarFaltantes" :disabled="concilActionLoading || !idArquivoSped" :class="(concilActionLoading || !idArquivoSped) ? 'opacity-50 cursor-not-allowed' : ''" :title="idArquivoSped ? 'Baixa o XML de cada faltante e injeta no SPED aberto' : 'Abra o SPED (arquivo) para injetar'">
               {{ concilActionLoading ? 'Injetando…' : '⬇️ Baixar + injetar faltantes' }}
             </UiButton>

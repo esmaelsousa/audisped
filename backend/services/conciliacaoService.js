@@ -10,6 +10,15 @@
 
 const onlyDigits = (s) => (s || '').toString().replace(/\D/g, '');
 
+// Remove BOM (UTF-8 lido como latin1 = "ï»¿") e aspas que envolvem o campo ("153000" → 153000).
+// CSVs "aspados" (ex.: reexportados pelo Excel) quebravam a leitura do valor (parseFloat('"153000"')=NaN→0).
+function stripCell(s) {
+    let v = String(s == null ? '' : s);
+    v = v.replace(/^﻿/, '').replace(/^ï»¿/, '').trim();
+    if (v.length >= 2 && v[0] === '"' && v[v.length - 1] === '"') v = v.slice(1, -1).replace(/""/g, '"');
+    return v.trim();
+}
+
 function parseNum(s) {
     if (s === undefined || s === null) return 0;
     s = s.toString().trim().replace(/[R$\s]/g, '');
@@ -58,7 +67,11 @@ function parseSefazCsv(content) {
     if (lines.length < 2) throw new Error('Arquivo SEFAZ vazio ou sem dados.');
     const headerLine = lines[0];
     const delim = (headerLine.split(';').length >= headerLine.split(',').length) ? ';' : ',';
-    const header = headerLine.split(delim).map(normHeader);
+    const header = headerLine.split(delim).map(h => normHeader(stripCell(h)));
+    // Guard: recusa o PRÓPRIO resultado exportado (colunas "Categoria" + "Valor / Detalhe"), subido por engano.
+    if (header.some(h => h.includes('categoria')) && header.some(h => h.includes('detalhe'))) {
+        throw new Error('Este arquivo é um RESULTADO exportado do sistema (tem coluna "Categoria" / "Valor / Detalhe"), não a "Relação de NF-e" da SEFAZ. Baixe o CSV no portal da SEFAZ e suba esse.');
+    }
     const find = (...keys) => { for (const k of keys) { const i = header.findIndex(h => h.includes(k)); if (i > -1) return i; } return -1; };
     const col = {
         num:        find('numero nf', 'numero nfe', 'numero', 'nf-e', 'nfe', 'numero do documento', 'num'),
@@ -71,7 +84,7 @@ function parseSefazCsv(content) {
     const invoices = []; const byChave = new Map(); const byNumero = new Map();
     let total = 0, minYM = null, maxYM = null;
     for (let i = 1; i < lines.length; i++) {
-        const c = lines[i].split(delim);
+        const c = lines[i].split(delim).map(stripCell);
         if (c.length < 3) continue;
         const numero = col.num > -1 ? onlyDigits(c[col.num]) : '';
         const chave  = col.chave > -1 ? onlyDigits(c[col.chave]) : '';
@@ -218,6 +231,7 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
             sefaz_valor: totalSefazValido,
             escrituradas_no_range: escrList.filter(e => inRange(e.periodoYM)).length,
             faltantes: faltantes.length,
+            faltantes_valor: faltantes.reduce((a, f) => a + (Number(f.valor) || 0), 0),
             divergencia_valor: divergencia_valor.length,
             divergencia_competencia: divergencia_competencia.length,
             extras: extras.length,
