@@ -15,6 +15,17 @@ const pool = new Pool({
 
 const ENCRYPTION_KEY = process.env.CERT_ENCRYPTION_KEY || 'audisped-master-key-security-2026-sefaz';
 
+// Auto-migração idempotente das colunas do certificado (setup_db.js não roda no boot do servidor).
+// Garante que o INSERT do saveCertificado tenha cnpj_cert/titular/data_validade. Memoizado.
+let _certColsEnsured = false;
+async function ensureCertColumns() {
+    if (_certColsEnsured) return;
+    await pool.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS data_validade TIMESTAMP;`);
+    await pool.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS cnpj_cert TEXT;`);
+    await pool.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS titular TEXT;`);
+    _certColsEnsured = true;
+}
+
 class MdeService {
     decrypt(text) {
         try {
@@ -165,20 +176,37 @@ class MdeService {
         }
     }
 
+    // Lê o certificado e compara com o CNPJ da empresa. NÃO persiste e NÃO lança por regra de negócio
+    // (só lança .code='CERT_PARSE' p/ senha/arquivo inválidos). Usado no preview e dentro do save.
+    async analisarCertificado(idEmpresa, pfxBase64, senha) {
+        const certInfo = require('./certInfo');
+        const info = certInfo.lerCertificado(pfxBase64, senha);
+        const val = certInfo.avaliarValidade(info.validadeFim);
+        const resEmp = await pool.query('SELECT cnpj FROM empresas WHERE id = $1', [idEmpresa]);
+        const cnpjEmpresa = String(resEmp.rows[0]?.cnpj || '').replace(/\D/g, '');
+        return {
+            titular: info.titular,
+            cnpjCert: info.cnpj,
+            cnpjEmpresa,
+            semCnpj: !info.cnpj,
+            confere: !!info.cnpj && info.cnpj === cnpjEmpresa,
+            validadeInicio: info.validadeInicio,
+            validadeFim: info.validadeFim,
+            diasParaVencer: val.diasParaVencer,
+            vencido: val.vencido,
+            perto: val.perto,
+        };
+    }
+
     async saveCertificado(idEmpresa, pfxBase64, password, ultimoNsu = '0', periodicidade = 0) {
-        const forge = require('node-forge');
+        const fmt = (c) => c ? String(c).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '—';
         try {
-            const pfxData = Buffer.from(pfxBase64, 'base64');
-            const p12Der = pfxData.toString('binary');
-            const p12Asn1 = forge.asn1.fromDer(p12Der);
-            const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
-            
-            let validade = null;
-            const bags = p12.getBags({ bagType: forge.pki.oids.certBag });
-            const certBag = bags[forge.pki.oids.certBag] ? bags[forge.pki.oids.certBag][0] : null;
-            if (certBag && certBag.cert) {
-                validade = certBag.cert.validity.notAfter;
-            }
+            await ensureCertColumns(); // auto-migra colunas se faltarem (self-healing)
+            const rel = await this.analisarCertificado(idEmpresa, pfxBase64, password);
+            // Regras (decididas): bloqueia CNPJ divergente e certificado vencido; avisa se perto de vencer.
+            if (rel.semCnpj) { const e = new Error('O certificado não contém CNPJ (parece ser um e-CPF). Envie o e-CNPJ da empresa.'); e.status = 422; e.code = 'SEM_CNPJ'; throw e; }
+            if (!rel.confere) { const e = new Error(`Este certificado é do CNPJ ${fmt(rel.cnpjCert)}, mas a empresa selecionada é ${fmt(rel.cnpjEmpresa)}. Selecione a empresa/certificado correto.`); e.status = 422; e.code = 'CNPJ_DIVERGENTE'; throw e; }
+            if (rel.vencido) { const e = new Error(`Certificado VENCIDO em ${rel.validadeFim.toLocaleDateString('pt-BR')}. Renove o A1 antes de cadastrar.`); e.status = 422; e.code = 'VENCIDO'; throw e; }
 
             const iv = crypto.randomBytes(16);
             const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
@@ -188,24 +216,33 @@ class MdeService {
             const senhaEncriptada = iv.toString('hex') + ':' + encrypted.toString('hex');
 
             await pool.query(`
-                INSERT INTO empresa_certificados (id_empresa, pfx_base64, senha_encriptada, data_validade, ultimo_nsu_consultado, periodicidade_sincronizacao)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO empresa_certificados (id_empresa, pfx_base64, senha_encriptada, data_validade, cnpj_cert, titular, ultimo_nsu_consultado, periodicidade_sincronizacao)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (id_empresa) DO UPDATE SET
                     pfx_base64 = EXCLUDED.pfx_base64,
                     senha_encriptada = EXCLUDED.senha_encriptada,
                     data_validade = EXCLUDED.data_validade,
+                    cnpj_cert = EXCLUDED.cnpj_cert,
+                    titular = EXCLUDED.titular,
                     ultimo_nsu_consultado = EXCLUDED.ultimo_nsu_consultado,
                     periodicidade_sincronizacao = EXCLUDED.periodicidade_sincronizacao
-            `, [idEmpresa, pfxBase64, senhaEncriptada, validade, ultimoNsu, periodicidade]);
+            `, [idEmpresa, pfxBase64, senhaEncriptada, rel.validadeFim, rel.cnpjCert, rel.titular, ultimoNsu, periodicidade]);
 
-            return { 
-                success: true, 
-                validade: validade,
-                mensagem: validade ? `Certificado salvo com sucesso. Válido até ${validade.toLocaleDateString('pt-BR')}` : 'Certificado salvo!'
+            return {
+                success: true,
+                cnpj: rel.cnpjCert,
+                titular: rel.titular,
+                validade: rel.validadeFim,
+                dias_para_vencer: rel.diasParaVencer,
+                aviso: rel.perto ? `Atenção: o certificado vence em ${rel.diasParaVencer} dia(s) (${rel.validadeFim.toLocaleDateString('pt-BR')}).` : null,
+                mensagem: `Certificado salvo. Válido até ${rel.validadeFim.toLocaleDateString('pt-BR')}.`
             };
         } catch (err) {
+            if (err.status) throw err; // regra de negócio (422) ou já mapeado: preserva
             console.error('Erro detalhado ao processar certificado:', err.message);
-            throw new Error(`Falha no certificado: ${err.message}`);
+            const e = new Error(err.code === 'CERT_PARSE' ? err.message : `Falha no certificado: ${err.message}`);
+            e.status = 400; e.code = err.code || 'CERT_PARSE';
+            throw e;
         }
     }
 

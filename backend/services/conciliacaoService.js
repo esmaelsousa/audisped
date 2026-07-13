@@ -232,4 +232,45 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
     };
 }
 
-module.exports = { parseSefazCsv, conciliar };
+/**
+ * Adapta linhas do `mde_cache` (captura EspiãoNFe live) para o MESMO shape do parseSefazCsv,
+ * para alimentar conciliar() a partir da SEFAZ ao vivo (sem CSV manual). Só considera ENTRADAS
+ * (destinadas). Colunas esperadas do mde_cache: chave_nfe, numero, valor, data_emissao,
+ * nome_emissor, tipo_operacao ('Entrada'|'Saída'|'Desconhecido'), status_manifesto.
+ * @returns { invoices, byChave, byNumero, total, periodLabel, minYM, maxYM }  (idêntico ao parseSefazCsv)
+ */
+function sefazShapeFromMdeCache(rows) {
+    const invoices = []; const byChave = new Map(); const byNumero = new Map();
+    let total = 0, minYM = null, maxYM = null;
+    for (const r of (rows || [])) {
+        // Ignora emissões próprias (saídas): a conciliação de entradas cruza destinadas × C100 (ind_oper=0).
+        const tipo = (r.tipo_operacao || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (tipo.startsWith('said')) continue;
+        const chave = onlyDigits(r.chave_nfe);
+        const numero = onlyDigits(r.numero || '');
+        if (!numero && !chave) continue;
+        const valor = parseNum(r.valor);
+        const dataRaw = (r.data_emissao || '').toString().trim();
+        const fornecedor = (r.nome_emissor || '').toString().trim() || 'N/A';
+        // mde_cache não guarda situação cancelada/denegada; se um dia guardar, mapear aqui.
+        const situacao = (r.situacao || '').toString().trim();
+        const comp = compFromAnyDate(dataRaw);
+        if (comp) { const ym = ymFromComp(comp); if (ym) { if (!minYM || ym < minYM) minYM = ym; if (!maxYM || ym > maxYM) maxYM = ym; } }
+        const inv = {
+            numero, chave, valor, situacao, fornecedor,
+            data: dataRaw.split(' ')[0].split('T')[0], comp,
+            cnpjEmit: cnpjEmitFromChave(chave)
+        };
+        invoices.push(inv); total += valor;
+        if (chave && chave.length >= 20) byChave.set(chave, inv);
+        if (numero && !byNumero.has(numero)) byNumero.set(numero, inv);
+    }
+    let periodLabel = '';
+    if (minYM && maxYM) {
+        const fmt = ym => monthNames[parseInt(ym.substring(4, 6))] + '/' + ym.substring(0, 4);
+        periodLabel = minYM === maxYM ? fmt(minYM) : fmt(minYM) + ' a ' + fmt(maxYM);
+    }
+    return { invoices, byChave, byNumero, total, periodLabel, minYM, maxYM };
+}
+
+module.exports = { parseSefazCsv, conciliar, sefazShapeFromMdeCache };

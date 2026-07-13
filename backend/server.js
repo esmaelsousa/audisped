@@ -475,7 +475,18 @@ app.post('/api/mde/certificado', authMiddleware, async (req, res) => {
         const result = await mdeService.saveCertificado(id_empresa, pfx_base64, senha, nsu, periodicidade);
         res.json(result);
     } catch (err) {
-        res.status(400).json({ message: err.message });
+        res.status(err.status || 400).json({ message: err.message, code: err.code });
+    }
+});
+
+// Dry-run: lê o certificado e confere CNPJ × empresa selecionada + validade, SEM salvar (preview da UI).
+app.post('/api/mde/certificado/validar', authMiddleware, async (req, res) => {
+    const { id_empresa, pfx_base64, senha } = req.body;
+    try {
+        const rel = await mdeService.analisarCertificado(id_empresa, pfx_base64, senha);
+        res.json(rel);
+    } catch (err) {
+        res.status(err.status || 400).json({ message: err.message, code: err.code });
     }
 });
 
@@ -5755,6 +5766,192 @@ app.post('/api/conciliacao/sefaz-csv', authMiddleware, upload.single('csv'), asy
     } finally {
         try { fs.unlinkSync(req.file.path); } catch (_) {}
         dbClient.release();
+    }
+});
+
+
+// ============================================================================
+//  SPED AUTOMÁTICO × SEFAZ (ver PLANO_SPED_AUTOMATICO_SEFAZ.md)
+//  Loop A: conferir ao vivo (EspiãoNFe) → faltantes → baixar XML → injetar.
+//  Loop B: divergência de valor → baixar XML real pela chave → re-injetar (substitui).
+//  Reaproveita o MESMO caminho de injeção do /api/xml-injector/parse.
+// ============================================================================
+const { getProvider } = require('./services/captura/capturaProvider');
+
+// Deriva o Set de competências (YYYYMM) com SPED importado para a empresa.
+function _mesesComSped(rows) {
+    const s = new Set();
+    for (const r of rows) {
+        const p = r.periodo_apuracao || '';
+        let m = p.match(/(\d{4})-(\d{2})-\d{2}/); if (m) { s.add(m[1] + m[2]); continue; }
+        m = p.match(/(\d{2})(\d{2})(\d{4})/); if (m) s.add(m[3] + m[2]);
+    }
+    return s;
+}
+// Deriva o YYYYMM (escopo) do SPED aberto a partir de sped_arquivos.periodo_apuracao.
+function _escopoDePeriodo(periodo) {
+    const p = periodo || '';
+    let m = p.match(/(\d{4})-(\d{2})-\d{2}/); if (m) return m[1] + m[2];
+    m = p.match(/(\d{2})(\d{2})(\d{4})/); if (m) return m[3] + m[2];
+    return null;
+}
+
+// Núcleo dos Loops A/B: baixa o XML de cada chave (via CapturaProvider) e injeta no SPED.
+// substituir=true → re-injeta substituindo a nota já existente (Loop B). Espelha /api/xml-injector/parse.
+async function capturarEInjetarPorChaves({ idArquivo, idEmpresa, cnpjEmpresa, chaves, substituir, userCfop, tentarManifestar }) {
+    const provider = getProvider();
+    const fq = await pool.query('SELECT nome_arquivo, caminho_arquivo, cnpj_empresa, periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
+    if (!fq.rows.length) { const e = new Error('Arquivo SPED não encontrado.'); e.status = 404; throw e; }
+    const spedBaseObj = fq.rows[0];
+    let fullSpedPath = spedBaseObj.caminho_arquivo;
+    try { const parsed = JSON.parse(spedBaseObj.caminho_arquivo); if (parsed && typeof parsed === 'object') fullSpedPath = Object.values(parsed)[0]; } catch (_) {}
+    if (!fs.existsSync(fullSpedPath)) { const e = new Error('Arquivo SPED físico não localizado no servidor.'); e.status = 404; throw e; }
+    const cnpjLimpo = (cnpjEmpresa || '').replace(/\D/g, '') || String(spedBaseObj.cnpj_empresa || '').replace(/\D/g, '');
+
+    // Chaves já presentes no C100 do SPED (para dedup / substituição).
+    const existentes = new Set();
+    for (const l of fs.readFileSync(fullSpedPath, 'latin1').split(/\r?\n/)) {
+        if (l.startsWith('|C100|')) { const c = l.split('|')[9]; if (c) existentes.add(c); }
+    }
+
+    const parser = new xml2js.Parser({ explicitArray: false });
+    const parsedNotes = []; const resultados = [];
+    for (const chaveRaw of chaves) {
+        const chave = String(chaveRaw).replace(/\D/g, '');
+        if (chave.length !== 44) { resultados.push({ chave: chaveRaw, ok: false, motivo: 'chave inválida (44 dígitos)' }); continue; }
+        try {
+            let xml;
+            try { ({ xml } = await provider.baixarXmlPorChave(chave, { idEmpresa })); }
+            catch (eDl) {
+                // XML ainda não liberado → tenta manifestar Ciência e baixar de novo (uma vez).
+                if (tentarManifestar && typeof provider.manifestar === 'function') {
+                    try { await provider.manifestar(chave, 'ciencia', cnpjLimpo); } catch (_) {}
+                    ({ xml } = await provider.baixarXmlPorChave(chave, { idEmpresa }));
+                } else throw eDl;
+            }
+            const result = await parser.parseStringPromise(xml);
+            const nota = extractNfeData(result.nfeProc ? result.nfeProc.NFe : result.NFe);
+            if (!nota) { resultados.push({ chave, ok: false, motivo: 'XML não é NF-e válida' }); continue; }
+            nota.arquivo = chave + '.xml';
+            parsedNotes.push(nota);
+            resultados.push({ chave, ok: true, valor: nota.c100 && nota.c100.vl_doc });
+        } catch (e) {
+            resultados.push({ chave, ok: false, motivo: e.message });
+        }
+    }
+    if (!parsedNotes.length) return { spedBaseObj, injetadas: 0, substituidas: 0, resultados };
+
+    const chavesParaSubstituir = substituir
+        ? parsedNotes.map(n => n.c100 && n.c100.chv_nfe).filter(c => c && existentes.has(c))
+        : [];
+
+    const { transformarNotasEmSped } = require('./services/xmlInjectorService');
+    const options = {
+        userCfop: userCfop || '1102',
+        chavesExistentes: Array.from(existentes),
+        pularDuplicados: !substituir, // faltante que já exista é pulado; na correção, substitui
+        idEmpresa
+    };
+    const payload = await transformarNotasEmSped(pool, parsedNotes, options);
+
+    const { injetarXmlEPersistir } = require('./services/spedCostureiraService');
+    const finalSpedString = await injetarXmlEPersistir(fullSpedPath, payload, chavesParaSubstituir);
+    fs.writeFileSync(fullSpedPath, finalSpedString, { encoding: 'latin1' });
+
+    await sincronizarNotasInjetadas(pool, idArquivo, parsedNotes, fullSpedPath);
+    try { await processarAtualizacaoLmcPosInjecao(pool, idArquivo, fullSpedPath, parsedNotes, spedBaseObj.periodo_apuracao); }
+    catch (e) { logger.warn('LMC pós-injeção (loops SEFAZ): ' + e.message); }
+
+    return { spedBaseObj, injetadas: parsedNotes.length, substituidas: chavesParaSubstituir.length, total_linhas: finalSpedString.split('\n').length, resultados };
+}
+
+// --- Loop A/B: DETECÇÃO ao vivo (EspiãoNFe) — mesma saída da rota CSV, fonte = mde_cache ---
+app.post('/api/conciliacao/sefaz-live', authMiddleware, async (req, res) => {
+    const idEmpresa = parseInt(req.body.id_empresa);
+    const cnpjEmpresa = String(req.body.cnpj || '').replace(/\D/g, '');
+    if (!Number.isInteger(idEmpresa)) return res.status(400).json({ message: 'Informe id_empresa.' });
+    if (cnpjEmpresa.length < 11) return res.status(400).json({ message: 'Informe o CNPJ da empresa.' });
+    try {
+        // Sincroniza com a SEFAZ antes de conferir (opcional; grava mde_cache).
+        if (String(req.body.sync || '').toLowerCase() === 'true') {
+            try { await espiaoNfeService.syncNotas(idEmpresa, req.body.data_inicio || null, req.body.data_fim || null); }
+            catch (e) { logger.warn('syncNotas (sefaz-live): ' + e.message); }
+        }
+        const mde = await pool.query(
+            `SELECT chave_nfe, numero_nfe AS numero, valor,
+                    to_char(data_emissao, 'YYYY-MM-DD') AS data_emissao, nome_emissor, tipo_operacao
+             FROM mde_cache WHERE id_empresa = $1`, [idEmpresa]);
+        const csv = conciliacaoService.sefazShapeFromMdeCache(mde.rows);
+
+        const escr = await pool.query(`
+            SELECT c.chv_nfe, c.num_doc, c.vl_doc, c.dt_doc, c.dt_e_s, c.cod_sit,
+                   a.periodo_apuracao, p.nome AS fornecedor, p.cnpj AS cnpj_fornecedor
+            FROM documentos_c100 c
+            JOIN sped_arquivos a ON a.id = c.id_sped_arquivo
+            LEFT JOIN sped_participantes p ON p.id_sped_arquivo = c.id_sped_arquivo AND p.cod_part = c.cod_part
+            WHERE regexp_replace(a.cnpj_empresa, '\\D', '', 'g') = $1 AND c.ind_oper = '0' AND c.cod_mod = '55'
+        `, [cnpjEmpresa]);
+        const periodos = await pool.query(
+            `SELECT DISTINCT periodo_apuracao FROM sped_arquivos WHERE regexp_replace(cnpj_empresa, '\\D', '', 'g') = $1`, [cnpjEmpresa]);
+
+        let escopoYM = null;
+        const idArquivo = parseInt(req.body.id_arquivo);
+        if (Number.isInteger(idArquivo) && idArquivo > 0) {
+            const arq = await pool.query('SELECT periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
+            if (arq.rows.length) escopoYM = _escopoDePeriodo(arq.rows[0].periodo_apuracao);
+        }
+
+        const resultado = conciliacaoService.conciliar({
+            csv, escrituradas: escr.rows, cnpjEmpresa, mesesComSped: _mesesComSped(periodos.rows), escopoYM, incluirCanceladas: false
+        });
+        resultado.fonte = 'espiao';
+        resultado.cnpj_empresa = cnpjEmpresa;
+        resultado.sem_escrituracao = (escr.rows.length === 0);
+        if (!csv.invoices.length) resultado.aviso = 'Nenhuma nota destinada no cache do EspiãoNFe. Rode a sincronização com a SEFAZ (sync=true) para este período.';
+        res.json(resultado);
+    } catch (err) {
+        logger.error('Erro na conciliação SEFAZ ao vivo:', err);
+        res.status(500).json({ message: 'Erro ao conciliar ao vivo: ' + err.message });
+    }
+});
+
+// --- Loop A: baixar XML dos faltantes selecionados e INJETAR no SPED ---
+app.post('/api/conciliacao/aplicar-faltantes', authMiddleware, async (req, res) => {
+    const idArquivo = parseInt(req.body.id_arquivo);
+    const idEmpresa = parseInt(req.body.id_empresa);
+    const chaves = Array.isArray(req.body.chaves) ? req.body.chaves : [];
+    if (!Number.isInteger(idArquivo)) return res.status(400).json({ message: 'Informe id_arquivo (SPED aberto).' });
+    if (!chaves.length) return res.status(400).json({ message: 'Nenhuma chave enviada.' });
+    try {
+        const manifestar = String(req.body.manifestar) !== 'false';
+        const r = await capturarEInjetarPorChaves({
+            idArquivo, idEmpresa, cnpjEmpresa: req.body.cnpj, chaves, substituir: false,
+            userCfop: req.body.cfop_padrao, tentarManifestar: manifestar
+        });
+        res.json({ message: `${r.injetadas} nota(s) faltante(s) injetada(s) de ${chaves.length}.`, ...r });
+    } catch (err) {
+        logger.error('Erro ao aplicar faltantes:', err);
+        res.status(err.status || 500).json({ message: 'Erro ao injetar faltantes: ' + err.message });
+    }
+});
+
+// --- Loop B: baixar XML real das divergentes e RE-INJETAR (substituindo a nota errada) ---
+app.post('/api/conciliacao/corrigir-divergentes', authMiddleware, async (req, res) => {
+    const idArquivo = parseInt(req.body.id_arquivo);
+    const idEmpresa = parseInt(req.body.id_empresa);
+    const chaves = Array.isArray(req.body.chaves) ? req.body.chaves : [];
+    if (!Number.isInteger(idArquivo)) return res.status(400).json({ message: 'Informe id_arquivo (SPED aberto).' });
+    if (!chaves.length) return res.status(400).json({ message: 'Nenhuma chave enviada.' });
+    try {
+        const manifestar = String(req.body.manifestar) !== 'false';
+        const r = await capturarEInjetarPorChaves({
+            idArquivo, idEmpresa, cnpjEmpresa: req.body.cnpj, chaves, substituir: true,
+            userCfop: req.body.cfop_padrao, tentarManifestar: manifestar
+        });
+        res.json({ message: `${r.substituidas} nota(s) corrigida(s) (re-injetada(s) do XML real) de ${chaves.length}.`, ...r });
+    } catch (err) {
+        logger.error('Erro ao corrigir divergentes:', err);
+        res.status(err.status || 500).json({ message: 'Erro ao corrigir divergentes: ' + err.message });
     }
 });
 

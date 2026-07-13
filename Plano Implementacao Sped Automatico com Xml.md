@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-11):** unificado em [`PLANO_SPED_AUTOMATICO_SEFAZ.md`](PLANO_SPED_AUTOMATICO_SEFAZ.md). Mantido só como histórico.
+
 # Plano de Implementação — SPED Automático com XML
 > Criado em 18/03/2026 | Status: **Aguardando aprovação para início**
 

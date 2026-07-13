@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-11):** unificado em [`PLANO_SPED_AUTOMATICO_SEFAZ.md`](PLANO_SPED_AUTOMATICO_SEFAZ.md). Mantido só como histórico.
+
 # Plano de Implementação: MD-e (Manifestação de Destinatário) com API EspiãoNFe v1-cloud
 
 ESTE PLANO FOI ATUALIZADO COM BASE NA DOCUMENTAÇÃO SWAGGER V1-CLOUD DO ESPIÃO NFE.

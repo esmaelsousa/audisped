@@ -415,6 +415,15 @@ const concilDesconsiderarCanceladas = ref(true); // padrão: ignorar canceladas
 const concilVerCanceladas = ref(false);          // mostrar/ocultar a lista de canceladas
 const fmtBRL = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+// Loop A/B (SPED automático × SEFAZ): estado das ações de captura/injeção.
+const concilActionLoading = ref(false);
+const concilActionMsg = ref('');
+// FASE ATUAL = só CONSULTA (read-only). Os botões de baixar/injetar ficam ocultos por ora;
+// a automação total (download + injeção) foi ADIADA — ver PLANO_SPED_AUTOMATICO_SEFAZ.md.
+// Reativar é só flipar para true.
+const acoesInjecaoHabilitadas = ref(false);
+const idEmpresaAtiva = () => empresaSelecionada?.value?.id || arquivoInfo?.value?.id_empresa || null;
+
 // Re-concilia ao trocar o flag de canceladas (se já houver CSV carregado).
 function onToggleCanceladas() {
     if (concilCsvFile.value && concilResult.value) conciliarSefaz();
@@ -463,6 +472,66 @@ async function conciliarSefaz() {
     } finally {
         concilLoading.value = false;
     }
+}
+
+// Conferir ao vivo via EspiãoNFe (sem CSV) — mesma saída visual da conciliação por CSV.
+async function conciliarSefazLive() {
+    concilError.value = ''; concilActionMsg.value = '';
+    const cnpj = concilCnpjAtivo();
+    const idEmp = idEmpresaAtiva();
+    if (!idEmp) { concilError.value = 'Empresa não identificada. Abra um arquivo desta empresa.'; return; }
+    if (cnpj.length < 11) { concilError.value = 'CNPJ da empresa ausente.'; return; }
+    concilLoading.value = true; concilResult.value = null;
+    try {
+        const token = localStorage.getItem('token');
+        const body = { id_empresa: idEmp, cnpj, sync: true };
+        if (idArquivoSped.value) body.id_arquivo = idArquivoSped.value;
+        const res = await axios.post(`${API_BASE_URL}/api/conciliacao/sefaz-live`, body, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        concilResult.value = res.data;
+    } catch (e) {
+        concilError.value = e.response?.data?.message || ('Erro ao conferir ao vivo: ' + e.message);
+    } finally { concilLoading.value = false; }
+}
+
+const _chavesValidasConcil = (arr) => (arr || []).map(x => limpaChave(x.chave)).filter(c => c.length === 44);
+
+async function _postAcaoConcil(url, chaves) {
+    const token = localStorage.getItem('token');
+    return axios.post(`${API_BASE_URL}${url}`, {
+        id_arquivo: idArquivoSped.value, id_empresa: idEmpresaAtiva(), cnpj: concilCnpjAtivo(), chaves
+    }, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+}
+
+// Loop A: baixar o XML dos faltantes e injetar no SPED aberto; reconfere ao final.
+async function aplicarFaltantes() {
+    concilError.value = ''; concilActionMsg.value = '';
+    if (!idArquivoSped.value) { concilError.value = 'Abra o SPED (arquivo) para injetar.'; return; }
+    const chaves = _chavesValidasConcil(concilResult.value?.faltantes);
+    if (!chaves.length) { concilError.value = 'Nenhum faltante com chave válida (44 dígitos) para baixar.'; return; }
+    if (!confirm(`Baixar e INJETAR ${chaves.length} nota(s) faltante(s) no SPED aberto?`)) return;
+    concilActionLoading.value = true;
+    try {
+        const res = await _postAcaoConcil('/api/conciliacao/aplicar-faltantes', chaves);
+        concilActionMsg.value = (res.data.message || 'Concluído.') + ' Reconferindo…';
+        await conciliarSefazLive();
+    } catch (e) { concilError.value = e.response?.data?.message || ('Erro: ' + e.message); }
+    finally { concilActionLoading.value = false; }
+}
+
+// Loop B: baixar o XML real das divergências e re-injetar (substitui a nota com valor errado).
+async function corrigirDivergentes() {
+    concilError.value = ''; concilActionMsg.value = '';
+    if (!idArquivoSped.value) { concilError.value = 'Abra o SPED (arquivo) para corrigir.'; return; }
+    const chaves = _chavesValidasConcil(concilResult.value?.divergencia_valor);
+    if (!chaves.length) { concilError.value = 'Nenhuma divergência com chave válida.'; return; }
+    if (!confirm(`Baixar o XML real e RE-INJETAR ${chaves.length} nota(s), substituindo a versão com valor errado?`)) return;
+    concilActionLoading.value = true;
+    try {
+        const res = await _postAcaoConcil('/api/conciliacao/corrigir-divergentes', chaves);
+        concilActionMsg.value = (res.data.message || 'Concluído.') + ' Reconferindo…';
+        await conciliarSefazLive();
+    } catch (e) { concilError.value = e.response?.data?.message || ('Erro: ' + e.message); }
+    finally { concilActionLoading.value = false; }
 }
 
 function exportConcilCsv() {
@@ -1623,11 +1692,16 @@ const afericaoGauge = computed(() => {
           <UiButton @click="conciliarSefaz" :disabled="concilLoading || !concilCsvFile" :class="(concilLoading || !concilCsvFile) ? 'opacity-50 cursor-not-allowed' : ''">
             {{ concilLoading ? 'Conciliando…' : 'Conciliar' }}
           </UiButton>
+          <UiButton @click="conciliarSefazLive" :disabled="concilLoading" :class="concilLoading ? 'opacity-50 cursor-not-allowed' : ''" title="Consulta a SEFAZ ao vivo (EspiãoNFe) e cruza com o SPED — sem precisar de CSV">
+            {{ concilLoading ? 'Conferindo…' : '⚡ Conferir com SEFAZ (ao vivo)' }}
+          </UiButton>
           <label class="flex items-center gap-1.5 text-[12px] font-medium text-risco cursor-pointer select-none">
             <input type="checkbox" v-model="concilDesconsiderarCanceladas" @change="onToggleCanceladas" class="rounded border-line text-bronze focus:ring-bronze">
             Desconsiderar canceladas
           </label>
           <span v-if="concilError" class="text-[12px] font-medium text-lacre">{{ concilError }}</span>
+          <span v-if="concilActionMsg" class="text-[12px] font-medium text-conforme">{{ concilActionMsg }}</span>
+          <span v-if="concilResult && concilResult.fonte === 'espiao'" class="text-[11px] text-bronze font-medium">via EspiãoNFe (ao vivo)</span>
         </div>
       </div>
 
@@ -1685,7 +1759,12 @@ const afericaoGauge = computed(() => {
 
         <!-- Faltantes -->
         <div v-if="concilResult.faltantes.length" class="bg-sheet rounded-md border border-lacre/20 card-shadow overflow-hidden">
-          <div class="px-5 py-3 bg-lacre/10 border-b border-lacre/20 font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</div>
+          <div class="px-5 py-3 bg-lacre/10 border-b border-lacre/20 flex items-center justify-between gap-3">
+            <span class="font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }})</span>
+            <UiButton v-if="acoesInjecaoHabilitadas" @click="aplicarFaltantes" :disabled="concilActionLoading || !idArquivoSped" :class="(concilActionLoading || !idArquivoSped) ? 'opacity-50 cursor-not-allowed' : ''" :title="idArquivoSped ? 'Baixa o XML de cada faltante e injeta no SPED aberto' : 'Abra o SPED (arquivo) para injetar'">
+              {{ concilActionLoading ? 'Injetando…' : '⬇️ Baixar + injetar faltantes' }}
+            </UiButton>
+          </div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
@@ -1701,7 +1780,12 @@ const afericaoGauge = computed(() => {
 
         <!-- Divergência de valor -->
         <div v-if="concilResult.divergencia_valor.length" class="bg-sheet rounded-md border border-variacao/20 card-shadow overflow-hidden">
-          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 font-medium text-variacao text-[13px]">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</div>
+          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 flex items-center justify-between gap-3">
+            <span class="font-medium text-variacao text-[13px]">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</span>
+            <UiButton v-if="acoesInjecaoHabilitadas" @click="corrigirDivergentes" :disabled="concilActionLoading || !idArquivoSped" :class="(concilActionLoading || !idArquivoSped) ? 'opacity-50 cursor-not-allowed' : ''" :title="idArquivoSped ? 'Baixa o XML real e re-injeta corrigindo o valor (substitui a nota)' : 'Abra o SPED (arquivo) para corrigir'">
+              {{ concilActionLoading ? 'Corrigindo…' : '🔧 Corrigir do XML real' }}
+            </UiButton>
+          </div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th></tr></thead>

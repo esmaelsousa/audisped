@@ -307,6 +307,9 @@ async function setupDatabase() {
         `);
         await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS ultimo_nsu_consultado TEXT DEFAULT '0';`);
         await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS periodicidade_sincronizacao INTEGER DEFAULT 0;`);
+        await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS data_validade TIMESTAMP;`);
+        await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS cnpj_cert TEXT;`);
+        await client.query(`ALTER TABLE empresa_certificados ADD COLUMN IF NOT EXISTS titular TEXT;`);
 
         // --- MANIFESTO DE DESTINATÁRIO (MD-e) CACHE ---
         await client.query(`

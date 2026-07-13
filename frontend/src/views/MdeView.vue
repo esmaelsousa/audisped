@@ -37,6 +37,11 @@ const pfxFile = ref(null);
 const pfxSenha = ref('');
 const pfxUltimoNsu = ref('0');
 const pfxPeriodicidade = ref(0);
+// Preview do certificado (validade + confere CNPJ da empresa) antes de salvar.
+const certPreview = ref(null);
+const certValidando = ref(false);
+const fmtCnpj = (c) => c ? String(c).replace(/\D/g, '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '—';
+const podeSalvarCert = () => !!(certPreview.value && certPreview.value.confere && !certPreview.value.vencido && !certPreview.value.semCnpj);
 const isUploadingCert = ref(false);
 
 const manualChave = ref('');
@@ -423,7 +428,25 @@ async function checkCertStatus() {
 
 function handleFileSelect(e) {
   const file = e.target.files[0];
-  if (file) pfxFile.value = file;
+  if (file) { pfxFile.value = file; validarCert(); }
+}
+
+// Dry-run: lê validade + CNPJ do certificado e confere com a empresa selecionada (sem salvar).
+async function validarCert() {
+  certPreview.value = null;
+  if (!pfxFile.value || !pfxSenha.value || !empresaSelecionada.value?.id) return;
+  certValidando.value = true;
+  try {
+    const base64 = await fileToBase64(pfxFile.value);
+    const res = await axios.post(`${API_BASE_URL}/api/mde/certificado/validar`, {
+      id_empresa: empresaSelecionada.value.id, pfx_base64: base64, senha: pfxSenha.value
+    }, { headers: { Authorization: `Bearer ${token.value}` } });
+    certPreview.value = res.data;
+  } catch (err) {
+    certPreview.value = { erro: err.response?.data?.message || 'Não foi possível ler o certificado.' };
+  } finally {
+    certValidando.value = false;
+  }
 }
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -443,7 +466,7 @@ async function saveCertificado() {
   try {
     const base64 = await fileToBase64(pfxFile.value);
     
-    await axios.post(`${API_BASE_URL}/api/mde/certificado`, {
+    const { data } = await axios.post(`${API_BASE_URL}/api/mde/certificado`, {
       id_empresa: empresaSelecionada.value.id,
       pfx_base64: base64,
       senha: pfxSenha.value,
@@ -452,11 +475,12 @@ async function saveCertificado() {
     }, {
       headers: { Authorization: `Bearer ${token.value}` }
     });
-    
-    alert('Certificado configurado com sucesso!');
+
+    alert(data && data.aviso ? ('Certificado salvo. ' + data.aviso) : 'Certificado configurado com sucesso!');
     isCertModalOpen.value = false;
     pfxFile.value = null;
     pfxSenha.value = '';
+    certPreview.value = null;
     await checkCertStatus();
   } catch (err) {
     console.error('Erro ao salvar certificado:', err);
@@ -875,8 +899,32 @@ async function saveCertificado() {
               v-model="pfxSenha"
               type="password"
               placeholder="Digite a senha do arquivo"
+              @blur="validarCert"
+              @keyup.enter="validarCert"
               class="w-full px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink outline-none focus:border-bronze transition-colors"
             />
+          </div>
+
+          <!-- Preview: validade + confere CNPJ da empresa (antes de salvar) -->
+          <div v-if="certValidando" class="text-[12px] text-risco">Lendo certificado…</div>
+          <div v-else-if="certPreview" class="p-3 rounded-md border text-[12px] space-y-1"
+               :class="(certPreview.erro || !podeSalvarCert()) ? 'bg-lacre/[0.06] border-lacre/30' : 'bg-conforme/[0.06] border-conforme/25'">
+            <p v-if="certPreview.erro" class="font-medium text-lacre">⚠️ {{ certPreview.erro }}</p>
+            <template v-else>
+              <p class="text-ink"><b>Titular:</b> {{ certPreview.titular || '—' }}</p>
+              <p :class="certPreview.confere ? 'text-conforme font-medium' : 'text-lacre font-medium'">
+                {{ certPreview.confere ? '✅' : '❌' }} CNPJ do certificado: {{ fmtCnpj(certPreview.cnpjCert) }}
+                <span v-if="certPreview.semCnpj"> (sem CNPJ — é um e-CPF?)</span>
+                <span v-else-if="!certPreview.confere"> — empresa selecionada: {{ fmtCnpj(certPreview.cnpjEmpresa) }}</span>
+              </p>
+              <p :class="certPreview.vencido ? 'text-lacre font-medium' : (certPreview.perto ? 'text-variacao font-medium' : 'text-ink')">
+                {{ certPreview.vencido ? '⛔ VENCIDO em' : '📅 Válido até' }} {{ formatDate(certPreview.validadeFim) }}
+                <span v-if="!certPreview.vencido">({{ certPreview.diasParaVencer }} dia(s))<span v-if="certPreview.perto"> — vence em breve!</span></span>
+              </p>
+              <p v-if="!podeSalvarCert()" class="text-lacre text-[11px]">
+                Não é possível salvar: {{ certPreview.semCnpj ? 'certificado sem CNPJ' : (!certPreview.confere ? 'CNPJ diferente da empresa selecionada' : 'certificado vencido') }}.
+              </p>
+            </template>
           </div>
 
           <div class="grid grid-cols-2 gap-4">
@@ -912,7 +960,7 @@ async function saveCertificado() {
           <UiButton variant="ghost" @click="isCertModalOpen = false" class="flex-1 justify-center py-[9px]">
             Cancelar
           </UiButton>
-          <UiButton @click="saveCertificado" :disabled="isUploadingCert" class="flex-1 justify-center py-[9px] disabled:opacity-50">
+          <UiButton @click="saveCertificado" :disabled="isUploadingCert || !podeSalvarCert()" class="flex-1 justify-center py-[9px] disabled:opacity-50" :title="podeSalvarCert() ? '' : 'Selecione um certificado válido e da empresa selecionada'">
             <RefreshCw v-if="isUploadingCert" class="w-4 h-4 animate-spin" :stroke-width="1.8" />
             {{ isUploadingCert ? 'Salvando...' : 'Salvar Certificado' }}
           </UiButton>
