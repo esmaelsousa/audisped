@@ -538,7 +538,7 @@ function exportConcilCsv() {
     const r = concilResult.value; if (!r) return;
     const rows = [['Categoria', 'Numero NF', 'Chave', 'Competencia', 'Emissao', 'Valor / Detalhe', 'Fornecedor']];
     r.faltantes.forEach(f => rows.push([f.uso_consumo ? 'FALTANTE_USO_CONSUMO' : 'FALTANTE', f.numero, f.chave, f.comp, f.data, f.valor, f.fornecedor]));
-    r.divergencia_valor.forEach(d => rows.push(['DIVERG_VALOR', d.numero, d.chave, '', '', `SEFAZ ${d.valorSefaz} x SPED ${d.valorSped} (dif ${d.dif})`, d.fornecedor]));
+    r.divergencia_valor.forEach(d => rows.push(['DIVERG_VALOR', d.numero, d.chave, d.dataSped ? `Lancada ${d.dataSped}` : '', d.data, `SEFAZ ${d.valorSefaz} x SPED ${d.valorSped} (dif ${d.dif})`, d.fornecedor]));
     r.divergencia_competencia.forEach(d => rows.push(['LANCADA_OUTRO_MES', d.numero, d.chave, `Emit ${d.data} -> Lancada ${d.dataSped || d.compSped}`, d.data, d.valor, d.fornecedor]));
     r.extras.forEach(x => rows.push(['EXTRA_SPED', x.numero, x.chave, x.comp, x.data, x.valor, x.fornecedor]));
     (r.sem_sped || []).forEach(s => rows.push(['SEM_SPED_NO_PERIODO', s.numero, s.chave, s.comp, s.data, s.valor, s.fornecedor]));
@@ -1788,14 +1788,14 @@ const afericaoGauge = computed(() => {
           </div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
-              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th></tr></thead>
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-right p-2">Diferença</th><th class="text-left p-2">Emissão → Lançada</th></tr></thead>
               <tbody>
                 <template v-for="(d,i) in concilResult.divergencia_valor" :key="'dv'+i">
-                  <tr class="border-t border-line hover:bg-paper">
+                  <tr class="border-t border-lacre/20 bg-lacre/[0.05] hover:bg-lacre/[0.10]">
                     <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
-                    <td class="p-2 font-mono text-ink">{{ d.numero }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSefaz) }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSped) }}</td><td class="p-2 text-right font-mono font-medium" :class="d.dif >= 0 ? 'text-lacre' : 'text-conforme'">{{ fmtBRL(d.dif) }}</td>
+                    <td class="p-2 font-mono text-lacre font-medium">{{ d.numero }}</td><td class="p-2 text-lacre">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSefaz) }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSped) }}</td><td class="p-2 text-right font-mono font-semibold text-lacre">{{ fmtBRL(d.dif) }}</td><td class="p-2 whitespace-nowrap font-mono text-[11px]"><span title="Emissão (SEFAZ)">{{ d.data || '—' }}</span> <span class="text-risco">→</span> <span title="Lançada no SPED" class="text-bronze">{{ d.dataSped || '—' }}</span></td>
                   </tr>
-                  <tr v-if="nfAberta(d.chave)"><td colspan="6" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
+                  <tr v-if="nfAberta(d.chave)"><td colspan="7" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
                 </template>
               </tbody>
             </table>
@@ -1813,9 +1813,9 @@ const afericaoGauge = computed(() => {
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão (SEFAZ)</th><th class="text-left p-2">Lançada no SPED</th></tr></thead>
               <tbody>
                 <template v-for="(d,i) in concilResult.divergencia_competencia" :key="'dc'+i">
-                  <tr class="border-t border-line hover:bg-paper">
+                  <tr class="border-t border-lacre/20 bg-lacre/[0.05] hover:bg-lacre/[0.10]">
                     <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
-                    <td class="p-2 font-mono text-ink">{{ d.numero }}</td><td class="p-2 font-mono text-[10px] text-ink">{{ d.chave }}</td><td class="p-2">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valor) }}</td><td class="p-2 whitespace-nowrap font-mono">{{ d.data }}</td><td class="p-2 whitespace-nowrap font-mono font-medium text-bronze">{{ d.dataSped || d.compSped }}</td>
+                    <td class="p-2 font-mono text-lacre font-medium">{{ d.numero }}</td><td class="p-2 font-mono text-[10px] text-lacre">{{ d.chave }}</td><td class="p-2 text-lacre">{{ d.fornecedor }}</td><td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valor) }}</td><td class="p-2 whitespace-nowrap font-mono" title="Emissão (SEFAZ)">{{ d.data }}</td><td class="p-2 whitespace-nowrap font-mono font-medium text-bronze" title="Lançada no SPED">{{ d.dataSped || d.compSped }}</td>
                   </tr>
                   <tr v-if="nfAberta(d.chave)"><td colspan="7" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
                 </template>

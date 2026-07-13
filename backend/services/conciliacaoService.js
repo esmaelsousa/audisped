@@ -169,7 +169,7 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
             continue;
         }
         if (Math.abs(inv.valor - hit.valor) > 0.01) {
-            divergencia_valor.push({ numero: inv.numero, chave: inv.chave, fornecedor: inv.fornecedor, valorSefaz: inv.valor, valorSped: hit.valor, dif: inv.valor - hit.valor });
+            divergencia_valor.push({ numero: inv.numero, chave: inv.chave, fornecedor: inv.fornecedor, valorSefaz: inv.valor, valorSped: hit.valor, dif: inv.valor - hit.valor, data: inv.data, dataSped: fmtDtDoc(hit.dtES) || fmtDtDoc(hit.dtDoc) || '' });
         }
         const csvYM = ymFromComp(inv.comp);
         if (csvYM && hit.periodoYM && csvYM !== hit.periodoYM) {
