@@ -1,7 +1,9 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
-import { token, logout } from './store'
+import axios from 'axios'
+import { API_BASE_URL } from './api'
+import { token, logout, setUsuario, setPrecisaTrocarSenha } from './store'
 import AppSidebar from './components/shell/AppSidebar.vue'
 import AppTopbar from './components/shell/AppTopbar.vue'
 
@@ -15,6 +17,16 @@ function toggleMenu() {
 function closeMenu() {
   menuOpen.value = false
 }
+
+// Boot: re-hidrata role/status do backend (§13.8) — sessões antigas ganham `role` sem precisar deslogar.
+onMounted(async () => {
+  if (!token.value) return
+  try {
+    const { data } = await axios.get(`${API_BASE_URL}/api/auth/me`)
+    setUsuario({ id: data.id, nome: data.nome, email: data.email, role: data.role, rede_id: data.rede_id })
+    setPrecisaTrocarSenha(data.precisa_trocar_senha === true)
+  } catch (_) { /* 401 já é tratado pelo interceptor global */ }
+})
 </script>
 
 <template>
