@@ -17,9 +17,10 @@ import {
   DatabaseZap,
   Building2,
   LogOut,
-  User
+  User,
+  Users
 } from 'lucide-vue-next'
-import { empresaSelecionada, arquivoInfo, usuario, logout } from '@/store'
+import { empresaSelecionada, arquivoInfo, usuario, logout, podeGerenciarUsuarios } from '@/store'
 import { useRouter } from 'vue-router'
 import { formatCnpj } from '@/utils/sped'
 
@@ -137,6 +138,15 @@ const grupo = 'px-[18px] pb-[2px] pt-[10px] text-[10px] tracking-[.12em] upperca
         <Mail :size="15" :stroke-width="1.6" />
         Manifesto NFe
       </RouterLink>
+
+      <!-- ADMINISTRAÇÃO (só super/admin) -->
+      <template v-if="podeGerenciarUsuarios">
+        <div :class="grupo">Administração</div>
+        <RouterLink to="/usuarios" @click="nav" :class="linkBase" :active-class="linkActive">
+          <Users :size="15" :stroke-width="1.6" />
+          Usuários
+        </RouterLink>
+      </template>
 
     </nav>
 

@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { token } from '../store'
+import { token, usuario, precisaTrocarSenha } from '../store'
 
 // Importação das Views
 import EmpresasView from '../views/homeView.vue'
@@ -116,17 +116,37 @@ const router = createRouter({
       name: 'impressao-lmc',
       component: () => import('../views/ImpressaoLmcView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/usuarios',
+      name: 'usuarios',
+      component: () => import('../views/UsuariosView.vue'),
+      meta: { requiresAuth: true, roles: ['super_admin', 'admin'] }
+    },
+    {
+      path: '/trocar-senha',
+      name: 'trocar-senha',
+      component: () => import('../views/TrocarSenhaView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })
 
-// Guarda de Rota: Só permite acesso se houver token
+// Guarda de Rota
 router.beforeEach((to, from, next) => {
+  // 1) exige login
   if (to.meta.requiresAuth && !token.value) {
-    next('/login');
-  } else {
-    next();
+    return next('/login');
   }
+  // 2) troca de senha obrigatória: trava tudo até trocar (exceto a própria tela e o login)
+  if (token.value && precisaTrocarSenha.value && to.path !== '/trocar-senha' && to.path !== '/login') {
+    return next('/trocar-senha');
+  }
+  // 3) rotas por papel (default-deny se sessão antiga sem role)
+  if (to.meta.roles && !to.meta.roles.includes(usuario.value?.role)) {
+    return next('/');
+  }
+  next();
 });
 
 export default router

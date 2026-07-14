@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 // --- FUNÇÃO AUXILIAR PARA ACESSO SEGURO AO STORAGE (Navegador vs Node/Build) ---
 const getStorageItem = (key, defaultValue = null) => {
@@ -31,6 +31,11 @@ const removeStorageItem = (key) => {
 // Note: token é mantido como string simples, usuario como objeto
 export const token = ref(typeof localStorage !== 'undefined' ? localStorage.getItem('token') || '' : '');
 export const usuario = ref(getStorageItem('usuario'));
+export const precisaTrocarSenha = ref(getStorageItem('precisaTrocarSenha') === true);
+
+// --- PAPÉIS (derivados de usuario.role; default-deny se sessão antiga sem role) ---
+export const isSuper = computed(() => usuario.value?.role === 'super_admin');
+export const podeGerenciarUsuarios = computed(() => ['super_admin', 'admin'].includes(usuario.value?.role));
 
 // --- ESTADO DA AUDITORIA ---
 export const arquivoInfo = ref(getStorageItem('arquivoInfo'));
@@ -75,6 +80,11 @@ export function setUsuario(newUsuario) {
     setStorageItem('usuario', newUsuario);
 }
 
+export function setPrecisaTrocarSenha(v) {
+    precisaTrocarSenha.value = v === true;
+    setStorageItem('precisaTrocarSenha', v === true);
+}
+
 export function resetArquivoSped() {
     arquivoInfo.value = null;
     idArquivoSped.value = null;
@@ -87,6 +97,7 @@ export function resetArquivoSped() {
 
 export function logout() {
     setAuth('', null);
+    setPrecisaTrocarSenha(false);
     resetArquivoSped();
     setEmpresaSelecionada(null);
 }

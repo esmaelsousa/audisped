@@ -3,16 +3,14 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { API_BASE_URL } from '../api'
-import { setAuth } from '../store'
+import { setAuth, setPrecisaTrocarSenha } from '../store'
 import UiButton from '../components/ui/UiButton.vue'
 
 const router = useRouter()
-const isLogin = ref(true)
 const loading = ref(false)
 const error = ref('')
 
 const form = ref({
-  nome: '',
   email: '',
   senha: ''
 })
@@ -22,20 +20,14 @@ async function handleSubmit() {
   error.value = ''
 
   try {
-    const endpoint = isLogin.value ? 'login' : 'register'
-    const payload = isLogin.value
-      ? { email: form.value.email, senha: form.value.senha }
-      : form.value
-
-    const response = await axios.post(`${API_BASE_URL}/api/auth/${endpoint}`, payload)
-
-    if (isLogin.value) {
-      setAuth(response.data.token, response.data.user)
-      router.push('/')
-    } else {
-      isLogin.value = true
-      alert('Cadastro realizado! Agora faça login.')
-    }
+    const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      email: form.value.email,
+      senha: form.value.senha
+    })
+    setAuth(response.data.token, response.data.user)
+    setPrecisaTrocarSenha(response.data.precisa_trocar_senha === true)
+    // troca obrigatória no 1º login (senha temporária) antes de liberar o app
+    router.push(response.data.precisa_trocar_senha === true ? '/trocar-senha' : '/')
   } catch (err) {
     error.value = err.response?.data?.message || 'Erro ao processar requisição.'
   } finally {
@@ -58,24 +50,11 @@ async function handleSubmit() {
 
         <!-- Subtítulo -->
         <div>
-          <p class="text-[13px] text-risco">
-            {{ isLogin ? 'Acesse sua conta' : 'Criar nova conta' }}
-          </p>
+          <p class="text-[13px] text-risco">Acesse sua conta</p>
         </div>
 
         <!-- Formulário -->
         <form @submit.prevent="handleSubmit" class="space-y-4">
-
-          <div v-if="!isLogin" class="space-y-1">
-            <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">Nome completo</label>
-            <input
-              v-model="form.nome"
-              type="text"
-              required
-              class="w-full px-3 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink font-body outline-none transition-colors"
-              placeholder="João Silva"
-            />
-          </div>
 
           <div class="space-y-1">
             <label class="block text-[11px] uppercase tracking-wide text-risco font-medium">E-mail</label>
@@ -108,19 +87,15 @@ async function handleSubmit() {
             :disabled="loading"
             class="w-full justify-center py-[9px] disabled:opacity-50"
           >
-            {{ loading ? 'Aguarde...' : (isLogin ? 'Entrar' : 'Criar conta') }}
+            {{ loading ? 'Aguarde...' : 'Entrar' }}
           </UiButton>
         </form>
 
-        <!-- Alternar login/cadastro -->
+        <!-- Acesso é provisionado pelo administrador (sem autocadastro público) -->
         <div class="border-t border-line pt-4">
-          <button
-            type="button"
-            @click="isLogin = !isLogin"
-            class="text-[12px] text-risco hover:text-bronze transition-colors"
-          >
-            {{ isLogin ? 'Ainda não tem acesso? Cadastre-se' : 'Já possui conta? Faça login' }}
-          </button>
+          <p class="text-[12px] text-risco">
+            Não tem acesso? Solicite ao administrador da sua conta.
+          </p>
         </div>
       </div>
 

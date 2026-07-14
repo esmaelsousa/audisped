@@ -134,6 +134,50 @@ async function esperarServidor(ms = 20000) {
             const chk = await client.query('SELECT ativo FROM usuarios WHERE id=$1', [idEscrA]);
             assert.equal(chk.rows[0].ativo, false);
         });
+        await t('admin reativa escritorio própria rede → 200 ativo=true', async () => {
+            const r = await api('PATCH', `/api/admin/usuarios/${idEscrA}/ativar`, tok(idAdminA));
+            assert.equal(r.status, 200);
+            const chk = await client.query('SELECT ativo FROM usuarios WHERE id=$1', [idEscrA]);
+            assert.equal(chk.rows[0].ativo, true);
+        });
+
+        // GET /api/admin/redes (dropdown do super)
+        await t('super GET /api/admin/redes → 200 lista com as redes', async () => {
+            const r = await api('GET', '/api/admin/redes', tok(idSuper));
+            assert.equal(r.status, 200);
+            const j = await r.json();
+            assert.ok(Array.isArray(j));
+            assert.ok(j.some((x) => x.nome === 'IT_REDE_A'), 'devia listar IT_REDE_A');
+        });
+        await t('admin GET /api/admin/redes → 403 (só super)', async () => {
+            const r = await api('GET', '/api/admin/redes', tok(idAdminA));
+            assert.equal(r.status, 403);
+        });
+
+        // /api/auth/me enriquecido (front precisa do papel no boot)
+        await t('GET /api/auth/me devolve role + rede_id do ator', async () => {
+            const r = await api('GET', '/api/auth/me', tok(idAdminA));
+            assert.equal(r.status, 200);
+            const j = await r.json();
+            assert.equal(j.role, 'admin');
+            assert.equal(Number(j.rede_id), Number(redeA));
+            assert.ok('precisa_trocar_senha' in j);
+        });
+
+        // Fluxo força-troca: PUT /api/auth/profile zera precisa_trocar_senha e login reflete
+        await t('PUT /api/auth/profile (nova senha) zera precisa_trocar_senha e login reflete', async () => {
+            await client.query('UPDATE usuarios SET precisa_trocar_senha = TRUE WHERE id = $1', [idEscrB]);
+            const r = await api('PUT', '/api/auth/profile', tok(idEscrB),
+                { nome: 'IT', email: `${SUF}_escrB@test.local`, senha: 'novaSenha123' });
+            assert.equal(r.status, 200);
+            const chk = await client.query('SELECT precisa_trocar_senha FROM usuarios WHERE id = $1', [idEscrB]);
+            assert.equal(chk.rows[0].precisa_trocar_senha, false);
+            const login = await api('POST', '/api/auth/login', null, { email: `${SUF}_escrB@test.local`, senha: 'novaSenha123' });
+            assert.equal(login.status, 200);
+            const lj = await login.json();
+            assert.equal(lj.precisa_trocar_senha, false);
+            assert.equal(lj.user.role, 'escritorio');
+        });
     } catch (e) {
         fail++; fails.push(`FATAL → ${e.message}\n--- stderr do server ---\n${serverErr.slice(-800)}`);
     } finally {

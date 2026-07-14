@@ -163,7 +163,7 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
-        const query = 'SELECT id, nome, email FROM usuarios WHERE id = $1';
+        const query = 'SELECT id, nome, email, role, rede_id, modulos, ativo, precisa_trocar_senha FROM usuarios WHERE id = $1';
         const result = await dbClient.query(query, [req.user.id]);
         if (result.rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
         res.json(result.rows[0]);
@@ -217,7 +217,7 @@ app.post('/api/auth/login', async (req, res) => {
         const token = jwt.sign({ id: user.id, nome: user.nome, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
         res.json({
             token,
-            user: { id: user.id, nome: user.nome, email: user.email },
+            user: { id: user.id, nome: user.nome, email: user.email, role: user.role, rede_id: user.rede_id },
             precisa_trocar_senha: user.precisa_trocar_senha === true, // front força a troca no 1º login
         });
     } catch (err) {
@@ -341,6 +341,43 @@ app.post('/api/admin/usuarios/:id/reset-senha', authMiddleware, enrich, async (r
         res.json({ id: alvoId, senhaTemporaria: temporaria }); // devolvida UMA vez p/ o admin repassar
     } catch (err) {
         res.status(500).json({ message: 'Erro ao resetar senha.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Reativar usuário — simétrico ao desativar (§13.7).
+app.patch('/api/admin/usuarios/:id/ativar', authMiddleware, enrich, async (req, res) => {
+    const alvoId = parseInt(req.params.id);
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const alvoR = await dbClient.query('SELECT id, role, rede_id FROM usuarios WHERE id = $1', [alvoId]);
+        const alvo = alvoR.rows[0];
+        if (!alvo) return res.status(404).json({ message: 'Usuário não encontrado.' });
+        if (!authz.podeGerenciarAlvo(req.ator, alvo)) return res.status(403).json({ message: 'Sem permissão sobre este usuário.' });
+
+        await dbClient.query('UPDATE usuarios SET ativo = TRUE WHERE id = $1', [alvoId]);
+        authz.invalidarCacheAtor(alvoId);
+        await registrarAuditoria(dbClient, req.ator, 'ativar_usuario', alvoId, null);
+        res.json({ id: alvoId, ativo: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao ativar usuário.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Listar redes (read-only) — só super, p/ o dropdown de provisionamento. CRUD de redes = Fase 2.
+app.get('/api/admin/redes', authMiddleware, enrich, async (req, res) => {
+    if (req.ator.role !== 'super_admin') return res.status(403).json({ message: 'Apenas super_admin.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT id, nome, status, modulos_contratados FROM redes ORDER BY nome');
+        res.json(r.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao listar redes.', error: err.message });
     } finally {
         dbClient.release();
     }
