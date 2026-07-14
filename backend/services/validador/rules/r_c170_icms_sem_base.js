@@ -25,7 +25,21 @@ module.exports = {
         for (const l of (model.porReg.get('C170') || [])) {
             const f = l.f;
             if (aliqPos(f[14]) && (toCents(f[13]) === 0 || toCents(f[15]) === 0)) {
-                erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 14, valorAtual: f[14], valorSugerido: '0,00', detalhe: `ALIQ_ICMS ${f[14]}% com BC ${f[13]} / VL_ICMS ${f[15]} — item ${f[3] || '?'} (CFOP ${f[11]}).` });
+                // Só sugerir ZERAR a alíquota quando for genuinamente não-creditante (uso/consumo).
+                // Crédito real (BC=0 mas VL_ICMS>0 → falta a base) ou CST creditável (00/10/20) → ADV, sem
+                // sugerir 0,00 (zerar destruiria crédito legítimo de distribuidora).
+                // Só sugerir ZERAR quando for uso/consumo CLARAMENTE não-creditante: BC E VL_ICMS ambos zerados
+                // com CST não creditável. Qualquer outro caso (crédito real BC=0&ICMS>0; diferimento/redução
+                // BC>0&ICMS=0 em CST 20/51/70/90; CST creditável) → ADV sem sugerir zerar (zerar destruiria valor legítimo).
+                const bc0 = toCents(f[13]) === 0, icms0 = toCents(f[15]) === 0;
+                const last2 = String(f[10] || '').trim().slice(-2);
+                const creditavel = ['00', '10', '20'].includes(last2);
+                const usoConsumoClaro = bc0 && icms0 && !creditavel;
+                if (usoConsumoClaro) {
+                    erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 14, valorAtual: f[14], valorSugerido: '0,00', detalhe: `ALIQ_ICMS ${f[14]}% com BC e VL_ICMS zerados — item ${f[3] || '?'} (CST ${f[10]}, CFOP ${f[11]}) não-creditante: a alíquota deve ser 0.` });
+                } else {
+                    erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 14, severidade: 'ADV', valorAtual: f[14], detalhe: `ALIQ_ICMS ${f[14]}% com BC ${f[13]} / VL_ICMS ${f[15]} — item ${f[3] || '?'} (CST ${f[10]}, CFOP ${f[11]}): pode ser crédito/diferimento/redução legítimo (preencher a BASE, não zerar a alíquota). Confira.` });
+                }
             }
         }
         return erros;

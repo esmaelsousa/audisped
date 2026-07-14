@@ -21,7 +21,14 @@ module.exports = {
         for (const l of (model.porReg.get('1360') || [])) {
             const dt = String(l.f[3] || '').trim();
             const y = ymd(dt);
-            const invalida = dt.length !== 8 || !y || y < '20000101';
+            // valida faixa real de mês/dia (não só length + ano) — datas impossíveis (30/02, 32/01) não passam
+            let dataReal = false;
+            if (dt.length === 8) {
+                const dd = +dt.slice(0, 2), mm = +dt.slice(2, 4), yy = +dt.slice(4, 8);
+                const dObj = new Date(yy, mm - 1, dd);
+                dataReal = mm >= 1 && mm <= 12 && dd >= 1 && dObj.getMonth() === mm - 1 && dObj.getDate() === dd;
+            }
+            const invalida = dt.length !== 8 || !y || y < '20000101' || !dataReal;
             if (invalida) {
                 erros.push({
                     bloco: '1', registro: '1360', linha: l.n, campo: 'DT_APLICACAO', campoIdx: 3,

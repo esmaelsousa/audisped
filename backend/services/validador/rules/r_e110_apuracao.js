@@ -38,7 +38,9 @@ module.exports = {
             const espMap = {
                 4: exp[4], 5: exp[5], 8: exp[8], 9: exp[9],
                 11: base >= 0 ? base : 0,
-                13: base >= 0 ? Math.max(0, base - c(f[12]) + c(f[15])) : 0,
+                // VL_ICMS_RECOLHER (13) = VL_SLD_APURADO (11) − VL_TOT_DED (12). NÃO somar DEB_ESP (15) —
+                // é campo separado, recolhido via E116 (seria contado 2×). Alinhado ao recalcularE110 do export.
+                13: base >= 0 ? Math.max(0, base - c(f[12])) : 0,
                 14: base < 0 ? -base : 0,
             };
             const NOMES = { 4: 'VL_TOT_AJ_DEBITOS', 5: 'VL_ESTORNOS_CRED', 8: 'VL_TOT_AJ_CREDITOS', 9: 'VL_ESTORNOS_DEB', 11: 'VL_SLD_APURADO', 13: 'VL_ICMS_RECOLHER', 14: 'VL_SLD_CREDOR_TRANSPORTAR' };

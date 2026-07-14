@@ -39,7 +39,21 @@ module.exports = {
             const propria = String(f[3] || '').trim() === '0';
             const base = { linha: l.n, valorAtual: f[12], detalhe: `VL_DOC declarado ${f[12]} ≠ apurado ${fromCents(calc)} (dif ${fromCents(Math.abs(calc - decl))}) na NF ${f[8] || '?'}.` };
             if (!propria) {
-                erros.push({ ...base, campo: 'VL_DOC', campoIdx: 12, valorSugerido: fromCents(calc), severidade: 'BLOQ', classeCorrecao: 'fiscal-deterministico' });
+                // ⚠️ FALSO POSITIVO conhecido (validado contra 4 vNF reais da SEFAZ): quando o ERP grava o
+                // TOTAL da nota em VL_MERC (que já inclui frete/despesas) e AINDA preenche VL_FRT à parte, o
+                // frete é contado 2× e recompor o VL_DOC o INFLA — sendo que o VL_DOC declarado já é o vNF.
+                // Nesse padrão o campo errado é o VL_MERC (deveria ser o vProd), não o VL_DOC.
+                const adicionais = toCents(f[18]) + toCents(f[19]) + vlOut + toCents(f[24]) + toCents(f[25]);
+                if (decl === vlMerc && (calc - decl) === adicionais && adicionais > 0) {
+                    // AMBÍGUO sem o XML (registros byte-idênticos): (a) VL_MERC embutiu o total → reduzir VL_MERC;
+                    // ou (b) o VL_DOC esqueceu de somar frete/IPI → inflar o VL_DOC. Não decidir sozinho: ADV com
+                    // as duas hipóteses cruzadas ao vNF. Nunca fiscal-deterministico, nunca sugerir VL_MERC negativo.
+                    const mercCerto = vlMerc - adicionais + toCents(f[14]) + toCents(f[15]);
+                    erros.push({ ...base, campo: 'VL_DOC/VL_MERC', severidade: 'ADV', classeCorrecao: 'manual', detalhe: base.detalhe + ` Confira contra o vNF do XML: se o vNF = ${f[12]}, o VL_MERC embutiu o total (ajuste o VL_MERC para ${mercCerto >= 0 ? fromCents(mercCerto) : '(revisar)'}); se o vNF = ${fromCents(calc)}, o VL_DOC esqueceu frete/despesas (ajuste o VL_DOC).` });
+                } else {
+                    // divergência genuína — sem o XML não dá pra afirmar o VL_DOC certo → ADV/manual (não inflar)
+                    erros.push({ ...base, campo: 'VL_DOC', campoIdx: 12, valorSugerido: fromCents(calc), severidade: 'ADV', classeCorrecao: 'manual', detalhe: base.detalhe + ' Terceiros: confira o VL_DOC contra o vNF do XML antes de corrigir (recompor pode inflar um VL_DOC já correto).' });
+                }
             } else if (decl === vlMerc && (calc - decl) === vlOut && vlOut !== 0) {
                 // Correção é no VL_OUT_DA (campo 20), NÃO no VL_DOC → "Valor atual" tem de mostrar o VL_OUT_DA (f[20]), não o VL_DOC (f[12]).
                 erros.push({ ...base, valorAtual: f[20], campo: 'VL_OUT_DA', campoIdx: 20, valorSugerido: '0,00', severidade: 'BLOQ', classeCorrecao: 'fiscal-deterministico', detalhe: base.detalhe + ` Emissão própria: VL_DOC=vNF (${f[12]}) preservado; a despesa acessória VL_OUT_DA (${f[20]}) espúria é que vai a 0,00.` });

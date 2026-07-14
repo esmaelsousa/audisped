@@ -4,7 +4,8 @@
 // isso por cima do .txt correto → PVA "CFOP inválido" + "combinação CST/CFOP/ALIQ do C190 sem item".
 // O export já corrige (guard anti-off-by-one ignora o banco corrompido e confia no .txt) →
 // jaCorrigidoNoExport=true. Posições C170: f[10]=CST_ICMS, f[11]=CFOP, f[12]=COD_NAT.
-const CFOP_OK = (v) => /^[1-7]\d{3}$/.test(String(v || '').trim());
+// CFOP válido: 4 dígitos iniciando em 1/2/3 (entrada) ou 5/6/7 (saída) — NÃO existe CFOP começando em 4.
+const CFOP_OK = (v) => /^[123567]\d{3}$/.test(String(v || '').trim());
 
 module.exports = {
     id: 'DOC-C170-CFOP-01',

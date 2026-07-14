@@ -31,7 +31,7 @@ module.exports = {
                 const mod = l.f[5];
                 const sit = l.f[d.is];
                 if (!d.mods.includes(mod)) continue;
-                if (!['00', '06', '07', '08'].includes(sit)) continue; // pula cancelado/denegado
+                if (!['00', '01', '06', '07', '08'].includes(sit)) continue; // regulares (00) e extemporâneo regular (01) exigem chave; pula cancelado/denegado (02-05)
                 const ch = (l.f[d.ic] || '').replace(/\D/g, '');
                 if (ch.length !== 44) {
                     erros.push({ bloco: d.reg[0], registro: d.reg, linha: l.n, campo: 'CHV', campoIdx: d.ic, valorAtual: l.f[d.ic] || '(vazio)', detalhe: `A chave deve ter 44 dígitos (tem ${ch.length}).` });

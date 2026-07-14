@@ -23,11 +23,14 @@ module.exports = {
     // qualificado; se qualquer linha for FORTE (ICMS/alíq≠0), o documento é FORTE. Reproduz 57=57 (arq 2028).
     detectar(model) {
         const erros = [];
+        // Exceção fiscal: em MG/RN/SC o CFOP 5929/6929 carrega valor/alíquota/ICMS legitimamente →
+        // o sinal FORTE (bitributação) vira ADV nesses estados, não BLOQ.
+        const ufExcecao = ['MG', 'RN', 'SC'].includes(String(model.uf || '').toUpperCase());
         let cur = null; // { linha, num, forte:{cfop,icms,aliq}|null, fraco:{cfop,vlopr}|null }
         const flush = () => {
             if (!cur) return;
             const e = cur.forte, w = cur.fraco;
-            if (e) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${e.cfop} ICMS ${e.icms}`, severidade: 'BLOQ', detalhe: `NF nº ${cur.num}: CFOP ${e.cfop} com ICMS ${e.icms} / alíq ${e.aliq} — indício de bitributação (deveriam ser 0).` });
+            if (e) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${e.cfop} ICMS ${e.icms}`, severidade: ufExcecao ? 'ADV' : 'BLOQ', detalhe: `NF nº ${cur.num}: CFOP ${e.cfop} com ICMS ${e.icms} / alíq ${e.aliq}${ufExcecao ? ` — em ${String(model.uf).toUpperCase()} o 5929/6929 pode carregar ICMS legitimamente; confira.` : ' — indício de bitributação (deveriam ser 0).'}` });
             else if (w) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${w.cfop} VL_OPR ${w.vlopr}`, severidade: 'ADV', detalhe: `NF nº ${cur.num}: CFOP ${w.cfop} com VL_OPR ${w.vlopr} (ICMS/alíq zerados) — provável monofásico/injeção 5929 legítimo; verificar.` });
         };
         for (const l of model.linhas) {

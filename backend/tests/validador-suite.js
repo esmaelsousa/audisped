@@ -357,10 +357,18 @@ t('2890 emissão PRÓPRIA (VL_DOC==VL_MERC, delta==VL_OUT_DA) → zera VL_OUT_DA
     assert.strictEqual(e.valorSugerido, '0,00');
     assert.strictEqual(e.classeCorrecao, 'fiscal-deterministico');
 });
-t('2890 emissão de TERCEIROS → recompõe VL_DOC (campo 12)', () => {
+// TERCEIROS com VL_DOC==VL_MERC e delta==componente aditivo (aqui VL_OUT_DA) = padrão "VL_MERC embute o
+// total" → aponta o VL_MERC (não infla o VL_DOC, que é o vNF). Corrigido após auditoria vs vNF real.
+t('2890 TERCEIROS (padrão ambíguo VL_MERC==VL_DOC) → ADV, não infla VL_DOC nem auto-corrige', () => {
     const e = run(H([C100vd('2903,78', '2903,78', '156,78', '1')])).erros.find(x => x.regra_id === 'DOC-C100-VLDOC-01');
+    assert.strictEqual(e.severidade, 'ADV');
+    assert.ok(!e.valorSugerido, 'não sugere valor automático');
+});
+// TERCEIROS com divergência genuína (VL_DOC ≠ VL_MERC) → recompor VL_DOC, mas como ADV/manual (sem XML)
+t('2890 TERCEIROS divergência genuína → VL_DOC como ADV/manual (não BLOQ que infla)', () => {
+    const e = run(H([C100vd('1000,00', '900,00', '50,00', '1')])).erros.find(x => x.regra_id === 'DOC-C100-VLDOC-01');
     assert.strictEqual(e.campoIdx, 12);
-    assert.strictEqual(e.valorSugerido, '3060,56');
+    assert.strictEqual(e.severidade, 'ADV');
 });
 
 // ---------- DOC-C170-ICMSSEMBASE-01 (E-Aud 2075) ----------
@@ -496,10 +504,10 @@ t('4028 -: modelos diferentes não se misturam na sequência', () => assert.ok(!
 // ---------- DOC-C190-CFOPUF-01 (E-Aud 2742: CFOP interno 1/5 com participante de outra UF) ----------
 // H() declara UF=BA. 0150 com COD_MUN 3550308 = SP (35); 2921708 = BA (29).
 const P0150 = (part, codMun, pais = '1058') => `|0150|${part}|FORN|${pais}|${part}|||${codMun}||END|1||B|`;
-t('2742 +: CFOP 5 com participante SP (declarante BA) dispara', () => assert.ok(fires(H([P0150('PSP', '3550308'), C100(CHAVE(), { part: 'PSP' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
-t('2742 -: CFOP 5 com participante BA (mesma UF) não dispara', () => assert.ok(!fires(H([P0150('PBA', '2921708'), C100(CHAVE(), { part: 'PBA' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 +: CFOP 5 com participante SP (declarante BA) dispara', () => assert.ok(fires(H([P0150('PSP', '3550308'), C100(CHAVE(), { part: 'PSP' }), C190({ cfop: '5102' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 -: CFOP 5 com participante BA (mesma UF) não dispara', () => assert.ok(!fires(H([P0150('PBA', '2921708'), C100(CHAVE(), { part: 'PBA' }), C190({ cfop: '5102' })]), 'DOC-C190-CFOPUF-01')));
 t('2742 -: CFOP 6 (interestadual) com participante SP não dispara', () => assert.ok(!fires(H([P0150('PSP', '3550308'), C100(CHAVE(), { part: 'PSP' }), C190({ cfop: '6929' })]), 'DOC-C190-CFOPUF-01')));
-t('2742 -: participante do exterior (COD_PAIS≠1058) não dispara', () => assert.ok(!fires(H([P0150('PEX', '', '2496'), C100(CHAVE(), { part: 'PEX' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 -: participante do exterior (COD_PAIS≠1058) não dispara', () => assert.ok(!fires(H([P0150('PEX', '', '2496'), C100(CHAVE(), { part: 'PEX' }), C190({ cfop: '5102' })]), 'DOC-C190-CFOPUF-01')));
 
 // ---------- changelog: detalhe item-a-item preservado sob o grupo (relatório "o que foi corrigido") ----------
 // Duas NFs corrigidas no MESMO campo→mesmo valor agrupam em 1 entrada ×2, mas cada item (chave/antes)
@@ -562,6 +570,135 @@ t('agruparPorSugestao: junta por regra, expande itens NF-a-NF, soma total', () =
     assert.equal(cards[0].correcoes[0].chave, 'NF1');
     assert.equal(cards[0].correcoes[2].chave, null, 'entrada sem itens vira 1 linha sem chave');
     assert.ok(typeof cards[0].descricao === 'string' && cards[0].descricao.length > 0, 'tem descrição legível');
+});
+
+// ---------- AUDITORIA: correções de falsos positivos/negativos (2026-07-14) ----------
+// [ALTA] DOC-C100-VLDOC-01: terceiros com VL_MERC contendo o TOTAL (frete embutido) + VL_FRT à parte
+// → NÃO inflar o VL_DOC (que é o vNF); apontar o VL_MERC. Provado vs 4 vNF reais da SEFAZ.
+t('VLDOC terceiros: padrão ambíguo (VL_MERC==VL_DOC) → ADV com as 2 hipóteses, sem auto-corrigir', () => {
+    const r = require('../services/validador/rules/r_c100_vl_doc');
+    const f = '|C100|0|1|PART|55|00|001|100|CHAVE|01012022|01012022|880,17|2|0,00|0,00|880,17|0|36,90|0,00|0,00|0,00|0,00|0,00|0,00|0,00|X|'.split('|');
+    const e = r.detectar({ porReg: new Map([['C100', [{ n: 1, f }]]]) });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].severidade, 'ADV');                 // ambíguo sem o XML → não determinístico
+    assert.ok(!e[0].campoIdx && !e[0].valorSugerido, 'não sugere valor automático (nem VL_DOC nem VL_MERC)');
+    assert.ok(/VL_DOC/.test(e[0].detalhe) && /VL_MERC/.test(e[0].detalhe), 'apresenta as duas hipóteses');
+});
+
+// [ALTA] APUR-E210-SALDO-01: f11 (SLD_DEV_ANT_ST) espelha f8 (RETENCAO_ST) → não dobrar o ICMS-ST.
+t('E210: f11 espelha a retenção (f8) → ADV no f11, não dobra o ICMS-ST a recolher', () => {
+    const r = require('../services/validador/rules/r_e210_saldo');
+    const f = '|E210|1|0,00|0,00|0,00|0,00|0,00|956,31|0,00|0,00|956,31|0,00|956,31|0,00|0,00|'.split('|');
+    const e = r.detectar({ linhas: [{ reg: 'E210', n: 1, f }] });
+    assert.ok(e.some(x => x.campo === 'VL_SLD_DEV_ANT_ST' && x.severidade === 'ADV'), 'aponta o f11 como ADV (ambíguo)');
+    assert.ok(!e.some(x => x.campoIdx === 13 && x.valorSugerido === '1912,62'), 'não sugere dobrar o f13 sem confirmar');
+});
+
+// [MEDIA] CAD-0200-03: NCM placeholder 00000000/99999999 (8 dígitos porém inválido) deve disparar.
+t('NCM 0200: placeholder 00000000 (TIPO 00) dispara', () => {
+    const r = require('../services/validador/rules/r_ncm_0200');
+    const f = '|0200|PROC INFO|desc|||UN|00|00000000||96||||'.split('|');
+    assert.equal(r.detectar({ porReg: new Map([['0200', [{ n: 1, f }]]]) }).length, 1);
+    const okf = '|0200|GASOLINA|desc|||UN|00|27101259||96||||'.split('|');
+    assert.equal(r.detectar({ porReg: new Map([['0200', [{ n: 1, f: okf }]]]) }).length, 0);
+});
+
+// [MEDIA] INV-1360-DATA-01: data impossível (30/02) com ano ok deve disparar; data real não.
+t('1360 data: 30/02 (impossível) dispara; data real não', () => {
+    const r = require('../services/validador/rules/r_1360_data');
+    const bad = '|1360|LACRE1|30022005|'.split('|');
+    assert.equal(r.detectar({ porReg: new Map([['1360', [{ n: 1, f: bad }]]]) }).length, 1);
+    const ok = '|1360|LACRE1|15032005|'.split('|');
+    assert.equal(r.detectar({ porReg: new Map([['1360', [{ n: 1, f: ok }]]]) }).length, 0);
+});
+
+// [BAIXA] DOC-CHV-DV: COD_SIT 01 (extemporâneo regular) exige chave — DV inválido deve disparar.
+t('chave: COD_SIT 01 com DV inválido dispara (antes era pulado)', () => {
+    assert.ok(fires(H([C100('0'.repeat(43) + '5', { sit: '01' })]), 'DOC-CHV-DV'));
+});
+
+// [BAIXA] DOC-C170-CFOP-01: CFOP começando em 4 é inválido (não existe).
+t('CFOP C170: "4000" (começa em 4) é inválido', () => {
+    const r = require('../services/validador/rules/r_cfop_c170_invalido');
+    const f = '|C170|1|IT|DESC|1|UN|100,00|0|0|000|4000|000|'.split('|');
+    assert.equal(r.detectar({ porReg: new Map([['C170', [{ n: 1, f }]]]) }).length, 1);
+});
+
+// [MEDIA] DOC-0200-GTIN-01: numérico com comprimento/DV inválido → ADV; texto → BLOQ; GTIN válido → nada.
+t('GTIN 0200: numérico inválido→ADV, texto→BLOQ, GTIN válido→nada', () => {
+    const r = require('../services/validador/rules/r_cod_barra_0200');
+    const mk = (cb) => r.detectar({ porReg: new Map([['0200', [{ n: 1, f: ('|0200|IT|DESC|' + cb + '|').split('|') }]]]) });
+    assert.equal(mk('12345').length, 1);
+    assert.equal(mk('12345')[0].severidade, 'ADV');
+    assert.equal(mk('SEM GTIN')[0].severidade, 'BLOQ');
+    assert.equal(mk('00000000').length, 0);   // GTIN-8 com DV 0 = válido
+});
+
+// [BAIXA] EST-HIER-01: E115 é filho direto do E110 (não do E111).
+t('hierarquia: E115 com E110 antes não é órfão', () => {
+    const r = require('../services/validador/rules/r_hierarquia');
+    const L = (reg) => ({ reg, n: 1, f: ['', reg] });
+    const e = r.detectar({ linhas: [L('E100'), L('E110'), L('E115')] });
+    assert.ok(!e.some(x => x.registro === 'E115'));
+});
+
+// [MEDIA] INV-E110-01: campo 13 (ICMS a recolher) = 11 − 12, sem somar DEB_ESP (f15).
+t('E110 regra f13: não soma DEB_ESP (f15) ao ICMS a recolher', () => {
+    const r = require('../services/validador/rules/r_e110_apuracao');
+    const f = '|E110|100,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00|100,00|0,00|100,00|0,00|30,00|'.split('|');
+    const e = r.detectar({ linhas: [{ reg: 'E110', n: 1, f }] });
+    assert.ok(!e.some(x => x.campoIdx === 13), 'DEB_ESP não deve inflar o esperado do f13');
+});
+
+// [MEDIA] DOC-C190-ICMSSEMBASE-01: CST 50/51 (suspensão/diferimento) → ADV, sem sugerir zerar.
+t('C190 sem base: CST 51 (diferimento) → ADV sem valorSugerido', () => {
+    const r = require('../services/validador/rules/r_c190_icms_sem_base');
+    const f = '|C190|051|1102|18,00|100,00|100,00|0,00|0|0||'.split('|');
+    const e = r.detectar({ porReg: new Map([['C190', [{ n: 1, f }]]]) });
+    assert.equal(e.length, 1); assert.equal(e[0].severidade, 'ADV'); assert.ok(!e[0].valorSugerido);
+});
+
+// [MEDIA] DOC-C170-ICMSSEMBASE-01: CST creditável (00) com crédito real → ADV; uso/consumo → BLOQ 0,00.
+t('C170 sem base: CST creditável com crédito real → ADV; não-creditante → BLOQ 0,00', () => {
+    const r = require('../services/validador/rules/r_c170_icms_sem_base');
+    const cred = '|C170|1|IT|DESC|1|UN|100,00|0|0|000|1102|000|0,00|18,00|18,00|'.split('|');
+    const ec = r.detectar({ porReg: new Map([['C170', [{ n: 1, f: cred }]]]) });
+    assert.equal(ec[0].severidade, 'ADV'); assert.ok(!ec[0].valorSugerido);
+    const uso = '|C170|1|IT|DESC|1|UN|100,00|0|0|090|1556|000|0,00|18,00|0,00|'.split('|');
+    const eu = r.detectar({ porReg: new Map([['C170', [{ n: 1, f: uso }]]]) });
+    assert.equal(eu[0].valorSugerido, '0,00');
+});
+
+// [MEDIA] DOC-C100-5929-01: em MG/RN/SC o FORTE (ICMS≠0) vira ADV, não BLOQ.
+t('5929: FORTE em SC (exceção fiscal) → ADV, não BLOQ', () => {
+    const r = require('../services/validador/rules/r_c100_5929');
+    const linhas = [
+        { reg: 'C100', n: 1, f: '|C100|1|0||65|00|001|5|CHV|'.split('|') },
+        { reg: 'C190', n: 2, f: '|C190|061|5929|18,00|100,00|100,00|18,00|0|0||'.split('|') },
+    ];
+    const e = r.detectar({ uf: 'SC', linhas });
+    assert.ok(e.some(x => x.severidade === 'ADV') && !e.some(x => x.severidade === 'BLOQ'));
+});
+
+// [MEDIA] DOC-C190-CFOPUF-01: CFOP 5929 (venda presencial/ECF) é interno por natureza → excluído.
+t('CFOPUF: 5929 excluído; 5102 com participante de outra UF dispara', () => {
+    const r = require('../services/validador/rules/r_cfop_uf_participante');
+    const p = { reg: '0150', n: 1, f: '|0150|P1|FORN|1058|P1|||3550308||END|'.split('|') };
+    const c1 = { reg: 'C100', n: 2, f: '|C100|0|0|P1|55|00|1|100|CHV|'.split('|') };
+    const mk = (cfop) => r.detectar({ uf: 'BA', porReg: new Map([['0150', [p]]]), linhas: [c1, { reg: 'C190', n: 3, f: ('|C190|000|' + cfop + '|18,00|100,00|100,00|18,00|0|0||').split('|') }] });
+    assert.equal(mk('5929').length, 0);
+    assert.equal(mk('5102').length, 1);
+});
+
+// [MEDIA] DOC-C191-FCP-01: pai com VL_ICMS_ST>0 → ADV (não zerar o FCP); sem ST → BLOQ 0,00.
+t('C191 FCP: CST≠x60 com VL_FCP_RET>0 → BLOQ 0,00 (consistente com o export)', () => {
+    const r = require('../services/validador/rules/r_c191_fcp');
+    const e = r.detectar({ linhas: [
+        { reg: 'C100', n: 1, f: '|C100|'.split('|') },
+        { reg: 'C190', n: 2, f: '|C190|040|1102|18,00|100,00|100,00|18,00|0|0,00||'.split('|') },
+        { reg: 'C191', n: 3, f: '|C191|0,00|0,00|0,15|'.split('|') },
+    ] });
+    assert.equal(e[0].valorSugerido, '0,00');
 });
 
 // ---------- resultado ----------

@@ -22,6 +22,9 @@ module.exports = {
             if (l.reg === 'C100') { cstPai = ''; continue; }
             if (l.reg === 'C190') { cstPai = String(l.f[2] || '').trim(); continue; }
             if (l.reg === 'C191' && l.f.length > 4) {
+                // NB: detecção e export (corrigirC191FcpRet) zeram o VL_FCP_RET fora de x60/500. Um tratamento
+                // ST-aware (não zerar quando o C190 pai tem VL_ICMS_ST>0) exige alinhar detecção + export juntos —
+                // pendente (ver auditoria 2026-07-14). Mantido consistente com o export por ora.
                 if (num(l.f[4]) !== 0 && !ehST(cstPai)) {
                     erros.push({ bloco: 'C', registro: 'C191', linha: l.n, campo: 'VL_FCP_RET', campoIdx: 4, valorAtual: l.f[4], valorSugerido: '0,00', detalhe: `VL_FCP_RET (${l.f[4]}) só pode ser preenchido se o CST do C190 pai for x60 ou 500 — o pai tem CST ${cstPai || '(?)'}. ` });
                 }

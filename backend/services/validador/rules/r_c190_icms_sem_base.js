@@ -26,7 +26,15 @@ module.exports = {
             const f = l.f;
             const aliq = parseFloat(String(f[4] || '0').replace(',', '.')) || 0;
             if (aliq > 0 && (toCents(f[6]) === 0 || toCents(f[7]) === 0)) {
-                erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 4, valorAtual: f[4], valorSugerido: '0,00', detalhe: `C190 ALIQ ${f[4]}% com BC ${f[6]} / VL_ICMS ${f[7]} (CST ${f[2]}, CFOP ${f[3]}).` });
+                // CST 50 (suspensão) / 51 (diferimento): base>0 e VL_ICMS=0 são LEGÍTIMOS → não é bloqueante
+                // nem se sugere zerar a alíquota; sinaliza como ADV para conferência.
+                const cst = String(f[2] || '').trim();
+                const suspDif = cst.endsWith('50') || cst.endsWith('51');
+                if (suspDif) {
+                    erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 4, severidade: 'ADV', valorAtual: f[4], detalhe: `C190 ALIQ ${f[4]}% com BC ${f[6]} / VL_ICMS ${f[7]} — CST ${cst} (suspensão/diferimento): VL_ICMS=0 pode ser legítimo, confira (não zere a alíquota automaticamente).` });
+                } else {
+                    erros.push({ linha: l.n, campo: 'ALIQ_ICMS', campoIdx: 4, valorSugerido: '0,00', detalhe: `C190 ALIQ ${f[4]}% com BC ${f[6]} / VL_ICMS ${f[7]} (CST ${cst}, CFOP ${f[3]}).` });
+                }
             }
         }
         return erros;

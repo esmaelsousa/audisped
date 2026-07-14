@@ -30,7 +30,20 @@ module.exports = {
             const espRecol = Math.max(0, deb - cred - c(f[12]));
             const espTransp = Math.max(0, cred - deb);
             if (c(f[13]) !== espRecol) {
-                erros.push({ bloco: 'E', registro: 'E210', linha: l.n, campo: 'VL_ICMS_RECOL_ST', campoIdx: 13, severidade: 'BLOQ', valorAtual: fmt(c(f[13])), valorSugerido: fmt(espRecol), detalhe: `VL_ICMS_RECOL_ST (${fmt(c(f[13]))}) ≠ esperado ${fmt(espRecol)} = max(0, débitos ${fmt(deb)} − créditos ${fmt(cred)} − deduções ${f[12]}).` });
+                // ⚠️ FALSO POSITIVO conhecido: alguns ERPs espelham a VL_RETENCAO_ST (f8) dentro do
+                // VL_SLD_DEV_ANT_ST (f11) → a retenção entra 2× nos débitos e a regra sugeriria DOBRAR o
+                // ICMS-ST a recolher. Se, removido o f11, o f13 declarado já fecha, o total está CORRETO e o
+                // campo espúrio é o f11 — apontar o f11 (ADV), NUNCA sugerir aumentar o imposto.
+                const dupF11 = c(f[8]) > 0 && c(f[8]) === c(f[11]);
+                const espRecolSemF11 = Math.max(0, (c(f[8]) + c(f[9]) + c(f[10])) - cred - c(f[12]));
+                if (dupF11 && c(f[13]) === espRecolSemF11) {
+                    // AMBÍGUO: f11 == f8 tanto pode ser o ERP espelhando a retenção (duplicidade → f13 já certo)
+                    // quanto um saldo devedor anterior REAL igual à retenção (→ f13 subdeclarado). Sem decidir
+                    // por conta própria: ADV apresentando os dois cenários (não suprimir uma possível subdeclaração).
+                    erros.push({ bloco: 'E', registro: 'E210', linha: l.n, campo: 'VL_SLD_DEV_ANT_ST', severidade: 'ADV', valorAtual: fmt(c(f[11])), detalhe: `VL_SLD_DEV_ANT_ST (${fmt(c(f[11]))}) é IGUAL à VL_RETENCAO_ST (${fmt(c(f[8]))}). Confira qual é o caso: (1) o ERP espelhou a retenção no f11 (duplicidade) → o VL_ICMS_RECOL_ST (${fmt(c(f[13]))}) já está correto, zere o f11; (2) o f11 é um saldo devedor anterior REAL → então o VL_ICMS_RECOL_ST deveria ser ${fmt(espRecol)} (recolher a mais ${fmt(espRecol - c(f[13]))}).` });
+                } else {
+                    erros.push({ bloco: 'E', registro: 'E210', linha: l.n, campo: 'VL_ICMS_RECOL_ST', campoIdx: 13, severidade: 'BLOQ', valorAtual: fmt(c(f[13])), valorSugerido: fmt(espRecol), detalhe: `VL_ICMS_RECOL_ST (${fmt(c(f[13]))}) ≠ esperado ${fmt(espRecol)} = max(0, débitos ${fmt(deb)} − créditos ${fmt(cred)} − deduções ${f[12]}).` });
+                }
             }
             if (c(f[14]) !== espTransp) {
                 erros.push({ bloco: 'E', registro: 'E210', linha: l.n, campo: 'VL_SLD_CRED_ST_TRANSPORTAR', campoIdx: 14, severidade: 'BLOQ', valorAtual: fmt(c(f[14])), valorSugerido: fmt(espTransp), detalhe: `VL_SLD_CRED_ST_TRANSPORTAR (${fmt(c(f[14]))}) ≠ esperado ${fmt(espTransp)} = max(0, créditos ${fmt(cred)} − débitos ${fmt(deb)}).` });

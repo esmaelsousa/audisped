@@ -41,6 +41,7 @@ module.exports = {
             if (l.reg !== 'C190') continue;
             const cfop = String(l.f[3] || '').trim();
             if (!/^[15]\d{3}$/.test(cfop)) continue; // só CFOP interno (1xxx/5xxx)
+            if (/929$/.test(cfop)) continue; // 1929/5929 = lançamento por ECF (venda presencial): interno por natureza, mesmo com participante de outra UF
             if (!curPart) continue;
             const pc = partCod.get(curPart);
             if (!pc || pc === declCod) continue; // sem UF definida (exterior/sem COD_MUN) ou mesma UF
