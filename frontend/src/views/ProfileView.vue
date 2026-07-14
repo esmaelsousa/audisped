@@ -13,8 +13,7 @@ import {
 } from 'lucide-vue-next';
 import axios from 'axios';
 import UiButton from '../components/ui/UiButton.vue';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+import { API_BASE_URL } from '../api';
 
 const form = ref({
   nome: usuario.value?.nome || '',
@@ -36,7 +35,7 @@ const handleSubmit = async () => {
   status.value = { type: '', message: '' };
 
   try {
-    const response = await axios.put(`${API_URL}/api/auth/profile`, {
+    const response = await axios.put(`${API_BASE_URL}/api/auth/profile`, {
       nome: form.value.nome,
       email: form.value.email,
       senha: form.value.senha || undefined

@@ -412,8 +412,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             const link = `${APP_BASE_URL}/redefinir-senha?token=${tokenCru}`;
             const { subject, html } = mail.emailRedefinicao(user.nome, link);
             await mail.enviarEmail({ to: email, subject, html });
-            // Em dev (sem RESEND_API_KEY) devolve o link p/ teste; em prod com a key, NUNCA.
-            if (!process.env.RESEND_API_KEY && process.env.NODE_ENV !== 'production') {
+            // Link de teste devolvido SÓ com opt-in explícito (AUTH_EXPOSE_RESET_LINK=1) e sem key real.
+            // Nunca aparece em produção por padrão — o link real vai só por e-mail.
+            if (process.env.AUTH_EXPOSE_RESET_LINK === '1' && !process.env.RESEND_API_KEY) {
                 return res.status(200).json({ ...generico, _devLink: link });
             }
         }

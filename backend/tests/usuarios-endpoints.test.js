@@ -63,7 +63,7 @@ async function esperarServidor(ms = 20000) {
     const idEscrB = await mk(`${SUF}_escrB@test.local`, 'escritorio', redeB);
     const idReset = await mk(`${SUF}_reset@test.local`, 'escritorio', redeA);
 
-    const child = spawn('node', ['server.js'], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, PORT: String(PORT) } });
+    const child = spawn('node', ['server.js'], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, PORT: String(PORT), AUTH_EXPOSE_RESET_LINK: '1' } });
     let serverErr = '';
     child.stderr.on('data', (d) => { serverErr += d.toString(); });
     child.stdout.on('data', () => {});
