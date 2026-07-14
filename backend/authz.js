@@ -75,6 +75,44 @@ function podeGerenciarAlvo(ator, alvo) {
     return false; // staff/escritorio não gerenciam ninguém
 }
 
+// ---- enrich: re-busca role/rede/status do BANCO por id (NUNCA do token) ----
+// Cache curto p/ não bater no banco a cada request nem estourar o pool (MAX_HEAVY_OPS=5).
+const _cacheAtor = new Map(); // id -> { ator, exp }
+const CACHE_MS = 30000;
+
+async function carregarAtor(pool, id) {
+    const agora = Date.now();
+    const hit = _cacheAtor.get(id);
+    if (hit && hit.exp > agora) return hit.ator;
+    const r = await pool.query(
+        'SELECT id, role, rede_id, ativo, precisa_trocar_senha FROM usuarios WHERE id = $1', [id]);
+    const ator = r.rows[0] || null;
+    _cacheAtor.set(id, { ator, exp: agora + CACHE_MS });
+    return ator;
+}
+
+function invalidarCacheAtor(id) {
+    if (id == null) _cacheAtor.clear();
+    else _cacheAtor.delete(Number(id));
+}
+
+// Middleware (roda DEPOIS do authMiddleware): popula req.ator = {id, role, rede_id, ativo, ...}.
+function enrich(pool) {
+    return async (req, res, next) => {
+        try {
+            const id = req.user && req.user.id;
+            if (id == null) return res.status(401).json({ message: 'Sessão inválida.' });
+            const ator = await carregarAtor(pool, id);
+            if (!ator) return res.status(403).json({ message: 'Usuário não encontrado.' });
+            if (ator.ativo === false) return res.status(403).json({ message: 'Usuário desativado.' });
+            req.ator = ator;
+            next();
+        } catch (e) {
+            res.status(500).json({ message: 'Erro de autorização.', error: e.message });
+        }
+    };
+}
+
 module.exports = {
     ROLES,
     ROLES_CROSS_TENANT,
@@ -83,4 +121,7 @@ module.exports = {
     papeisQuePodeCriar,
     resolverCamposNovoUsuario,
     podeGerenciarAlvo,
+    carregarAtor,
+    invalidarCacheAtor,
+    enrich,
 };

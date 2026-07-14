@@ -149,24 +149,14 @@ const authMiddleware = (req, res, next) => {
     }
 };
 
-// --- ROTAS DE AUTENTICAÇÃO ---
-app.post('/api/auth/register', authMiddleware, async (req, res) => {
-    const { nome, email, senha } = req.body;
-    if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha todos os campos.' });
+// --- AUTORIZAÇÃO SaaS (Fatia 1: fundação de usuários) ---
+const authz = require('./authz');
+const enrich = authz.enrich(pool); // popula req.ator re-buscando role/rede do banco por id
 
-    const dbClient = await safeConnect(res);
-    if (!dbClient) return;
-    try {
-        const hashedPassword = await bcrypt.hash(senha, 10);
-        const query = 'INSERT INTO usuarios (nome, email, senha) VALUES ($1, $2, $3) RETURNING id, nome, email';
-        const result = await dbClient.query(query, [nome, email, hashedPassword]);
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        if (err.code === '23505') return res.status(400).json({ message: 'Email já cadastrado.' });
-        res.status(500).json({ message: 'Erro ao criar usuário.', error: err.message });
-    } finally {
-        dbClient.release();
-    }
+// --- ROTAS DE AUTENTICAÇÃO ---
+// Cadastro público DESATIVADO (§13.3): provisionamento é só via POST /api/admin/usuarios (com clamp).
+app.post('/api/auth/register', (req, res) => {
+    res.status(410).json({ message: 'Cadastro público desativado. Use POST /api/admin/usuarios (admin/super).' });
 });
 
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
@@ -193,13 +183,15 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
         let params;
         if (senha) {
             const hashedPassword = await bcrypt.hash(senha, 10);
-            query = 'UPDATE usuarios SET nome = $1, email = $2, senha = $3 WHERE id = $4 RETURNING id, nome, email';
+            // trocar a senha zera a exigência de troca obrigatória (§12.2)
+            query = 'UPDATE usuarios SET nome = $1, email = $2, senha = $3, precisa_trocar_senha = FALSE WHERE id = $4 RETURNING id, nome, email';
             params = [nome, email, hashedPassword, req.user.id];
         } else {
             query = 'UPDATE usuarios SET nome = $1, email = $2 WHERE id = $3 RETURNING id, nome, email';
             params = [nome, email, req.user.id];
         }
         const result = await dbClient.query(query, params);
+        authz.invalidarCacheAtor(req.user.id);
         res.json(result.rows[0]);
     } catch (err) {
         if (err.code === '23505') return res.status(400).json({ message: 'Email já está em uso por outro usuário.' });
@@ -223,9 +215,132 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const token = jwt.sign({ id: user.id, nome: user.nome, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, user: { id: user.id, nome: user.nome, email: user.email } });
+        res.json({
+            token,
+            user: { id: user.id, nome: user.nome, email: user.email },
+            precisa_trocar_senha: user.precisa_trocar_senha === true, // front força a troca no 1º login
+        });
     } catch (err) {
         res.status(500).json({ message: 'Erro no servidor.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// --- GESTÃO DE USUÁRIOS (admin/super) — clamp §13.3, alvo §13.7 ---
+const crypto = require('crypto');
+const gerarSenhaTemporaria = () => crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) + '9a';
+async function registrarAuditoria(dbClient, ator, acao, alvoId, detalhe) {
+    try {
+        await dbClient.query(
+            'INSERT INTO auditoria_seguranca (ator_id, ator_role, acao, alvo_id, detalhe) VALUES ($1,$2,$3,$4,$5)',
+            [ator.id, ator.role, acao, alvoId, detalhe ? JSON.stringify(detalhe) : null]);
+    } catch (e) { logger.warn(`[auditoria] falha ao registrar ${acao}: ${e.message}`); }
+}
+
+// Criar usuário (substitui o /register aberto) — deriva role/rede/modulos do ATOR.
+app.post('/api/admin/usuarios', authMiddleware, enrich, async (req, res) => {
+    const { nome, email, senha } = req.body;
+    if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha nome, email e senha.' });
+    if (!authz.canManageUsers(req.ator)) return res.status(403).json({ message: 'Sem permissão para criar usuários.' });
+
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        // rede que fornece o rol de módulos contratados (para o clamp da interseção)
+        const roleWanted = req.body.role || 'escritorio';
+        let redeParaModulos = null;
+        if (!authz.ROLES_CROSS_TENANT.includes(roleWanted)) {
+            redeParaModulos = req.ator.role === 'admin' ? req.ator.rede_id : req.body.rede_id;
+        }
+        let contratados = [];
+        if (redeParaModulos != null) {
+            const rr = await dbClient.query('SELECT modulos_contratados FROM redes WHERE id = $1', [redeParaModulos]);
+            contratados = (rr.rows[0] && rr.rows[0].modulos_contratados) || [];
+        }
+
+        const resolved = authz.resolverCamposNovoUsuario(req.ator, req.body, contratados);
+        if (!resolved.ok) return res.status(resolved.status).json({ message: resolved.motivo });
+        const { role, rede_id, modulos } = resolved.campos;
+
+        const hashedPassword = await bcrypt.hash(senha, 10);
+        const result = await dbClient.query(
+            `INSERT INTO usuarios (nome, email, senha, role, rede_id, modulos, ativo, precisa_trocar_senha)
+             VALUES ($1,$2,$3,$4,$5,$6::jsonb,TRUE,FALSE)
+             RETURNING id, nome, email, role, rede_id, modulos, ativo`,
+            [nome, email, hashedPassword, role, rede_id, JSON.stringify(modulos)]);
+        await registrarAuditoria(dbClient, req.ator, 'criar_usuario', result.rows[0].id, { role, rede_id });
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === '23505') return res.status(400).json({ message: 'Email já cadastrado.' });
+        res.status(500).json({ message: 'Erro ao criar usuário.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Listar usuários — escopo por rede (super/staff veem todas; admin só a própria).
+app.get('/api/admin/usuarios', authMiddleware, enrich, async (req, res) => {
+    if (!authz.canManageUsers(req.ator)) return res.status(403).json({ message: 'Sem permissão.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const cols = 'id, nome, email, role, rede_id, ativo, precisa_trocar_senha, modulos, criado_em';
+        let result;
+        if (req.ator.role === 'super_admin' || req.ator.role === 'staff') {
+            result = await dbClient.query(`SELECT ${cols} FROM usuarios ORDER BY id`);
+        } else { // admin → só a própria rede
+            result = await dbClient.query(`SELECT ${cols} FROM usuarios WHERE rede_id = $1 ORDER BY id`, [req.ator.rede_id]);
+        }
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao listar usuários.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Desativar usuário (soft) — alvo conforme §13.7.
+app.patch('/api/admin/usuarios/:id/desativar', authMiddleware, enrich, async (req, res) => {
+    const alvoId = parseInt(req.params.id);
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const alvoR = await dbClient.query('SELECT id, role, rede_id FROM usuarios WHERE id = $1', [alvoId]);
+        const alvo = alvoR.rows[0];
+        if (!alvo) return res.status(404).json({ message: 'Usuário não encontrado.' });
+        if (!authz.podeGerenciarAlvo(req.ator, alvo)) return res.status(403).json({ message: 'Sem permissão sobre este usuário.' });
+
+        await dbClient.query('UPDATE usuarios SET ativo = FALSE WHERE id = $1', [alvoId]);
+        authz.invalidarCacheAtor(alvoId);
+        await registrarAuditoria(dbClient, req.ator, 'desativar_usuario', alvoId, null);
+        res.json({ id: alvoId, ativo: false });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao desativar usuário.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Reset de senha — senha temporária + troca obrigatória (§12.2); alvo conforme §13.7.
+app.post('/api/admin/usuarios/:id/reset-senha', authMiddleware, enrich, async (req, res) => {
+    const alvoId = parseInt(req.params.id);
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const alvoR = await dbClient.query('SELECT id, role, rede_id FROM usuarios WHERE id = $1', [alvoId]);
+        const alvo = alvoR.rows[0];
+        if (!alvo) return res.status(404).json({ message: 'Usuário não encontrado.' });
+        if (!authz.podeGerenciarAlvo(req.ator, alvo)) return res.status(403).json({ message: 'Sem permissão sobre este usuário.' });
+
+        const temporaria = gerarSenhaTemporaria();
+        const hashed = await bcrypt.hash(temporaria, 10);
+        await dbClient.query('UPDATE usuarios SET senha = $1, precisa_trocar_senha = TRUE WHERE id = $2', [hashed, alvoId]);
+        authz.invalidarCacheAtor(alvoId);
+        await registrarAuditoria(dbClient, req.ator, 'reset_senha', alvoId, null);
+        res.json({ id: alvoId, senhaTemporaria: temporaria }); // devolvida UMA vez p/ o admin repassar
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao resetar senha.', error: err.message });
     } finally {
         dbClient.release();
     }
