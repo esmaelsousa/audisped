@@ -91,8 +91,11 @@ async function handleSubmit() {
           </UiButton>
         </form>
 
-        <!-- Acesso é provisionado pelo administrador (sem autocadastro público) -->
-        <div class="border-t border-line pt-4">
+        <!-- Esqueci a senha + acesso provisionado pelo admin -->
+        <div class="border-t border-line pt-4 space-y-2">
+          <RouterLink to="/esqueci-senha" class="block text-[12px] text-risco hover:text-bronze transition-colors">
+            Esqueci minha senha
+          </RouterLink>
           <p class="text-[12px] text-risco">
             Não tem acesso? Solicite ao administrador da sua conta.
           </p>

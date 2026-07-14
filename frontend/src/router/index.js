@@ -16,6 +16,16 @@ const router = createRouter({
       component: LoginView
     },
     {
+      path: '/esqueci-senha',
+      name: 'esqueci-senha',
+      component: () => import('../views/EsqueciSenhaView.vue')
+    },
+    {
+      path: '/redefinir-senha',
+      name: 'redefinir-senha',
+      component: () => import('../views/RedefinirSenhaView.vue')
+    },
+    {
       path: '/',
       name: 'home',
       component: EmpresasView, // Lista de Empresas
@@ -138,8 +148,9 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !token.value) {
     return next('/login');
   }
-  // 2) troca de senha obrigatória: trava tudo até trocar (exceto a própria tela e o login)
-  if (token.value && precisaTrocarSenha.value && to.path !== '/trocar-senha' && to.path !== '/login') {
+  // 2) troca de senha obrigatória: trava tudo até trocar (exceto telas de auth público)
+  const rotasPublicas = ['/trocar-senha', '/login', '/esqueci-senha', '/redefinir-senha'];
+  if (token.value && precisaTrocarSenha.value && !rotasPublicas.includes(to.path)) {
     return next('/trocar-senha');
   }
   // 3) rotas por papel (default-deny se sessão antiga sem role)

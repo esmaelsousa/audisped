@@ -61,6 +61,7 @@ async function esperarServidor(ms = 20000) {
     const idAdminA2 = await mk(`${SUF}_adminA2@test.local`, 'admin', redeA);
     const idEscrA = await mk(`${SUF}_escrA@test.local`, 'escritorio', redeA);
     const idEscrB = await mk(`${SUF}_escrB@test.local`, 'escritorio', redeB);
+    const idReset = await mk(`${SUF}_reset@test.local`, 'escritorio', redeA);
 
     const child = spawn('node', ['server.js'], { cwd: require('path').join(__dirname, '..'), env: { ...process.env, PORT: String(PORT) } });
     let serverErr = '';
@@ -177,6 +178,45 @@ async function esperarServidor(ms = 20000) {
             const lj = await login.json();
             assert.equal(lj.precisa_trocar_senha, false);
             assert.equal(lj.user.role, 'escritorio');
+        });
+        // ---- Esqueci minha senha (auto-serviço) ----
+        await t('forgot-password com e-mail desconhecido → 200 genérico, sem token', async () => {
+            const antes = await client.query('SELECT count(*)::int n FROM password_reset_tokens');
+            const r = await api('POST', '/api/auth/forgot-password', null, { email: 'naoexiste@nada.local' });
+            assert.equal(r.status, 200);
+            const depois = await client.query('SELECT count(*)::int n FROM password_reset_tokens');
+            assert.equal(depois.rows[0].n, antes.rows[0].n); // não cria token p/ e-mail inexistente
+        });
+
+        let devToken = null;
+        await t('forgot-password com e-mail válido → 200 + token gerado (devLink em dev)', async () => {
+            const r = await api('POST', '/api/auth/forgot-password', null, { email: `${SUF}_reset@test.local` });
+            assert.equal(r.status, 200);
+            const j = await r.json();
+            assert.ok(j._devLink, 'em dev (sem RESEND_API_KEY) deve devolver o link p/ teste');
+            devToken = new URL(j._devLink).searchParams.get('token');
+            assert.ok(devToken && devToken.length >= 32);
+            const row = await client.query('SELECT count(*)::int n FROM password_reset_tokens WHERE usuario_id=$1 AND usado=false', [idReset]);
+            assert.equal(row.rows[0].n, 1);
+        });
+
+        await t('reset-password com token válido → 200 + login com a nova senha', async () => {
+            const r = await api('POST', '/api/auth/reset-password', null, { token: devToken, senha: 'ResetPass123' });
+            assert.equal(r.status, 200);
+            const login = await api('POST', '/api/auth/login', null, { email: `${SUF}_reset@test.local`, senha: 'ResetPass123' });
+            assert.equal(login.status, 200);
+            const chk = await client.query('SELECT precisa_trocar_senha FROM usuarios WHERE id=$1', [idReset]);
+            assert.equal(chk.rows[0].precisa_trocar_senha, false); // usuário escolheu a própria senha
+        });
+
+        await t('reset-password reusando o mesmo token → 400 (uso único)', async () => {
+            const r = await api('POST', '/api/auth/reset-password', null, { token: devToken, senha: 'OutraSenha123' });
+            assert.equal(r.status, 400);
+        });
+
+        await t('reset-password com token inválido → 400', async () => {
+            const r = await api('POST', '/api/auth/reset-password', null, { token: 'token-invalido-xyz', senha: 'x123456' });
+            assert.equal(r.status, 400);
         });
     } catch (e) {
         fail++; fails.push(`FATAL → ${e.message}\n--- stderr do server ---\n${serverErr.slice(-800)}`);

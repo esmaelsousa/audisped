@@ -64,7 +64,19 @@ async function setupDatabase() {
                 END IF;
             END $$;
         `);
-        console.log('Estrutura SaaS (redes/auditoria/usuarios) garantida.');
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id         SERIAL PRIMARY KEY,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL,
+                expira_em  TIMESTAMP NOT NULL,
+                usado      BOOLEAN NOT NULL DEFAULT FALSE,
+                criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_prt_token_hash ON password_reset_tokens(token_hash);`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_prt_usuario ON password_reset_tokens(usuario_id);`);
+        console.log('Estrutura SaaS (redes/auditoria/usuarios/password_reset) garantida.');
 
         // Garantir colunas de PIS/COFINS no C170 com tipo TEXT (sem limite)
         await client.query(`

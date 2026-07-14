@@ -383,6 +383,77 @@ app.get('/api/admin/redes', authMiddleware, enrich, async (req, res) => {
     }
 });
 
+// --- ESQUECI MINHA SENHA (auto-serviço, público) ---
+const mail = require('./mailService');
+const APP_BASE_URL = process.env.APP_BASE_URL || 'http://187.127.5.210';
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const _forgotThrottle = new Map(); // e-mail -> ts do último pedido (rate-limit simples)
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const generico = { message: 'Se o e-mail estiver cadastrado, enviamos as instruções de redefinição.' };
+    if (!email) return res.status(400).json({ message: 'Informe o e-mail.' });
+
+    const agora = Date.now();
+    const ult = _forgotThrottle.get(email);
+    if (ult && agora - ult < 60000) return res.status(200).json(generico); // 1 pedido / 60s
+    _forgotThrottle.set(email, agora);
+
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const u = await dbClient.query('SELECT id, nome, ativo FROM usuarios WHERE lower(email) = $1', [email]);
+        const user = u.rows[0];
+        if (user && user.ativo !== false) {
+            const tokenCru = crypto.randomBytes(32).toString('hex');
+            const expira = new Date(agora + 30 * 60 * 1000);
+            await dbClient.query('UPDATE password_reset_tokens SET usado = TRUE WHERE usuario_id = $1 AND usado = FALSE', [user.id]);
+            await dbClient.query('INSERT INTO password_reset_tokens (usuario_id, token_hash, expira_em) VALUES ($1,$2,$3)', [user.id, sha256(tokenCru), expira]);
+            const link = `${APP_BASE_URL}/redefinir-senha?token=${tokenCru}`;
+            const { subject, html } = mail.emailRedefinicao(user.nome, link);
+            await mail.enviarEmail({ to: email, subject, html });
+            // Em dev (sem RESEND_API_KEY) devolve o link p/ teste; em prod com a key, NUNCA.
+            if (!process.env.RESEND_API_KEY && process.env.NODE_ENV !== 'production') {
+                return res.status(200).json({ ...generico, _devLink: link });
+            }
+        }
+        res.status(200).json(generico);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao processar solicitação.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { token, senha } = req.body;
+    if (!token || !senha) return res.status(400).json({ message: 'Token e nova senha são obrigatórios.' });
+    if (String(senha).length < 6) return res.status(400).json({ message: 'A senha deve ter ao menos 6 caracteres.' });
+
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const th = sha256(token);
+        const r = await dbClient.query(
+            'SELECT id, usuario_id FROM password_reset_tokens WHERE token_hash=$1 AND usado=FALSE AND expira_em > now()', [th]);
+        const row = r.rows[0];
+        if (!row) return res.status(400).json({ message: 'Link inválido ou expirado. Solicite um novo.' });
+
+        const u = await dbClient.query('SELECT ativo FROM usuarios WHERE id=$1', [row.usuario_id]);
+        if (!u.rows[0] || u.rows[0].ativo === false) return res.status(400).json({ message: 'Conta indisponível.' });
+
+        const hashed = await bcrypt.hash(senha, 10);
+        await dbClient.query('UPDATE usuarios SET senha=$1, precisa_trocar_senha=FALSE WHERE id=$2', [hashed, row.usuario_id]);
+        await dbClient.query('UPDATE password_reset_tokens SET usado=TRUE WHERE id=$1', [row.id]); // uso único
+        authz.invalidarCacheAtor(row.usuario_id);
+        res.status(200).json({ message: 'Senha redefinida com sucesso.' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao redefinir senha.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // --- ROTAS PARA GESTÃO DE CFOPS ---
 app.get('/api/cfops', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
