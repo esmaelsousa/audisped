@@ -24,6 +24,48 @@ async function setupDatabase() {
         `);
         console.log('Tabela usuarios garantida.');
 
+        // --- SaaS multi-inquilino (Fatia 1): redes, auditoria e colunas de usuarios ---
+        // (backfill de dados existentes fica no script backend/migrations/2026-07-14-usuarios-saas.js)
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS redes (
+                id            SERIAL PRIMARY KEY,
+                nome          TEXT NOT NULL,
+                documento     TEXT,
+                email_resp    TEXT,
+                status        TEXT NOT NULL DEFAULT 'trial',
+                trial_ate     DATE,
+                dias_carencia INTEGER NOT NULL DEFAULT 5,
+                modulos_contratados JSONB NOT NULL DEFAULT '[]'::jsonb,
+                criado_em     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS auditoria_seguranca (
+                id         SERIAL PRIMARY KEY,
+                ator_id    INTEGER,
+                ator_role  TEXT,
+                acao       TEXT NOT NULL,
+                alvo_id    INTEGER,
+                detalhe    JSONB,
+                criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await client.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'escritorio';`);
+        await client.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rede_id INTEGER REFERENCES redes(id);`);
+        await client.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS modulos JSONB NOT NULL DEFAULT '[]'::jsonb;`);
+        await client.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ativo BOOLEAN NOT NULL DEFAULT TRUE;`);
+        await client.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS precisa_trocar_senha BOOLEAN NOT NULL DEFAULT FALSE;`);
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usuarios_role_chk') THEN
+                    ALTER TABLE usuarios ADD CONSTRAINT usuarios_role_chk
+                        CHECK (role IN ('super_admin','admin','staff','escritorio'));
+                END IF;
+            END $$;
+        `);
+        console.log('Estrutura SaaS (redes/auditoria/usuarios) garantida.');
+
         // Garantir colunas de PIS/COFINS no C170 com tipo TEXT (sem limite)
         await client.query(`
             ALTER TABLE documentos_itens_c170 
