@@ -184,10 +184,10 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
         if (senha) {
             const hashedPassword = await bcrypt.hash(senha, 10);
             // trocar a senha zera a exigência de troca obrigatória (§12.2)
-            query = 'UPDATE usuarios SET nome = $1, email = $2, senha = $3, precisa_trocar_senha = FALSE WHERE id = $4 RETURNING id, nome, email';
+            query = 'UPDATE usuarios SET nome = $1, email = $2, senha = $3, precisa_trocar_senha = FALSE WHERE id = $4 RETURNING id, nome, email, role, rede_id';
             params = [nome, email, hashedPassword, req.user.id];
         } else {
-            query = 'UPDATE usuarios SET nome = $1, email = $2 WHERE id = $3 RETURNING id, nome, email';
+            query = 'UPDATE usuarios SET nome = $1, email = $2 WHERE id = $3 RETURNING id, nome, email, role, rede_id';
             params = [nome, email, req.user.id];
         }
         const result = await dbClient.query(query, params);

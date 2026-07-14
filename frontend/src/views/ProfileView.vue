@@ -43,7 +43,8 @@ const handleSubmit = async () => {
       headers: { Authorization: `Bearer ${token.value}` }
     });
 
-    setUsuario(response.data);
+    // mescla preservando campos que a rota não devolve (ex.: role) — não perder o papel
+    setUsuario({ ...usuario.value, ...response.data });
     status.value = { type: 'success', message: 'Perfil atualizado com sucesso!' };
     form.value.senha = '';
     form.value.confirmarSenha = '';

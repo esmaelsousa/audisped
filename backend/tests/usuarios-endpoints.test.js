@@ -171,6 +171,8 @@ async function esperarServidor(ms = 20000) {
             const r = await api('PUT', '/api/auth/profile', tok(idEscrB),
                 { nome: 'IT', email: `${SUF}_escrB@test.local`, senha: 'novaSenha123' });
             assert.equal(r.status, 200);
+            const pj = await r.json();
+            assert.equal(pj.role, 'escritorio'); // rota deve devolver role p/ o front não perder o papel
             const chk = await client.query('SELECT precisa_trocar_senha FROM usuarios WHERE id = $1', [idEscrB]);
             assert.equal(chk.rows[0].precisa_trocar_senha, false);
             const login = await api('POST', '/api/auth/login', null, { email: `${SUF}_escrB@test.local`, senha: 'novaSenha123' });
