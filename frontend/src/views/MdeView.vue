@@ -334,6 +334,7 @@ async function syncNotas() {
   isSyncing.value = true;
   try {
     const res = await axios.get(`${API_BASE_URL}/api/mde/sync/${empresaSelecionada.value.id}`, {
+      params: { inicio: dataInicioEspiao.value || undefined, fim: dataFimEspiao.value || undefined },
       headers: { Authorization: `Bearer ${token.value}` }
     });
     alert(res.data.message || 'Sincronização concluída!');

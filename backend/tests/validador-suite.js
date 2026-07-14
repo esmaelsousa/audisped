@@ -160,7 +160,10 @@ t('c100-dtes sugere DT_DOC', () => assert.ok(firesDet(H(['|C100|0|1|PART|55|00|1
 t('lmc +: estoque negativo dispara', () => assert.ok(firesDet(H([r1300('7085', '02012022', '50,000', '0,000', '50,000', '60,000', '-10,000', '0,000', '0,000', '-10,000')]), 'COMB-LMC', 'negativo')));
 t('lmc +: FECH incoerente dispara', () => assert.ok(firesDet(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '99,000')]), 'COMB-LMC', 'FECH_FISICO')));
 t('lmc +: 1320 VOL_VENDAS errado dispara', () => assert.ok(firesDet(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), '|1320|01||||||200,000|100,000|0,000|50,000|']), 'COMB-LMC', 'VOL_VENDAS')));
-t('lmc +: CAP_TANQUE ausente em 2026 dispara', () => assert.ok(firesDet(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000')], { ver: '020', dtIni: '01012026', dtFin: '31012026' }), 'COMB-LMC', 'CAP_TANQUE')));
+t('lmc +: CAP_TANQUE ausente em leiaute 020 dispara', () => assert.ok(firesDet(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000')], { ver: '020', dtIni: '01012026', dtFin: '31012026' }), 'COMB-LMC', 'CAP_TANQUE')));
+t('cap -: leiaute 019 em 2026 NÃO dispara CAP (gate por leiaute, não período)', () => assert.ok(!firesDet(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000')], { ver: '019', dtIni: '01012026', dtFin: '31012026' }), 'COMB-LMC', 'CAP_TANQUE')));
+t('cap: dedup por tanque — mesmo tanque em 2 dias = 1 achado', () => { const c = run(H([r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '90,000', '0,000', '90,000', '5,000', '85,000', '0,000', '0,000', '85,000')], { ver: '020', dtIni: '01012026', dtFin: '31012026' })).erros.filter(e => e.regra_id === 'COMB-LMC' && (e.detalhe || '').includes('CAP_TANQUE')); assert.equal(c.length, 1); });
+t('cap: agora é ADV (era BLOQ) — export injeta', () => { const e = run(H([r1310('1', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000')], { ver: '020', dtIni: '01012026', dtFin: '31012026' })).erros.find(x => x.regra_id === 'COMB-LMC' && (x.detalhe || '').includes('CAP_TANQUE')); assert.equal(e.severidade, 'ADV'); });
 t('lmc -: 1300 coerente/positivo não dispara', () => assert.ok(!fires(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000')]), 'COMB-LMC')));
 
 // COMB-LMC-CONT (continuidade entre dias)
@@ -171,6 +174,16 @@ t('continuidade - (livro): abertura == ESCR anterior não dispara', () => assert
 // COMB-1300-SUM (produto = soma dos tanques)
 t('soma +: 1300 != Σ1310 dispara', () => assert.ok(fires(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '60,000', '0,000', '60,000', '5,000', '55,000', '0,000', '0,000', '55,000'), r1310('2', '30,000', '0,000', '30,000', '5,000', '25,000', '0,000', '0,000', '25,000')]), 'COMB-1300-SUM')));
 t('soma -: 1300 == Σ1310 não dispara', () => assert.ok(!fires(H([r1300('7084', '01012022', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1310('1', '70,000', '0,000', '70,000', '7,000', '63,000', '0,000', '0,000', '63,000'), r1310('2', '30,000', '0,000', '30,000', '3,000', '27,000', '0,000', '0,000', '27,000')]), 'COMB-1300-SUM')));
+
+// COMB-1310-ANP-01 (E-Aud 2033: variação físico×escritural > 0,6% ANP)
+t('anp +: físico=0 (100%) dispara', () => assert.ok(fires(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000'), r1310('201', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000')]), 'COMB-1310-ANP-01')));
+t('anp +: variação real 13,349% dispara', () => assert.ok(firesDet(H([r1300('7084', '02012026', '7751,116', '0,000', '7751,116', '1556,079', '6195,037', '826,970', '0,000', '5368,067'), r1310('201', '7751,116', '0,000', '7751,116', '1556,079', '6195,037', '826,970', '0,000', '5368,067')]), 'COMB-1310-ANP-01', '13,349%')));
+t('anp +: erro é ADV, não BLOQ', () => { const e = run(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000'), r1310('201', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000')])).erros.find(x => x.regra_id === 'COMB-1310-ANP-01'); assert.equal(e.severidade, 'ADV'); });
+t('anp M2: físico=0 rotula "medição ausente" (não "variação")', () => assert.ok(firesDet(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000'), r1310('201', '100,000', '0,000', '100,000', '0,000', '100,000', '100,000', '0,000', '0,000')]), 'COMB-1310-ANP-01', 'medição ausente')));
+t('anp -: físico=escritural não dispara', () => assert.ok(!fires(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '0,000', '100,000', '0,000', '0,000', '100,000'), r1310('201', '100,000', '0,000', '100,000', '0,000', '100,000', '0,000', '0,000', '100,000')]), 'COMB-1310-ANP-01')));
+t('anp -: 0,5% (dentro do limite) não dispara', () => assert.ok(!fires(H([r1300('7084', '01012026', '1000,000', '0,000', '1000,000', '0,000', '1000,000', '5,000', '0,000', '995,000'), r1310('201', '1000,000', '0,000', '1000,000', '0,000', '1000,000', '5,000', '0,000', '995,000')]), 'COMB-1310-ANP-01')));
+t('anp +: 0,7% (acima do limite) dispara', () => assert.ok(fires(H([r1300('7084', '01012026', '1000,000', '0,000', '1000,000', '0,000', '1000,000', '7,000', '0,000', '993,000'), r1310('201', '1000,000', '0,000', '1000,000', '0,000', '1000,000', '7,000', '0,000', '993,000')]), 'COMB-1310-ANP-01')));
+t('anp -: 0,637% arredonda p/ 0,6% (tolerado, como o E-Auditor) não dispara', () => assert.ok(!fires(H([r1300('7084', '01012026', '3464,047', '0,000', '3464,047', '0,000', '3464,047', '22,074', '0,000', '3441,973'), r1310('204', '3464,047', '0,000', '3464,047', '0,000', '3464,047', '22,074', '0,000', '3441,973')]), 'COMB-1310-ANP-01')));
 
 // INV-H005-01 (data do inventário > data final do período)
 t('h005 +: DT_INV posterior ao DT_FIN dispara', () => assert.ok(fires(H(['|H005|15022022|100,00|01|']), 'INV-H005-01')));
@@ -453,6 +466,102 @@ t('1003 dispara p/ 5929 com ICMS', () => {
 t('1003 NÃO dispara p/ 5929 zerado', () => {
     const c190 = `|C190|061|5929|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
     assert.ok(!fires(H([C100(CHAVE()), c190]), 'DOC-C100-5929-01'));
+});
+t('1003 M4: NF com split 060/061 (2 C190 5929) = 1 achado por documento', () => {
+    const a = `|C190|060|5929|0,00|100,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
+    const b = `|C190|061|5929|0,00|150,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
+    assert.equal(run(H([C100(CHAVE()), a, b])).erros.filter(e => e.regra_id === 'DOC-C100-5929-01').length, 1);
+});
+t('1003 M4: se qualquer C190 é FORTE (ICMS≠0), o documento é BLOQ', () => {
+    const fraco = `|C190|060|5929|0,00|100,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
+    const forte = `|C190|061|5929|20,50|9574,80|160,00|32,80|0,00|0,00|0,00|0,00||`;
+    const e = run(H([C100(CHAVE()), fraco, forte])).erros.find(x => x.regra_id === 'DOC-C100-5929-01');
+    assert.equal(e.severidade, 'BLOQ');
+});
+
+// ---------- COMB-1300-1320-01 (E-Aud 2023: VOL_SAIDAS 1300 ≠ Σ VOL_VENDAS 1320) ----------
+const r1320v = (vendas) => `|1320|01||||||0,000|0,000|0,000|${vendas}|`;
+t('2023 +: VOL_SAIDAS != Σ bicos (diff real) dispara', () => assert.ok(fires(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1320v('5,000')]), 'COMB-1300-1320-01')));
+t('2023 -: VOL_SAIDAS == Σ bicos não dispara', () => assert.ok(!fires(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '10,000', '90,000', '0,000', '0,000', '90,000'), r1320v('10,000')]), 'COMB-1300-1320-01')));
+t('2023 -: diferença de arredondamento (0,005 L) é tolerada', () => assert.ok(!fires(H([r1300('7084', '01012026', '100,000', '0,000', '100,000', '14,405', '85,595', '0,000', '0,000', '85,595'), r1320v('14,410')]), 'COMB-1300-1320-01')));
+
+// ---------- DOC-C100-SEQ-01 (E-Aud 4028: intervalo na sequência numérica de NF próprias) ----------
+const CSEQ = (mod, ser, num, emit = '0', sit = '00') => `|C100|1|${emit}|P|${mod}|${sit}|${ser}|${num}|${CHAVE()}|01012022|01012022|100,00|`;
+t('4028 +: gap na série própria dispara', () => assert.ok(fires(H([CSEQ('65', '5', '100'), CSEQ('65', '5', '102')]), 'DOC-C100-SEQ-01')));
+t('4028 -: números consecutivos não dispara', () => assert.ok(!fires(H([CSEQ('65', '5', '100'), CSEQ('65', '5', '101')]), 'DOC-C100-SEQ-01')));
+t('4028 -: notas de terceiros (IND_EMIT=1) não entram', () => assert.ok(!fires(H([CSEQ('65', '5', '100', '1'), CSEQ('65', '5', '102', '1')]), 'DOC-C100-SEQ-01')));
+t('4028 -: notas sem série não entram', () => assert.ok(!fires(H([CSEQ('65', '', '100'), CSEQ('65', '', '102')]), 'DOC-C100-SEQ-01')));
+t('4028 -: modelos diferentes não se misturam na sequência', () => assert.ok(!fires(H([CSEQ('55', '5', '100'), CSEQ('65', '5', '102')]), 'DOC-C100-SEQ-01')));
+
+// ---------- DOC-C190-CFOPUF-01 (E-Aud 2742: CFOP interno 1/5 com participante de outra UF) ----------
+// H() declara UF=BA. 0150 com COD_MUN 3550308 = SP (35); 2921708 = BA (29).
+const P0150 = (part, codMun, pais = '1058') => `|0150|${part}|FORN|${pais}|${part}|||${codMun}||END|1||B|`;
+t('2742 +: CFOP 5 com participante SP (declarante BA) dispara', () => assert.ok(fires(H([P0150('PSP', '3550308'), C100(CHAVE(), { part: 'PSP' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 -: CFOP 5 com participante BA (mesma UF) não dispara', () => assert.ok(!fires(H([P0150('PBA', '2921708'), C100(CHAVE(), { part: 'PBA' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 -: CFOP 6 (interestadual) com participante SP não dispara', () => assert.ok(!fires(H([P0150('PSP', '3550308'), C100(CHAVE(), { part: 'PSP' }), C190({ cfop: '6929' })]), 'DOC-C190-CFOPUF-01')));
+t('2742 -: participante do exterior (COD_PAIS≠1058) não dispara', () => assert.ok(!fires(H([P0150('PEX', '', '2496'), C100(CHAVE(), { part: 'PEX' }), C190({ cfop: '5929' })]), 'DOC-C190-CFOPUF-01')));
+
+// ---------- changelog: detalhe item-a-item preservado sob o grupo (relatório "o que foi corrigido") ----------
+// Duas NFs corrigidas no MESMO campo→mesmo valor agrupam em 1 entrada ×2, mas cada item (chave/antes)
+// deve ficar em `itens[]` para o relatório e o PDF listarem NF a NF (não só "×2").
+t('changelog: aplicar agrupa mas retém itens[] com a chave de cada NF', () => {
+    const { Changelog } = require('../services/validador/changelog');
+    const log = new Changelog();
+    const l = ['|0200|AAA|DESC A|11111| |UN|07|96081000||96||||', '|0200|BBB|DESC B|22222| |UN|07|96081000||96||||'];
+    aplicar(l, [
+        { registro: '0200', chave_natural: 'AAA', campo_idx: 4, valor_corrigido: '', regra_id: 'DOC-X', origem: 'MANUAL' },
+        { registro: '0200', chave_natural: 'BBB', campo_idx: 4, valor_corrigido: '', regra_id: 'DOC-X', origem: 'MANUAL' },
+    ], log);
+    const ent = log.entradas.find(e => e.registro === '0200');
+    assert.ok(ent, 'deve existir entrada 0200 no changelog');
+    assert.equal(ent.qtd, 2, 'grupo conta as 2 ocorrências');
+    assert.ok(Array.isArray(ent.itens), 'entrada deve trazer itens[]');
+    assert.equal(ent.itens.length, 2, 'itens deve listar cada NF corrigida');
+    assert.deepEqual(ent.itens.map(i => i.chave).sort(), ['AAA', 'BBB'], 'cada item guarda sua chave');
+    assert.deepEqual(ent.itens.map(i => i.antes).sort(), ['11111', '22222'], 'cada item guarda seu antes');
+});
+
+// ---------- relatório: agrupar pendências (erros restantes após as correções) ----------
+t('agruparPendencias: agrupa por regra, BLOQ primeiro, conta e lista cada item', () => {
+    const { agruparPendencias } = require('../services/validador/relatorioCorrecoes-pdf');
+    const g = agruparPendencias([
+        { regra_id: 'A', registro: '1300', severidade: 'ADV', detalhe: 'd1' },
+        { regra_id: 'A', registro: '1300', severidade: 'ADV', detalhe: 'd2' },
+        { regra_id: 'B', registro: 'C170', severidade: 'BLOQ', detalhe: 'd3' },
+    ]);
+    assert.equal(g.length, 2, 'duas regras');
+    assert.equal(g[0].regra_id, 'B', 'BLOQ vem primeiro');
+    assert.equal(g[0].severidade, 'BLOQ');
+    const a = g.find(x => x.regra_id === 'A');
+    assert.equal(a.total, 2, 'conta as 2 ocorrências');
+    assert.equal(a.itens.length, 2, 'lista cada item');
+    assert.deepEqual(a.itens.map(i => i.detalhe), ['d1', 'd2']);
+});
+t('agruparPendencias: lista vazia → []', () => {
+    const { agruparPendencias } = require('../services/validador/relatorioCorrecoes-pdf');
+    assert.deepEqual(agruparPendencias([]), []);
+    assert.deepEqual(agruparPendencias(null), []);
+});
+
+// ---------- relatório: agrupar correções por "correção sugerida" (cards estilo E-Auditor) ----------
+t('agruparPorSugestao: junta por regra, expande itens NF-a-NF, soma total', () => {
+    const { agruparPorSugestao } = require('../services/validador/relatorioCorrecoes-pdf');
+    const agrupado = [
+        { bloco: 'C', total: 3, registros: [
+            { registro: 'C170', total: 2, itens: [
+                { registro: 'C170', regraId: 'USO-CONSUMO-X90', campo: 'CST_ICMS', antes: '060', depois: '090', origem: 'fiscal', qtd: 2, motivo: 'uso/consumo', itens: [
+                    { chave: 'NF1', antes: '060', depois: '090' }, { chave: 'NF2', antes: '060', depois: '090' } ] } ] },
+            { registro: 'C190', total: 1, itens: [
+                { registro: 'C190', regraId: 'USO-CONSUMO-X90', campo: 'CST_ICMS', antes: '060', depois: '090', origem: 'fiscal', qtd: 1, motivo: 'uso/consumo' } ] } ] },
+    ];
+    const cards = agruparPorSugestao(agrupado);
+    assert.equal(cards.length, 1, 'mesma regra → 1 card');
+    assert.equal(cards[0].regraId, 'USO-CONSUMO-X90');
+    assert.equal(cards[0].total, 3, 'soma qtd (2 + 1)');
+    assert.equal(cards[0].correcoes.length, 3, '2 expandidos por NF + 1 sem itens');
+    assert.equal(cards[0].correcoes[0].chave, 'NF1');
+    assert.equal(cards[0].correcoes[2].chave, null, 'entrada sem itens vira 1 linha sem chave');
+    assert.ok(typeof cards[0].descricao === 'string' && cards[0].descricao.length > 0, 'tem descrição legível');
 });
 
 // ---------- resultado ----------

@@ -26,6 +26,8 @@ class Changelog {
             origem: e.origem || 'auto',           // auto | fiscal | manual | injecao | remocao
             classe: e.classe || 'estrutural-seguro',
             qtd: (e.qtd != null && Number(e.qtd) > 0) ? Number(e.qtd) : 1,
+            // detalhe por ocorrência (NF/chave, antes→depois) — para o relatório/PDF listarem item a item
+            itens: Array.isArray(e.itens) && e.itens.length ? e.itens : null,
         });
     }
 

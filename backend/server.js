@@ -299,7 +299,7 @@ app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
 // --- ROTAS DO MANIFESTO DE DESTINATÁRIO (MD-e) ---
 app.get('/api/mde/sync/:id_empresa', authMiddleware, async (req, res) => {
     try {
-        const result = await mdeService.syncNotas(req.params.id_empresa);
+        const result = await mdeService.syncNotas(req.params.id_empresa, req.query.inicio || null, req.query.fim || null);
         res.json(result);
     } catch (err) {
         res.status(500).json({ message: 'Erro ao sincronizar notas.', error: err.message });
@@ -5872,9 +5872,29 @@ app.post('/api/conciliacao/sefaz-live', authMiddleware, async (req, res) => {
     if (!Number.isInteger(idEmpresa)) return res.status(400).json({ message: 'Informe id_empresa.' });
     if (cnpjEmpresa.length < 11) return res.status(400).json({ message: 'Informe o CNPJ da empresa.' });
     try {
-        // Sincroniza com a SEFAZ antes de conferir (opcional; grava mde_cache).
+        // Deriva o PERÍODO do SPED aberto (id_arquivo) para sincronizar o MÊS certo com a SEFAZ
+        // (não os últimos 30 dias) e definir o escopo da conciliação.
+        let escopoYM = null, syncIni = req.body.data_inicio || null, syncFim = req.body.data_fim || null;
+        const idArquivo = parseInt(req.body.id_arquivo);
+        if (Number.isInteger(idArquivo) && idArquivo > 0) {
+            const arq = await pool.query('SELECT periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
+            if (arq.rows.length) {
+                const per = arq.rows[0].periodo_apuracao || '';
+                escopoYM = _escopoDePeriodo(per);
+                if (!syncIni || !syncFim) {
+                    const m = per.match(/(\d{4}-\d{2}-\d{2})[^\d]*(\d{4}-\d{2}-\d{2})/);
+                    if (m) { syncIni = m[1]; syncFim = m[2]; }
+                    else if (escopoYM) {
+                        const y = escopoYM.slice(0, 4), mo = escopoYM.slice(4, 6);
+                        const last = new Date(Number(y), Number(mo), 0).getDate();
+                        syncIni = `${y}-${mo}-01`; syncFim = `${y}-${mo}-${String(last).padStart(2, '0')}`;
+                    }
+                }
+            }
+        }
+        // Sincroniza com a SEFAZ (grava mde_cache) o PERÍODO do SPED aberto, não os últimos 30 dias.
         if (String(req.body.sync || '').toLowerCase() === 'true') {
-            try { await espiaoNfeService.syncNotas(idEmpresa, req.body.data_inicio || null, req.body.data_fim || null); }
+            try { await espiaoNfeService.syncNotas(idEmpresa, syncIni, syncFim); }
             catch (e) { logger.warn('syncNotas (sefaz-live): ' + e.message); }
         }
         const mde = await pool.query(
@@ -5893,13 +5913,6 @@ app.post('/api/conciliacao/sefaz-live', authMiddleware, async (req, res) => {
         `, [cnpjEmpresa]);
         const periodos = await pool.query(
             `SELECT DISTINCT periodo_apuracao FROM sped_arquivos WHERE regexp_replace(cnpj_empresa, '\\D', '', 'g') = $1`, [cnpjEmpresa]);
-
-        let escopoYM = null;
-        const idArquivo = parseInt(req.body.id_arquivo);
-        if (Number.isInteger(idArquivo) && idArquivo > 0) {
-            const arq = await pool.query('SELECT periodo_apuracao FROM sped_arquivos WHERE id = $1', [idArquivo]);
-            if (arq.rows.length) escopoYM = _escopoDePeriodo(arq.rows[0].periodo_apuracao);
-        }
 
         const resultado = conciliacaoService.conciliar({
             csv, escrituradas: escr.rows, cnpjEmpresa, mesesComSped: _mesesComSped(periodos.rows), escopoYM, incluirCanceladas: false
@@ -6517,6 +6530,7 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
         await dbClient.query(`CREATE TABLE IF NOT EXISTS val_correcoes_skip (id SERIAL PRIMARY KEY, id_sped_arquivo INT, regra_id TEXT NOT NULL, chave TEXT NOT NULL DEFAULT '', criado_em TIMESTAMP DEFAULT NOW(), UNIQUE(id_sped_arquivo, regra_id, chave))`);
         const sk = (await dbClient.query(`SELECT regra_id, chave FROM val_correcoes_skip WHERE id_sped_arquivo=$1`, [idArq])).rows;
         const fmtDt = (d) => (/^\d{8}$/.test(d || '') ? `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4, 8)}` : (d || '—'));
+        const { gerarRelatorioCorrecoes, agruparPendencias } = require('./services/validador/relatorioCorrecoes-pdf');
         const dados = {
             empresa: {
                 razao_social: emp.nome_empresa || emp.nome_fantasia || (l0000 ? l0000.f[6] : '') || '—',
@@ -6529,9 +6543,9 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
             agrupado: al ? (al.dados.agrupado || []) : [],
             skips: sk.map(s => ({ regra_id: s.regra_id, chave: s.chave || '' })),
             residual: { bloqueantes: resVal.resumo.bloqueantes, advertencias: resVal.resumo.advertencias },
+            pendencias: agruparPendencias(resVal.erros || []),
         };
         const PDFDocument = require('pdfkit');
-        const { gerarRelatorioCorrecoes } = require('./services/validador/relatorioCorrecoes-pdf');
         const docp = new PDFDocument({ size: 'A4', margin: 36, bufferPages: true, autoFirstPage: true });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename=Correcoes_SPED_${cnpjNum}_${String(arq.periodo_apuracao || '').substring(0, 7)}.pdf`);

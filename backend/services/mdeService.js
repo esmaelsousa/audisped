@@ -55,15 +55,15 @@ class MdeService {
         };
     }
 
-    async syncNotas(idEmpresa) {
+    async syncNotas(idEmpresa, dataInicio = null, dataFim = null) {
         try {
-            // Agora utiliza o Espião NF-e
-            // Como o Espião precisa de datas, usamos os últimos 30 dias por padrão
+            // Usa o período informado (datas da tela); se ausente, cai nos últimos 30 dias.
             const hoje = new Date().toISOString().split('T')[0];
-            const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            
-            logger.info(`Delegando syncNotas para EspiãoNFeService (Empresa: ${idEmpresa}, 30 dias)`);
-            const result = await espiaoNfeService.syncNotas(idEmpresa, trintaDiasAtras, hoje);
+            const ini = dataInicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            const fim = dataFim || hoje;
+
+            logger.info(`Delegando syncNotas para EspiãoNFeService (Empresa: ${idEmpresa}, ${ini} a ${fim})`);
+            const result = await espiaoNfeService.syncNotas(idEmpresa, ini, fim);
             
             return {
                 mensagem: result.message,

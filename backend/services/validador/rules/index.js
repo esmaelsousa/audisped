@@ -28,6 +28,7 @@ module.exports = [
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques
+    require('./r_variacao_anp_1310'),  // COMB-1310-ANP-01 (E-Aud 2033): variação físico×escritural do tanque > 0,6% ANP (ADV)
     require('./r_h005_data'),          // INV-H005-01: DT_INV do inventário > data final do período
     require('./r_h010_inventario'),    // INV-H010-01: VL_INV do H005 ≠ soma dos VL_ITEM dos H010
     require('./r_c191_fcp'),           // DOC-C191-FCP-01: VL_FCP_RET do C191 sem CST x60/500 no C190 pai
@@ -50,4 +51,7 @@ module.exports = [
     require('./r_0206_sem_1300'),      // COMB-0206-1300-01 (E-Aud 2321): produto ANP sem LMC (só-detecção)
     require('./r_c170_cod_cta'),       // DOC-C170-CODCTA-01 (E-Aud 2451): COD_CTA vazio (só-detecção)
     require('./r_c100_5929'),          // DOC-C100-5929-01 (E-Aud 1003): 5929/6929 com valores (só-detecção)
+    require('./r_cfop_uf_participante'), // DOC-C190-CFOPUF-01 (E-Aud 2742): CFOP interno 1/5 com participante de outra UF (ADV)
+    require('./r_sequencia_nf_c100'),  // DOC-C100-SEQ-01 (E-Aud 4028): intervalo na sequência numérica de NF próprias (ADV)
+    require('./r_saidas_1300_1320'),   // COMB-1300-1320-01 (E-Aud 2023): VOL_SAIDAS(1300) ≠ Σ VOL_VENDAS(1320), tolerância anti-arredondamento (ADV)
 ];

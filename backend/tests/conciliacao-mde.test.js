@@ -59,5 +59,25 @@ t('saída própria não vira faltante', () => {
     assert.ok(!r.faltantes.some(f => f.chave === CH_SAIDA));
 });
 
+t('SEFAZ sem valor (placeholder/manifestação) casa por chave, NÃO vira divergência de valor', () => {
+    const chZero = CH(FORN, '5500100099');
+    const mdeZero = [{ chave_nfe: chZero, numero: '', valor: null, data_emissao: '2026-06-10', nome_emissor: '', tipo_operacao: 'Entrada' }];
+    const escrZero = [{ chv_nfe: chZero, num_doc: '', vl_doc: '1234,56', periodo_apuracao: '2026-06-01', dt_doc: '10062026', dt_e_s: '10062026', fornecedor: 'X' }];
+    const r = conciliar({ csv: sefazShapeFromMdeCache(mdeZero), escrituradas: escrZero, cnpjEmpresa: '99999999999999', escopoYM: '202606' });
+    assert.equal(r.divergencia_valor.length, 0, 'placeholder sem valor não deve gerar divergência');
+    assert.equal(r.faltantes.length, 0, 'casou por chave, não é faltante');
+});
+
+t('placeholder SEM data aparece só no mês em que foi escriturado (não vaza p/ outros meses)', () => {
+    const chP = CH(FORN, '5500100077');
+    const mdeP = [{ chave_nfe: chP, numero: '', valor: null, data_emissao: null, nome_emissor: '', tipo_operacao: 'Entrada' }];
+    const escrP = [{ chv_nfe: chP, num_doc: '', vl_doc: '100,00', periodo_apuracao: '2026-01-01', dt_doc: '10012026', dt_e_s: '10012026', fornecedor: 'X' }];
+    const jan = conciliar({ csv: sefazShapeFromMdeCache(mdeP), escrituradas: escrP, cnpjEmpresa: '99999999999999', escopoYM: '202601' });
+    assert.equal(jan.conferidas.length, 1, 'aparece no mês escriturado (Jan)');
+    const fev = conciliar({ csv: sefazShapeFromMdeCache(mdeP), escrituradas: escrP, cnpjEmpresa: '99999999999999', escopoYM: '202602' });
+    assert.equal(fev.conferidas.length, 0, 'NÃO aparece em outro mês (Fev)');
+    assert.equal(fev.totais.fora_escopo, 1);
+});
+
 console.log(`Conciliação mde_cache — ${pass} passou, ${fail} falhou (de ${pass + fail})`);
 if (fail) { console.log('FALHAS:'); fails.forEach(f => console.log('  ✗ ' + f)); process.exit(1); }

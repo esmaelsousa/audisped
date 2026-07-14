@@ -413,6 +413,7 @@ const concilError = ref('');
 const concilResult = ref(null);
 const concilDesconsiderarCanceladas = ref(true); // padrão: ignorar canceladas
 const concilVerCanceladas = ref(false);          // mostrar/ocultar a lista de canceladas
+const concilVerConferidas = ref(false);          // mostrar/ocultar a lista de notas conferidas (OK)
 const fmtBRL = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // Loop A/B (SPED automático × SEFAZ): estado das ações de captura/injeção.
@@ -543,6 +544,7 @@ function exportConcilCsv() {
     r.extras.forEach(x => rows.push(['EXTRA_SPED', x.numero, x.chave, x.comp, x.data, x.valor, x.fornecedor]));
     (r.sem_sped || []).forEach(s => rows.push(['SEM_SPED_NO_PERIODO', s.numero, s.chave, s.comp, s.data, s.valor, s.fornecedor]));
     (r.canceladas || []).forEach(c => rows.push(['CANCELADA', c.numero, c.chave, c.comp, c.data, c.valor, c.fornecedor]));
+    (r.conferidas || []).forEach(d => rows.push(['CONFERIDA', d.numero, d.chave, d.dataSped ? `Lancada ${d.dataSped}` : '', d.data, d.valorSefaz != null ? d.valorSefaz : `SEFAZ sem valor (SPED ${d.valorSped})`, d.fornecedor]));
     const csv = '\uFEFF' + rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
@@ -1756,6 +1758,33 @@ const afericaoGauge = computed(() => {
           <span v-if="concilResult.totais.uso_consumo" class="text-bronze font-medium">🔁 {{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
           <span v-if="concilResult.sem_escrituracao" class="text-variacao font-medium">⚠️ Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
           <UiButton @click="exportConcilCsv" class="ml-auto">📥 Exportar resultado (CSV)</UiButton>
+        </div>
+
+        <!-- Conferidas (SEFAZ e SPED batem) -->
+        <div v-if="concilResult.conferidas && concilResult.conferidas.length" class="bg-sheet rounded-md border border-conforme/20 card-shadow overflow-hidden">
+          <button @click="concilVerConferidas = !concilVerConferidas" class="w-full px-5 py-3 bg-conforme/10 border-b border-conforme/20 flex items-center justify-between gap-3 text-left">
+            <span class="font-medium text-conforme text-[13px]">✅ Conferidas — SEFAZ e SPED batem ({{ concilResult.conferidas.length }})</span>
+            <span class="text-[12px] text-conforme">{{ concilVerConferidas ? 'ocultar' : 'ver notas' }}</span>
+          </button>
+          <div v-if="concilVerConferidas" class="overflow-x-auto max-h-96">
+            <table class="w-full text-[12px]">
+              <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Fornecedor</th><th class="text-right p-2">Valor SEFAZ</th><th class="text-right p-2">Valor SPED</th><th class="text-left p-2">Emissão → Lançada</th></tr></thead>
+              <tbody>
+                <template v-for="(d,i) in concilResult.conferidas" :key="'ok'+i">
+                  <tr class="border-t border-line hover:bg-paper">
+                    <td class="p-2 text-center"><button @click="toggleNf(d.chave)" class="w-5 h-5 rounded bg-paper border border-line hover:bg-line/50 text-ink font-medium leading-none">{{ nfAberta(d.chave) ? '−' : '+' }}</button></td>
+                    <td class="p-2 font-mono text-ink">{{ d.numero || '—' }}</td>
+                    <td class="p-2 font-mono text-[10px] text-ink">{{ d.chave }}</td>
+                    <td class="p-2">{{ d.fornecedor }}<span v-if="d.uso_consumo" class="ml-1 px-1.5 py-0.5 rounded bg-bronze/10 text-bronze text-[9px] font-medium whitespace-nowrap">uso/consumo</span></td>
+                    <td class="p-2 text-right font-mono text-ink">{{ d.valorSefaz != null ? fmtBRL(d.valorSefaz) : '—' }}</td>
+                    <td class="p-2 text-right font-mono text-ink">{{ fmtBRL(d.valorSped) }}</td>
+                    <td class="p-2 whitespace-nowrap font-mono text-[11px]">{{ d.data || '—' }} <span class="text-risco">→</span> <span class="text-bronze">{{ d.dataSped || '—' }}</span></td>
+                  </tr>
+                  <tr v-if="nfAberta(d.chave)"><td colspan="7" class="p-0"><NfItens :chave="d.chave" :cnpj="concilCnpjAtivo()" /></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Faltantes -->

@@ -89,8 +89,10 @@ function logarAplicadas(lista, log) {
     const grupos = new Map();
     for (const a of lista) {
         const k = `${a.registro}|${a.campo_idx}|${a.depois}|${a.regra_id}|${a.origem}`;
-        const g = grupos.get(k) || { registro: a.registro, campo_idx: a.campo_idx, depois: a.depois, regra_id: a.regra_id, origem: a.origem, qtd: 0, antes: new Set() };
+        const g = grupos.get(k) || { registro: a.registro, campo_idx: a.campo_idx, depois: a.depois, regra_id: a.regra_id, origem: a.origem, qtd: 0, antes: new Set(), itens: [] };
         g.qtd++; g.antes.add(a.antes);
+        // guarda o detalhe de CADA ocorrência (chave/NF + antes→depois) para o relatório expandir NF a NF
+        g.itens.push({ chave: a.chave != null ? String(a.chave) : null, antes: a.antes != null ? String(a.antes) : '', depois: String(a.depois) });
         grupos.set(k, g);
     }
     for (const g of grupos.values()) {
@@ -104,6 +106,7 @@ function logarAplicadas(lista, log) {
             origem: 'manual',
             classe: 'fiscal-deterministico',
             qtd: g.qtd,
+            itens: g.itens,
             motivo: `${REGRA_DESC[g.regra_id] || g.regra_id || 'correção do Validador'} — ${lote ? '“Corrigir todas as seguras”' : 'correção manual'}${g.qtd > 1 ? ` · ${g.qtd} ocorrência(s)` : ''}`,
         });
     }
@@ -138,7 +141,7 @@ function aplicar(outputLines, correcoes, log) {
             if (Number.isInteger(ci) && ci > 0 && ci < f.length) {
                 const antesReal = f[ci];
                 f[ci] = String(c.valor_corrigido); aplicadas++; mudou = true;
-                aplicadasList.push({ registro: c.registro, campo_idx: ci, antes: (c.valor_original != null ? String(c.valor_original) : antesReal), depois: String(c.valor_corrigido), regra_id: c.regra_id || '', origem: c.origem || 'MANUAL' });
+                aplicadasList.push({ registro: c.registro, campo_idx: ci, antes: (c.valor_original != null ? String(c.valor_original) : antesReal), depois: String(c.valor_corrigido), regra_id: c.regra_id || '', origem: c.origem || 'MANUAL', chave: kn });
             }
         }
         if (mudou) outputLines[i] = f.join('|');

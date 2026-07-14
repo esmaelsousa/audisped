@@ -28,6 +28,10 @@ const PODE_DISPARAR = new Set([
     'APUR-E210-SALDO-01', // saldo do E210 incoerente com créditos/débitos ST (recalculado no export)
     'DOC-E116-CODREC-01', // E116 sem COD_REC (preenchido no export c/ 0767 / cad_apuracao_e116)
     'DOC-0100-CONTADOR-01', // 0100 (contabilista) sem CPF/CRC (manual — dado externo)
+    'COMB-1310-ANP-01',   // (E-Aud 2033) variação físico×escritural do tanque > 0,6% ANP — ADV, indício comum e legítimo
+    'DOC-C190-CFOPUF-01', // (E-Aud 2742) CFOP interno 1/5 com participante de outra UF — ADV, comum (venda presencial)
+    'DOC-C100-SEQ-01',    // (E-Aud 4028) intervalo na sequência numérica de NF próprias — ADV, comum
+    'COMB-1300-1320-01',  // (E-Aud 2023) VOL_SAIDAS(1300) ≠ Σ VOL_VENDAS(1320) acima da tolerância — ADV, achado real quando dispara
 ]);
 
 const resolverCam = (c) => { try { const j = JSON.parse(c); if (j && typeof j === 'object') return Object.values(j)[0]; } catch (_) {} return c; };

@@ -18,24 +18,31 @@ module.exports = {
     classeCorrecao: 'manual',
     jaCorrigidoNoExport: false,
     instrucaoERP: 'CFOP 5929/6929 acoberta operação já tributada (ECF/cupom): valor da operação, alíquota, base e ICMS devem ser 0 (exceto MG/RN/SC). Atenção: pode conflitar com a injeção de valores 5929 (monofásico).',
+    // Conta por DOCUMENTO (C100), não por linha C190: uma NF com split CST 060/061 tem 2 C190 5929 e
+    // era contada 2×; o E-Auditor conta 1× por documento. Agregação: 1 achado por C100 com ≥1 C190
+    // qualificado; se qualquer linha for FORTE (ICMS/alíq≠0), o documento é FORTE. Reproduz 57=57 (arq 2028).
     detectar(model) {
         const erros = [];
-        for (const l of (model.porReg.get('C190') || [])) {
+        let cur = null; // { linha, num, forte:{cfop,icms,aliq}|null, fraco:{cfop,vlopr}|null }
+        const flush = () => {
+            if (!cur) return;
+            const e = cur.forte, w = cur.fraco;
+            if (e) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${e.cfop} ICMS ${e.icms}`, severidade: 'BLOQ', detalhe: `NF nº ${cur.num}: CFOP ${e.cfop} com ICMS ${e.icms} / alíq ${e.aliq} — indício de bitributação (deveriam ser 0).` });
+            else if (w) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${w.cfop} VL_OPR ${w.vlopr}`, severidade: 'ADV', detalhe: `NF nº ${cur.num}: CFOP ${w.cfop} com VL_OPR ${w.vlopr} (ICMS/alíq zerados) — provável monofásico/injeção 5929 legítimo; verificar.` });
+        };
+        for (const l of model.linhas) {
+            if (l.reg === 'C100') { flush(); cur = { linha: l.n, num: String(l.f[8] || '').trim(), forte: null, fraco: null }; continue; }
+            if (l.reg !== 'C190' || !cur) continue;
             const f = l.f;
             const cfop = String(f[3] || '').trim();
-            if (cfop === '5929' || cfop === '6929') {
-                const aliq = parseFloat(String(f[4] || '0').replace(',', '.')) || 0;
-                const forte = aliq !== 0 || toCents(f[7]) !== 0;                // ICMS/ALIQ ≠ 0 → possível bitributação
-                if (forte || toCents(f[5]) !== 0 || toCents(f[6]) !== 0) {
-                    erros.push({
-                        linha: l.n, campo: 'CFOP 5929/6929', valorAtual: `${cfop} ICMS ${f[7]}`, severidade: forte ? 'BLOQ' : 'ADV',
-                        detalhe: forte
-                            ? `CFOP ${cfop} com ICMS ${f[7]} / alíq ${f[4]} — indício de bitributação (deveriam ser 0).`
-                            : `CFOP ${cfop} com VL_OPR ${f[5]} (ICMS/alíq zerados) — provável monofásico/injeção 5929 legítimo; verificar.`,
-                    });
-                }
-            }
+            if (cfop !== '5929' && cfop !== '6929') continue;
+            const aliq = parseFloat(String(f[4] || '0').replace(',', '.')) || 0;
+            const isForte = aliq !== 0 || toCents(f[7]) !== 0;              // ICMS/ALIQ ≠ 0 → possível bitributação
+            if (!(isForte || toCents(f[5]) !== 0 || toCents(f[6]) !== 0)) continue;
+            if (isForte) { if (!cur.forte) cur.forte = { cfop, icms: f[7], aliq: f[4] }; }
+            else if (!cur.fraco) cur.fraco = { cfop, vlopr: f[5] };
         }
+        flush();
         return erros;
     },
 };

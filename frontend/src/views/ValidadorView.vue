@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
 import { empresaSelecionada, idArquivoSped, setArquivoInfo, setEmpresaSelecionada } from '../store';
-import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Wand2, Info, Download } from 'lucide-vue-next';
+import { ShieldCheck, UploadCloud, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Wand2, Info, Download, ClipboardList } from 'lucide-vue-next';
 import UiButton from '@/components/ui/UiButton.vue';
 
 const loading = ref(false);
@@ -17,6 +17,8 @@ const buscaErro = ref('');           // filtro de texto (tipo/registro/código) 
 const grupoAberto = ref(null);       // regra_id do grupo com ocorrências expandidas
 const dicaAberta = ref(null);        // regra_id do grupo com a "dica" (explicação) aberta
 const occAberta = ref(null);         // keyErro da ocorrência individual expandida
+const detalheAberto = ref(null);     // grupo do relatório "o que foi corrigido" com o detalhe NF-a-NF aberto
+const dkey = (bl, rg, i) => `${bl}|${rg}|${i}`;
 
 // --- Seletor empresa → período (igual ao LMC; só arquivos IMPORTADOS no banco) ---
 const empresas = ref([]);
@@ -245,7 +247,7 @@ async function salvarCorrecao(e) {
       chave_natural: e.chaveNatural, campo_idx: e.campoIdx,
       valor_original: e.valorAtual, valor_corrigido: valor,
     }, { headers: authHeader() });
-    msgCorr.value = 'Correção salva. Clique em "Re-validar" para conferir o efeito.';
+    msgCorr.value = 'Correção salva. Clique em "Validar corrigido" para conferir o efeito.';
     await carregarCorrecoes();
   } catch (err) {
     msgCorr.value = err.response?.data?.message || ('Erro ao salvar: ' + err.message);
@@ -293,8 +295,8 @@ async function salvarLacre(e) {
     const map = new Map(atuais.map(l => [String(l.serie_bomba).trim(), { serie_bomba: String(l.serie_bomba).trim(), num_lacre: String(l.num_lacre).trim(), dt_aplicacao: String(l.dt_aplicacao || '').replace(/\D/g, '') }]));
     map.set(serie, { serie_bomba: serie, num_lacre: lacre, dt_aplicacao: data });
     await axios.post(`${API_BASE_URL}/api/lmc/lacres`, { cnpj, lacres: [...map.values()] }, { headers: authHeader() });
-    e.corrigidoPeloUsuario = true; // feedback imediato; "Re-validar" confirma via lmc_lacres
-    msgCorr.value = 'Lacre salvo. Clique em "Re-validar" para confirmar; o SPED baixado já sai com o 1360.';
+    e.corrigidoPeloUsuario = true; // feedback imediato; "Validar corrigido" confirma via lmc_lacres
+    msgCorr.value = 'Lacre salvo. Clique em "Validar corrigido" para confirmar; o SPED baixado já sai com o 1360.';
   } catch (err) {
     msgCorr.value = err.response?.data?.message || ('Erro ao salvar lacre: ' + err.message);
   } finally { salvandoLacre.value = null; }
@@ -346,7 +348,7 @@ async function salvarCadastro(campo, registro, chave, campoIdx, valorOriginal) {
       chave_natural: chave, campo_idx: campoIdx,
       valor_original: valorOriginal || '', valor_corrigido: valor,
     }, { headers: authHeader() });
-    msgCorr.value = 'Cadastro salvo. Clique em "Re-validar" para conferir; o SPED exportado já sai com o valor corrigido.';
+    msgCorr.value = 'Cadastro salvo. Clique em "Validar corrigido" para conferir; o SPED exportado já sai com o valor corrigido.';
     cadVal.value[campo] = '';
     await carregarCorrecoes();
   } catch (err) {
@@ -422,7 +424,7 @@ const loadingAlt = ref(false);
 const baixandoPdf = ref(false);
 // "O que foi corrigido" = SÓ MOSTRA (read-only) o relatório do que já foi corrigido no ÚLTIMO
 // export deste arquivo. NÃO re-exporta / NÃO re-corrige o SPED (antes chamava POST /revalidar, que
-// rodava a correção de novo a cada clique). Para re-processar existe o botão "Re-validar".
+// rodava a correção de novo a cada clique). Para re-processar existe o botão "Validar corrigido".
 async function verAlteracoes() {
   if (!resultadoId.value) { msgCorr.value = 'Valide um arquivo importado primeiro.'; return; }
   loadingAlt.value = true; erro.value = ''; msgCorr.value = '';
@@ -431,7 +433,7 @@ async function verAlteracoes() {
     if (r.data?.semExport) {
       // ainda não houve export deste arquivo → não há changelog persistido p/ relatar
       alteracoes.value = null;
-      msgCorr.value = 'Ainda não há relatório deste arquivo. Clique em "Baixar SPED corrigido" (ou "Re-validar") para gerar o SPED — aí o "o que foi corrigido" fica disponível.';
+      msgCorr.value = 'Ainda não há relatório deste arquivo. Clique em "Baixar SPED corrigido" (ou "Validar corrigido") para gerar o SPED — aí o "o que foi corrigido" fica disponível.';
     } else {
       alteracoes.value = r.data;
     }
@@ -515,7 +517,7 @@ async function salvarCest(e) {
       id_sped_arquivo: resultadoId.value, regra_id: e.regra_id, registro: '0200',
       chave_natural: e.chaveNatural, campo_idx: 13, valor_original: e.valorAtual, valor_corrigido: valor,
     }, { headers: authHeader() });
-    msgCorr.value = 'CEST salvo. Clique em "Re-validar" para conferir; o SPED baixado já sai corrigido.';
+    msgCorr.value = 'CEST salvo. Clique em "Validar corrigido" para conferir; o SPED baixado já sai corrigido.';
     await carregarCorrecoes();
   } catch (err) {
     msgCorr.value = err.response?.data?.message || ('Erro ao salvar CEST: ' + err.message);
@@ -624,7 +626,7 @@ onMounted(async () => {
             <option v-for="a in arquivos" :key="a.id" :value="a.id">{{ a.periodo_apuracao }}</option>
           </select>
         </div>
-        <UiButton @click="analisar" :disabled="loading || !arquivoSel" class="justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+        <UiButton @click="analisar" :disabled="loading || !arquivoSel" title="Valida o arquivo ORIGINAL importado — mostra os erros como estão hoje, antes das correções." class="justify-center disabled:opacity-50 disabled:cursor-not-allowed">
           <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><ShieldCheck v-else class="w-4 h-4" :stroke-width="1.8" />
           {{ loading ? 'Validando…' : 'Validar este SPED' }}
         </UiButton>
@@ -703,18 +705,18 @@ onMounted(async () => {
       <!-- Ações de correção -->
       <div v-if="resultadoId" class="bg-sheet rounded-md border border-line card-shadow p-5 space-y-3">
         <div class="flex items-center gap-3 flex-wrap">
-          <UiButton @click="baixarCorrigido">
+          <UiButton @click="baixarCorrigido" title="Gera e baixa o .txt já corrigido (auto-ajustes + suas correções + ajustes do LMC) para enviar ao PVA.">
             <UploadCloud class="w-4 h-4 rotate-180" :stroke-width="1.8" /> Baixar SPED corrigido
           </UiButton>
-          <UiButton variant="ghost" @click="revalidar" :disabled="loading" class="disabled:opacity-50">
-            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" /> Re-validar (sobre o SPED corrigido)
+          <UiButton variant="ghost" @click="revalidar" :disabled="loading" title="Valida a versão já corrigida do SPED (com suas correções e os ajustes do LMC aplicados) — os erros resolvidos deixam de aparecer." class="disabled:opacity-50">
+            <Loader2 v-if="loading" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" /> Validar corrigido
           </UiButton>
-          <UiButton @click="previewCorrigirTudo" :disabled="corrigindoLote || loading" class="disabled:opacity-50">
-            <Loader2 v-if="corrigindoLote" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><Wand2 v-else class="w-4 h-4" :stroke-width="1.8" /> Corrigir todas as seguras
+          <UiButton @click="previewCorrigirTudo" :disabled="corrigindoLote || loading" title="Aplica automaticamente as correções fiscais SEGURAS (determinísticas) num lote reversível. NÃO corrige estoque de LMC — isso é no módulo LMC." class="disabled:opacity-50">
+            <Loader2 v-if="corrigindoLote" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><Wand2 v-else class="w-4 h-4" :stroke-width="1.8" /> Corrigir SPED
           </UiButton>
-          <button v-if="loteInfo" @click="desfazerLote" :disabled="corrigindoLote" class="text-[11px] text-lacre hover:opacity-80 font-medium disabled:opacity-50">↩ desfazer último lote ({{ loteInfo.total }})</button>
-          <UiButton variant="ghost" @click="verAlteracoes" :disabled="loadingAlt" class="disabled:opacity-50">
-            <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><span v-else>📋</span> O que foi corrigido
+          <button v-if="loteInfo" @click="desfazerLote" :disabled="corrigindoLote" class="text-[11px] text-lacre hover:opacity-80 font-medium disabled:opacity-50">desfazer último lote ({{ loteInfo.total }})</button>
+          <UiButton variant="ghost" @click="verAlteracoes" :disabled="loadingAlt" title="Mostra o relatório do que o sistema alterou no último SPED corrigido/baixado." class="disabled:opacity-50">
+            <Loader2 v-if="loadingAlt" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><ClipboardList v-else class="w-4 h-4" :stroke-width="1.8" /> O que foi corrigido
           </UiButton>
           <span v-if="msgCorr" class="text-[12px] font-medium" :class="(msgCorr.startsWith('Erro') || msgCorr.startsWith('Informe') || msgCorr.startsWith('Valide')) ? 'text-lacre' : 'text-conforme'">{{ msgCorr }}</span>
         </div>
@@ -747,7 +749,7 @@ onMounted(async () => {
             </template>
           </div>
         </div>
-        <p class="text-[11px] text-risco">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Re-validar" valida esse arquivo já corrigido.</p>
+        <p class="text-[11px] text-risco">"Baixar SPED corrigido" gera o arquivo com os auto-ajustes (0220, totalizadores, duplicados, assinatura) + suas correções. "Validar corrigido" valida esse arquivo já corrigido.</p>
       </div>
 
       <!-- Corrigir cadastro: IE (0000) e contabilista (0100) — edita direto → aplicado no export -->
@@ -784,15 +786,15 @@ onMounted(async () => {
       <!-- O QUE FOI CORRIGIDO (changelog antes→depois, por bloco/registro) -->
       <div v-if="alteracoes" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
         <div class="px-5 py-3 border-b border-line flex items-center gap-3 flex-wrap">
-          <span class="text-[13px] font-semibold text-ink">📋 O que foi corrigido</span>
+          <span class="text-[13px] font-semibold text-ink flex items-center gap-1.5"><ClipboardList class="w-4 h-4" :stroke-width="1.8" /> O que foi corrigido</span>
           <span class="text-[11px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-0.5 rounded-md">{{ alteracoes.total }} alteração(ões)</span>
           <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-medium text-risco bg-paper border border-line px-2 py-0.5 rounded-md">{{ k }}: {{ n }}</span>
-          <button @click="baixarRelatorioPdf" :disabled="baixandoPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">{{ baixandoPdf ? 'Gerando…' : '📄 Relatório (PDF)' }}</button>
+          <button @click="baixarRelatorioPdf" :disabled="baixandoPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">{{ baixandoPdf ? 'Gerando…' : 'Relatório (PDF)' }}</button>
           <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar ✕</button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
         <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-variacao/[0.06] border-b border-variacao/25">
-          <p class="text-[11px] font-semibold text-variacao mb-2">⏸️ Correções DESLIGADAS por você ({{ alteracoes.skips.length }}) — <b>não estão sendo aplicadas</b> (o erro pode voltar no PVA). Clique em <b>Religar</b> para voltar a aplicar:</p>
+          <p class="text-[11px] font-semibold text-variacao mb-2">Correções DESLIGADAS por você ({{ alteracoes.skips.length }}) — <b>não estão sendo aplicadas</b> (o erro pode voltar no PVA). Clique em <b>Religar</b> para voltar a aplicar:</p>
           <div class="space-y-1.5">
             <div v-for="(s, i) in alteracoes.skips" :key="i" class="flex items-center gap-2 bg-sheet border border-variacao/25 rounded-md px-3 py-1.5">
               <span class="shrink-0 text-[9px] font-bold uppercase text-variacao bg-variacao/10 border border-variacao/30 rounded px-1.5 py-0.5">off</span>
@@ -817,17 +819,30 @@ onMounted(async () => {
                     <span class="text-risco mx-1">→</span>
                     <span class="font-mono text-conforme break-all">{{ it.depois }}</span>
                     <span class="block text-[10px] text-risco italic">{{ it.motivo }}<span v-if="it.regraId" class="font-mono not-italic opacity-70"> · {{ it.regraId }}</span></span>
+                    <span v-if="it.itens && it.itens.length" class="block mt-1">
+                      <button @click="detalheAberto = (detalheAberto === dkey(b.bloco, reg.registro, i) ? null : dkey(b.bloco, reg.registro, i))" class="inline-flex items-center gap-1 text-[10px] font-medium text-bronze hover:opacity-70 transition-opacity">
+                        <component :is="detalheAberto === dkey(b.bloco, reg.registro, i) ? ChevronUp : ChevronDown" class="w-3 h-3" :stroke-width="1.7" />{{ detalheAberto === dkey(b.bloco, reg.registro, i) ? 'ocultar' : 'ver' }} {{ it.itens.length }} item(ns) detalhado(s)
+                      </button>
+                      <div v-if="detalheAberto === dkey(b.bloco, reg.registro, i)" class="mt-1 border-l-2 border-line pl-2 space-y-0.5 max-h-[30vh] overflow-y-auto">
+                        <div v-for="(d, j) in it.itens" :key="j" class="text-[10px] flex items-center gap-1.5">
+                          <span class="font-mono text-ink truncate shrink-0 max-w-[55%]" :title="d.chave">{{ d.chave || '—' }}</span>
+                          <span class="text-risco line-through break-all">{{ d.antes || '—' }}</span>
+                          <span class="text-risco shrink-0">→</span>
+                          <span class="font-mono text-conforme break-all">{{ d.depois }}</span>
+                        </div>
+                      </div>
+                    </span>
                   </span>
                   <button v-if="EXCLUIVEIS.has(it.regraId)" @click="toggleSkip(it.regraId, chaveSkip(it), true)" :disabled="loadingAlt"
                     title="Desligar: parar de aplicar esta correção. Para RELIGAR depois, use a faixa amarela 'Correções desligadas' no topo deste relatório."
-                    class="shrink-0 self-center text-[9px] font-medium text-lacre hover:text-white hover:bg-lacre border border-lacre/25 rounded-md px-1.5 py-0.5 transition-colors">⏻ desligar</button>
-                  <span v-else class="shrink-0 self-center text-[9px] text-risco" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela); não pode ser desligada">🔒 fixa</span>
+                    class="shrink-0 self-center text-[9px] font-medium text-lacre hover:text-white hover:bg-lacre border border-lacre/25 rounded-md px-1.5 py-0.5 transition-colors">desligar</button>
+                  <span v-else class="shrink-0 self-center text-[9px] text-risco" title="Correção estrutural — sempre aplicada (o arquivo ficaria inválido sem ela); não pode ser desligada">fixa</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p class="px-5 py-2 text-[10px] text-risco border-t border-line">Reflete o ÚLTIMO "Baixar/Re-validar". Itens estruturais (totalizadores, recontagens) são sempre aplicados; injeções e ajustes fiscais são o que o sistema acrescentou para passar no PVA.</p>
+        <p class="px-5 py-2 text-[10px] text-risco border-t border-line">Reflete o ÚLTIMO "Baixar/Validar corrigido". Itens estruturais (totalizadores, recontagens) são sempre aplicados; injeções e ajustes fiscais são o que o sistema acrescentou para passar no PVA.</p>
       </div>
 
       <!-- Filtros + lista de erros -->
@@ -912,7 +927,7 @@ onMounted(async () => {
                         </button>
                         <div v-if="occAberta === keyErro(e)" class="px-6 pb-4 pt-1 bg-sheet text-[12px] space-y-2">
                           <div v-if="e.corrigidoPeloUsuario" class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-3 text-conforme">
-                            <b>✓ Você já corrigiu este item.</b> Ele ainda aparece porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Re-validar"</b> ou baixe o SPED corrigido para confirmar.
+                            <b>✓ Você já corrigiu este item.</b> Ele ainda aparece porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Validar corrigido"</b> ou baixe o SPED corrigido para confirmar.
                           </div>
                           <p class="text-ink">{{ e.detalhe }}</p>
                           <div class="grid sm:grid-cols-2 gap-2">
@@ -960,7 +975,7 @@ onMounted(async () => {
                               <button @click="salvarCest(e)" :disabled="salvandoCest === keyErro(e)" class="px-3 h-8 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 shrink-0 transition-opacity">{{ salvandoCest === keyErro(e) ? 'Salvando…' : 'Salvar CEST' }}</button>
                             </div>
                             <div class="flex items-center gap-3 mt-1.5 flex-wrap">
-                              <button @click="cestBuscaAberta[keyErro(e)] = !cestBuscaAberta[keyErro(e)]" class="text-[11px] text-bronze hover:opacity-70 transition-opacity">🔍 não achei — buscar em todos</button>
+                              <button @click="cestBuscaAberta[keyErro(e)] = !cestBuscaAberta[keyErro(e)]" class="text-[11px] text-bronze hover:opacity-70 transition-opacity">não achei — buscar em todos</button>
                               <label class="text-[11px] text-risco flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="cestSemST[keyErro(e)]" class="accent-bronze"> produto sem ST (deixar vazio)</label>
                             </div>
                             <div v-if="cestBuscaAberta[keyErro(e)]" class="flex items-center gap-2 mt-1.5">
@@ -991,8 +1006,8 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-else class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-8 text-center text-conforme font-semibold">
-        ✅ Nenhum erro encontrado pelas regras atuais.
+      <div v-else class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-8 text-center text-conforme font-semibold flex items-center justify-center gap-2">
+        <CheckCircle2 class="w-5 h-5" :stroke-width="1.8" /> Nenhum erro encontrado pelas regras atuais.
       </div>
 
       <p class="text-[11px] text-risco text-center">
@@ -1004,7 +1019,7 @@ onMounted(async () => {
     <div v-if="showPreviewLote && previewLote" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="showPreviewLote = false">
       <div class="bg-sheet rounded-lg border border-line shadow-xl max-w-lg w-full max-h-[85vh] overflow-auto">
         <div class="px-5 py-4 border-b border-line">
-          <h3 class="text-[15px] font-semibold text-ink">Corrigir todas as seguras</h3>
+          <h3 class="text-[15px] font-semibold text-ink">Corrigir SPED</h3>
           <p class="text-[12px] text-risco mt-0.5">Prévia — <b>nada é gravado</b> até você confirmar. Só entram correções <b>determinísticas</b> (bloqueantes, com valor exato e gate fiscal). Itens de revisão manual ficam de fora.</p>
         </div>
         <div class="px-5 py-4 space-y-3">

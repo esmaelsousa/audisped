@@ -19,7 +19,6 @@ module.exports = {
     instrucaoERP: 'No ERP/LMC, acerte a movimentação do combustível: estoque não pode ficar negativo e as contas do dia devem fechar (disponível = abertura + entradas; escritural = disponível − saídas; físico = escritural − perda + ganho).',
     detectar(model) {
         const erros = [];
-        const ym = model.periodoYM;
 
         // ---- 1300 (por produto/dia) ----
         for (const l of (model.porReg.get('1300') || [])) {
@@ -37,6 +36,7 @@ module.exports = {
         }
 
         // ---- 1310 (por tanque) ----
+        const capFaltantes = new Map(); // NUM_TANQUE -> linha (dedup: CAP é atributo estático do tanque)
         for (const l of (model.porReg.get('1310') || [])) {
             const f = l.f; if (f.length <= 10) continue;
             const ab = num(f[3]), ent = num(f[4]), disp = num(f[5]), sai = num(f[6]), escr = num(f[7]), perda = num(f[8]), ganho = num(f[9]), fech = num(f[10]);
@@ -47,11 +47,17 @@ module.exports = {
             if (Math.abs(disp - (ab + ent)) > TOL) erros.push({ bloco: '1', registro: '1310', linha: l.n, campo: 'VOL_DISP', severidade: 'BLOQ', valorAtual: String(disp), valorSugerido: (ab + ent).toFixed(3), detalhe: `VOL_DISP (${disp}) ≠ ABERT + ENTR (${(ab + ent).toFixed(3)}) — tanque ${tq}.` });
             else if (Math.abs(escr - (disp - sai)) > TOL) erros.push({ bloco: '1', registro: '1310', linha: l.n, campo: 'ESTQ_ESCR', severidade: 'BLOQ', valorAtual: String(escr), valorSugerido: (disp - sai).toFixed(3), detalhe: `ESTQ_ESCR (${escr}) ≠ DISP − SAIDAS (${(disp - sai).toFixed(3)}) — tanque ${tq}.` });
             else if (Math.abs(fech - (escr - perda + ganho)) > TOL) erros.push({ bloco: '1', registro: '1310', linha: l.n, campo: 'FECH_FISICO', severidade: 'BLOQ', jaCorrigidoNoExport: true, valorAtual: String(fech), valorSugerido: (escr - perda + ganho).toFixed(3), detalhe: `FECH_FISICO (${fech}) ≠ ESCR − PERDA + GANHO (${(escr - perda + ganho).toFixed(3)}) — tanque ${tq}.` });
-            // CAP_TANQUE obrigatório a partir de 2026 (leiaute 020)
-            if (ym && ym >= '202601') {
+            // CAP_TANQUE obrigatório no LEIAUTE 020 (NÃO por período: um 019 não tem o campo — se um
+            // arquivo 2026 vier em 019, o erro é "leiaute incompatível", não "CAP faltante"). Dedup por
+            // tanque (atributo estático — não 1 por linha-dia) e ADV: o export injeta a capacidade
+            // cadastrada (lmc_tanques_config / _harvestCaps) ou aborta 422 — não há ação manual no 1310.
+            if (String(model.versao || '') >= '020') {
                 const cap = (f.length >= 13) ? String(f[11] || '').trim() : '';
-                if (!cap || num(cap) <= 0) erros.push({ bloco: '1', registro: '1310', linha: l.n, campo: 'CAP_TANQUE', severidade: 'BLOQ', jaCorrigidoNoExport: true, valorAtual: cap || '(ausente)', detalhe: `CAP_TANQUE obrigatório a partir de 01/2026 ausente no tanque ${tq}.` });
+                if ((!cap || num(cap) <= 0) && !capFaltantes.has(tq)) capFaltantes.set(tq, l.n);
             }
+        }
+        for (const [tq, linha] of capFaltantes) {
+            erros.push({ bloco: '1', registro: '1310', linha, campo: 'CAP_TANQUE', severidade: 'ADV', jaCorrigidoNoExport: true, valorAtual: '(ausente)', detalhe: `CAP_TANQUE (capacidade) ausente no tanque ${tq} — obrigatório no leiaute 020 (2026+). O export injeta a capacidade cadastrada; cadastre-a em Configurar Tanques se ainda não houver.` });
         }
 
         // ---- 1320 (bico) ----

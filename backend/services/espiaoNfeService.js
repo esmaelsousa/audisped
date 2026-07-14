@@ -107,6 +107,12 @@ class EspiaoNfeService {
 
         } catch (error) {
             const errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
+            // "Não localizado" (404) = período sem notas no Espião Cloud → resultado VAZIO, não erro.
+            const naoLocalizado = error.response?.status === 404 || /n[ãa]o\s+localizad/i.test(errorMsg);
+            if (naoLocalizado) {
+                logger.info(`EspiãoNFe: nenhuma nota localizada no período (empresa ${idEmpresa}).`);
+                return { message: 'Nenhuma nota encontrada no Espião Cloud para este período. Verifique se a consulta automática desta empresa está ativa no painel.', count: 0 };
+            }
             logger.error(`Erro na sincronização EspiãoNFe v1-cloud: ${errorMsg}`);
             throw new Error(`Falha na API v1-cloud: ${errorMsg}`);
         }

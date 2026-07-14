@@ -149,15 +149,20 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
         if (numero && cnpjEmit) { const k = numero + '|' + cnpjEmit; if (!escrByNumEmit.has(k)) escrByNumEmit.set(k, item); }
     }
 
-    const faltantes = [], divergencia_valor = [], divergencia_competencia = [], sem_sped = [], canceladas = [];
+    const faltantes = [], divergencia_valor = [], divergencia_competencia = [], sem_sped = [], canceladas = [], conferidas = [];
     let ignoradas_canceladas = 0, uso_consumo = 0, fora_escopo = 0;
     const csvChaves = new Set();
 
     for (const inv of csv.invoices) {
-        const invYM = ymFromComp(inv.comp);
+        // Casa com a escrituração ANTES do escopo, para inferir o mês de notas SEM data (placeholder/manifestação).
+        let hit = (inv.chave && inv.chave.length >= 20) ? escrByChave.get(inv.chave) : null;
+        if (!hit && inv.numero && inv.cnpjEmit) hit = escrByNumEmit.get(inv.numero + '|' + inv.cnpjEmit);
+        // Mês da nota: emissão (SEFAZ); se ausente (placeholder), usa a competência onde foi escriturada.
+        let invYM = ymFromComp(inv.comp);
+        if (!invYM && hit) invYM = hit.periodoYM;
         if (escopo) {
-            // Escopo no período do SPED aberto: nota de outro mês do CSV é ignorada (não é faltante).
-            if (invYM && invYM !== escopo) { fora_escopo++; continue; }
+            // Escopo = período do SPED aberto: só conta notas DESSE mês (sem mês determinável → fora do escopo).
+            if (invYM !== escopo) { fora_escopo++; continue; }
         } else if (invYM && !cobertura.has(invYM)) {
             // Sem escopo fixo: mês sem SPED importado → balde "sem_sped" (não é faltante).
             sem_sped.push({ numero: inv.numero, chave: inv.chave, comp: compLabel(inv.comp), data: inv.data, valor: inv.valor, fornecedor: inv.fornecedor });
@@ -174,15 +179,16 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
         const usoConsumo = !!(cnpjEmp && inv.cnpjEmit && inv.cnpjEmit === cnpjEmp);
         if (usoConsumo) uso_consumo++;
 
-        let hit = (inv.chave && inv.chave.length >= 20) ? escrByChave.get(inv.chave) : null;
-        if (!hit && inv.numero && inv.cnpjEmit) hit = escrByNumEmit.get(inv.numero + '|' + inv.cnpjEmit);
-
         if (!hit) {
             faltantes.push({ numero: inv.numero, chave: inv.chave, comp: compLabel(inv.comp), valor: inv.valor, data: inv.data, fornecedor: inv.fornecedor, uso_consumo: usoConsumo });
             continue;
         }
-        if (Math.abs(inv.valor - hit.valor) > 0.01) {
+        let temDivergencia = false;
+        // Só é divergência de valor se a SEFAZ TEM valor (> 0). Notas resumo/placeholder (manifestação
+        // sem valor) casam pela chave e contam como conferidas — nunca "SEFAZ R$ 0,00 divergente".
+        if (inv.valor > 0.01 && Math.abs(inv.valor - hit.valor) > 0.01) {
             divergencia_valor.push({ numero: inv.numero, chave: inv.chave, fornecedor: inv.fornecedor, valorSefaz: inv.valor, valorSped: hit.valor, dif: inv.valor - hit.valor, data: inv.data, dataSped: fmtDtDoc(hit.dtES) || fmtDtDoc(hit.dtDoc) || '' });
+            temDivergencia = true;
         }
         const csvYM = ymFromComp(inv.comp);
         if (csvYM && hit.periodoYM && csvYM !== hit.periodoYM) {
@@ -192,6 +198,21 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
             // competência (mês) — nunca p/ dt_doc, que é a emissão e enganaria ("lançada=emitida").
             const dataSped = fmtDtDoc(hit.dtES) || fmt(hit.periodoYM);
             divergencia_competencia.push({ numero: inv.numero, chave: inv.chave, fornecedor: inv.fornecedor, valor: inv.valor, data: inv.data, compSefaz: fmt(csvYM), compSped: fmt(hit.periodoYM), dataSped });
+            temDivergencia = true;
+        }
+        // Conferida: casou por chave e sem divergência. Preenche com dados da SEFAZ e, quando ausentes
+        // (nota resumo/placeholder), cai para os dados do SPED — para SEMPRE mostrar a nota.
+        if (!temDivergencia) {
+            conferidas.push({
+                numero: inv.numero || hit.numero,
+                chave: inv.chave,
+                valorSefaz: inv.valor > 0.01 ? inv.valor : null,
+                valorSped: hit.valor,
+                fornecedor: (inv.fornecedor && inv.fornecedor !== 'N/A') ? inv.fornecedor : hit.fornecedor,
+                data: inv.data || fmtDtDoc(hit.dtDoc),
+                dataSped: fmtDtDoc(hit.dtES) || fmtDtDoc(hit.dtDoc),
+                uso_consumo: usoConsumo
+            });
         }
     }
 
@@ -232,6 +253,7 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
             escrituradas_no_range: escrList.filter(e => inRange(e.periodoYM)).length,
             faltantes: faltantes.length,
             faltantes_valor: faltantes.reduce((a, f) => a + (Number(f.valor) || 0), 0),
+            conferidas: conferidas.length,
             divergencia_valor: divergencia_valor.length,
             divergencia_competencia: divergencia_competencia.length,
             extras: extras.length,
@@ -242,7 +264,7 @@ function conciliar({ csv, escrituradas, cnpjEmpresa, mesesComSped, escopoYM, inc
         },
         incluiu_canceladas: !!incluirCanceladas,
         meses_sem_sped, sem_sped_total,
-        faltantes, divergencia_valor, divergencia_competencia, extras, sem_sped, canceladas
+        faltantes, divergencia_valor, divergencia_competencia, extras, sem_sped, canceladas, conferidas
     };
 }
 
