@@ -1,4 +1,4 @@
-// CAD-0400-CFOP-01 (E-Auditoria 2441) — COD_NAT do 0400 preenchido com um código CFOP.
+// CAD-0400-CFOP-01 (catálogo de referência 2441) — COD_NAT do 0400 preenchido com um código CFOP.
 // O 0400 é tabela de naturezas PRÓPRIAS do contribuinte; CFOP tem 4 dígitos começando por 1/2/3/5/6/7.
 //
 // PAINEL (cross-empresa 2026-07-08 §3 — REVISAO-CROSS-EMPRESA-2026-07-08.md): usar o CFOP como COD_NAT
@@ -7,7 +7,7 @@
 // (sem campoIdx). A UI pode agregar num único alerta por arquivo ("N naturezas do 0400 usam CFOP como código").
 module.exports = {
     id: 'CAD-0400-CFOP-01',
-    refEAuditoria: '2441',
+    refCatalogo: '2441',
     bloco: '0',
     registro: '0400',
     titulo: 'COD_NAT do 0400 preenchido com um código CFOP (prática válida; recodificar é opcional)',

@@ -1,8 +1,8 @@
-// DOC-C190-REDBC-01 (E-Auditoria 2800) — VL_RED_BC do C190 preenchido com CST que não é de redução.
+// DOC-C190-REDBC-01 (catálogo de referência 2800) — VL_RED_BC do C190 preenchido com CST que não é de redução.
 // Regra: se VL_RED_BC > 0 e COD_SIT do C100 pai ∈ {00,01}, o 2º-3º dígitos do CST devem ser 20 ou 70.
 //
 // ⚠️ GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.4 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
-//   DETECÇÃO reproduz o E-Auditoria. A AUTO-CORREÇÃO (zerar VL_RED_BC) exige no coletor:
+//   DETECÇÃO reproduz o catálogo de referência. A AUTO-CORREÇÃO (zerar VL_RED_BC) exige no coletor:
 //     - f6(BC)==0 **E** f7(ICMS)==0 (sem redução real → é ruído); se 0<f6<f5 ou f7>0 há redução GENUÍNA
 //       → reclassificar CST p/ 020/070 ou MANUAL, NUNCA zerar;
 //     - f2 é CST da Tabela B (excluir CSOSN 101/102/.../900 — o teste do 2 últimos díg. confunde CSOSN 900→'00');
@@ -13,7 +13,7 @@
 const { toCents } = require('../money');
 module.exports = {
     id: 'DOC-C190-REDBC-01',
-    refEAuditoria: '2800',
+    refCatalogo: '2800',
     bloco: 'C',
     registro: 'C190',
     titulo: 'VL_RED_BC no C190 incompatível com o CST (deve ser x20/x70)',

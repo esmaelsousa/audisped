@@ -1,5 +1,5 @@
 // services/validador/money.js — aritmética monetária em CENTAVOS inteiros com HALF-UP
-// (padrão fiscal / E-Auditoria). Evita o erro de ponto flutuante do round() nativo, que usa
+// (padrão fiscal / catálogo de referência). Evita o erro de ponto flutuante do round() nativo, que usa
 // banker's rounding e perde a diferença de 1 centavo em subtrações de float.
 function toCents(v) {
     const s = String(v == null ? '' : v).trim();

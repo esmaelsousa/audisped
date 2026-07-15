@@ -1,7 +1,7 @@
-// DOC-C190-VLICMS-01 (E-Auditoria 2481) — VL_ICMS do C190 inconsistente.
+// DOC-C190-VLICMS-01 (catálogo de referência 2481) — VL_ICMS do C190 inconsistente.
 //
 // ⚠️ FÓRMULA CORRIGIDA PELO PAINEL (cross-empresa 2026-07-08 §3 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
-//   O E-Auditoria compara VL_ICMS(C190) com round(BC×ALIQ) — mas isso é FISCALMENTE ERRADO: o C190 é
+//   O catálogo de referência compara VL_ICMS(C190) com round(BC×ALIQ) — mas isso é FISCALMENTE ERRADO: o C190 é
 //   analítico e o valor correto é VL_ICMS(C190) = Σ VL_ICMS(C170) do mesmo CST|CFOP|ALIQ. A comparação
 //   com BC×ALIQ gera falso-positivo em massa em NF multi-item (arredondamento agregado legítimo),
 //   monofásico (ad rem), redução (CST 20/70), diferimento (CST 51) e Simples. Portanto comparamos
@@ -15,7 +15,7 @@ const trinca = (cst, cfop, aliq) => `${(cst || '').trim()}|${(cfop || '').trim()
 
 module.exports = {
     id: 'DOC-C190-VLICMS-01',
-    refEAuditoria: '2481',
+    refCatalogo: '2481',
     bloco: 'C',
     registro: 'C190',
     titulo: 'VL_ICMS do C190 não corresponde à soma do VL_ICMS dos itens (C170)',

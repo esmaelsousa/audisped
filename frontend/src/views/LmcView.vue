@@ -688,7 +688,8 @@ async function exportarSped() {
         if (error.response?.data instanceof Blob) {
             const reader = new FileReader();
             reader.onload = () => {
-                const msg = reader.result;
+                let msg = reader.result;
+                try { const j = JSON.parse(reader.result); msg = j.message || j.resumo || j.erro || msg; } catch (_) { /* texto puro */ }
                 alert(`Erro na Exportação (${status || 'Conexão'}): ${msg}`);
             };
             reader.readAsText(error.response.data);

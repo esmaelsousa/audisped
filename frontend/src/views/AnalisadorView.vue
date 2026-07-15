@@ -1035,15 +1035,29 @@ function downloadDossie() {
     window.open(url, '_blank');
 }
 
-function downloadSpedRetificado() {
-    console.log("Tentando exportar SPED ID:", idArquivoSped.value);
+async function downloadSpedRetificado() {
     if (!idArquivoSped.value) {
         alert("Nenhum arquivo SPED selecionado para exportação.");
         return;
     }
     const currentToken = token.value || localStorage.getItem('token');
-    const url = `${API_BASE_URL}/api/exportar-sped/${idArquivoSped.value}${currentToken ? '?token=' + currentToken : ''}`;
-    window.open(url, '_blank');
+    try {
+        const res = await axios.get(`${API_BASE_URL}/api/exportar-sped/${idArquivoSped.value}`, {
+            headers: currentToken ? { Authorization: `Bearer ${currentToken}` } : {}, responseType: 'blob'
+        });
+        const cd = res.headers['content-disposition'] || '';
+        const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+        const filename = (m && decodeURIComponent(m[1])) || `SPED_${idArquivoSped.value}.txt`;
+        const url = URL.createObjectURL(res.data);
+        const a = document.createElement('a'); a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+        // 422 (ex.: CAP_TANQUE faltante) / 502 vêm como JSON dentro de um Blob → extrai a mensagem legível
+        let msg = e.message;
+        try { const txt = (e.response?.data instanceof Blob) ? await e.response.data.text() : ''; const j = txt ? JSON.parse(txt) : null; msg = j?.message || j?.resumo || j?.erro || txt || msg; } catch (_) {}
+        alert('Erro ao exportar: ' + msg);
+    }
 }
 
 function downloadExcel() {

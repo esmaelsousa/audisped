@@ -1,8 +1,8 @@
-// DOC-C190-ICMSSEMBASE-01 (E-Auditoria 2951) — C190 com ALIQ_ICMS > 0 mas VL_BC_ICMS ou VL_ICMS = 0.
+// DOC-C190-ICMSSEMBASE-01 (catálogo de referência 2951) — C190 com ALIQ_ICMS > 0 mas VL_BC_ICMS ou VL_ICMS = 0.
 // Espelho analítico do 2075.
 //
 // ⚠️ GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.3 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
-//   DETECÇÃO reproduz o E-Auditoria (OR). A AUTO-CORREÇÃO (zerar ALIQ) exige no coletor:
+//   DETECÇÃO reproduz o catálogo de referência (OR). A AUTO-CORREÇÃO (zerar ALIQ) exige no coletor:
 //     - f6(BC)==0 **E** f7(ICMS)==0 **E** f9(ICMS_ST)==0  (AND, não OR — o OR arrasta diferimento/suspensão
 //       que têm base>0 e VL_ICMS=0 legítimos), f5(VL_OPR)>0;
 //     - CST (f2) NÃO terminar em 50 (suspensão) nem 51 (diferimento);
@@ -12,7 +12,7 @@
 const { toCents } = require('../money');
 module.exports = {
     id: 'DOC-C190-ICMSSEMBASE-01',
-    refEAuditoria: '2951',
+    refCatalogo: '2951',
     bloco: 'C',
     registro: 'C190',
     titulo: 'ALIQ_ICMS > 0 no C190 com base/valor de ICMS zerados',

@@ -1,4 +1,4 @@
-// EST-9900-REGBLC-01 (E-Auditoria 2037) — REG_BLC do 9900 aponta um registro que não existe no arquivo.
+// EST-9900-REGBLC-01 (catálogo de referência 2037) — REG_BLC do 9900 aponta um registro que não existe no arquivo.
 // O 9900 totaliza ocorrências de cada registro; não deve listar registro ausente.
 //
 // GATE DO PAINEL (cross-empresa 2026-07-08 §2.5 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
@@ -8,7 +8,7 @@
 //   A remoção (só QTD==0) é passo do export (removerRegistros9900Ausentes) — BLOQUEADO até localhost.
 module.exports = {
     id: 'EST-9900-REGBLC-01',
-    refEAuditoria: '2037',
+    refCatalogo: '2037',
     bloco: '9',
     registro: '9900',
     titulo: 'REG_BLC do 9900 não existe no arquivo',

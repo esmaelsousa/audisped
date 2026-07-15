@@ -1,4 +1,4 @@
-// DOC-C100-5929-01 (E-Auditoria 1003) — CFOP 5929/6929 (nota espelho de operação já tributada em
+// DOC-C100-5929-01 (catálogo de referência 1003) — CFOP 5929/6929 (nota espelho de operação já tributada em
 // ECF/cupom) NÃO deve ter valor da operação, alíquota, base ou ICMS no C190.
 //
 // SÓ-DETECÇÃO (decisão do cliente + painel §3 — REVISAO-CROSS-EMPRESA-2026-07-08.md): a correção (zerar)
@@ -10,7 +10,7 @@
 const { toCents } = require('../money');
 module.exports = {
     id: 'DOC-C100-5929-01',
-    refEAuditoria: '1003',
+    refCatalogo: '1003',
     bloco: 'C',
     registro: 'C190',
     titulo: 'CFOP 5929/6929 com valor/alíquota/base/ICMS diferentes de zero',
@@ -19,7 +19,7 @@ module.exports = {
     jaCorrigidoNoExport: false,
     instrucaoERP: 'CFOP 5929/6929 acoberta operação já tributada (ECF/cupom): valor da operação, alíquota, base e ICMS devem ser 0 (exceto MG/RN/SC). Atenção: pode conflitar com a injeção de valores 5929 (monofásico).',
     // Conta por DOCUMENTO (C100), não por linha C190: uma NF com split CST 060/061 tem 2 C190 5929 e
-    // era contada 2×; o E-Auditor conta 1× por documento. Agregação: 1 achado por C100 com ≥1 C190
+    // era contada 2×; o painel de auditoria conta 1× por documento. Agregação: 1 achado por C100 com ≥1 C190
     // qualificado; se qualquer linha for FORTE (ICMS/alíq≠0), o documento é FORTE. Reproduz 57=57 (arq 2028).
     detectar(model) {
         const erros = [];

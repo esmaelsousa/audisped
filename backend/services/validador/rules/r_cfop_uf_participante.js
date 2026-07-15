@@ -1,12 +1,12 @@
-// DOC-C190-CFOPUF-01 (E-Auditoria 2742) — CFOP incompatível com a UF do participante.
+// DOC-C190-CFOPUF-01 (catálogo de referência 2742) — CFOP incompatível com a UF do participante.
 // O CFOP iniciado por 1 ou 5 é OPERAÇÃO INTERNA: a UF do participante (cliente/fornecedor) tem de
 // ser a mesma do declarante. Se o participante está em outra UF com CFOP 1xxx/5xxx → aponta.
-// É ADV: o próprio E-Auditor ressalva que operações PRESENCIAIS (venda no balcão a comprador de
+// É ADV: o próprio painel de auditoria ressalva que operações PRESENCIAIS (venda no balcão a comprador de
 // outra UF) são internas e usam CFOP 5 legitimamente — por isso orienta ("Verifique"), não bloqueia.
 //
 // Campos: C190 f[3]=CFOP (campo 03). Participante = COD_PART do C100 pai (f[4]) → 0150; a UF sai do
 // COD_MUN do 0150 (f[8], 7 díg. IBGE; 2 primeiros = código da UF). Declarante = UF do 0000 (model.uf).
-// Verificado no par casado arq 2028 (S CRUZ 09069475000109 01/2026): E-Auditor 2742 = 36 ocorrências.
+// Verificado no par casado arq 2028 (S CRUZ 09069475000109 01/2026): painel de auditoria 2742 = 36 ocorrências.
 const UF_COD = { RO: '11', AC: '12', AM: '13', RR: '14', PA: '15', AP: '16', TO: '17', MA: '21', PI: '22', CE: '23', RN: '24', PB: '25', PE: '26', AL: '27', SE: '28', BA: '29', MG: '31', ES: '32', RJ: '33', SP: '35', PR: '41', SC: '42', RS: '43', MS: '50', MT: '51', GO: '52', DF: '53' };
 const COD_UF = Object.fromEntries(Object.entries(UF_COD).map(([uf, cod]) => [cod, uf]));
 
@@ -18,7 +18,7 @@ module.exports = {
     severidade: 'ADV',
     classeCorrecao: 'manual',
     jaCorrigidoNoExport: false,
-    refEAuditoria: '2742',
+    refCatalogo: '2742',
     instrucaoERP: 'No ERP, CFOP iniciado por 1 ou 5 é operação INTERNA (mesma UF). Se o cliente/fornecedor é de outra UF, use CFOP interestadual (inicia por 2 ou 6). Exceção: venda PRESENCIAL (balcão) a comprador de outra UF é operação interna e o CFOP 5 está correto — nesse caso, desconsidere.',
     detectar(model) {
         const declUF = String(model.uf || '').trim().toUpperCase();

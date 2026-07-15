@@ -15,7 +15,7 @@ class Changelog {
             bloco: e.bloco || String(e.registro).charAt(0),
             registro: String(e.registro),
             regraId: e.regraId || '',
-            refEAuditoria: e.refEAuditoria != null ? String(e.refEAuditoria) : null,
+            refCatalogo: e.refCatalogo != null ? String(e.refCatalogo) : null,
             motivo: e.motivo || '',
             escopo: e.escopo || 'campo',          // campo | linha | registro | bloco | arquivo
             chave: e.chave != null ? String(e.chave) : null,

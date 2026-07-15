@@ -461,10 +461,25 @@ async function simularInjecao() {
     }
 }
 
-function downloadResultSped() {
+async function downloadResultSped() {
     if (!successInjectedId.value) return;
-    const downloadUrl = `${API_BASE_URL}/api/exportar-sped/${successInjectedId.value}?token=${token.value}`;
-    window.open(downloadUrl, '_blank');
+    const t = token.value || localStorage.getItem('token');
+    try {
+        const res = await axios.get(`${API_BASE_URL}/api/exportar-sped/${successInjectedId.value}`, {
+            headers: t ? { Authorization: `Bearer ${t}` } : {}, responseType: 'blob'
+        });
+        const cd = res.headers['content-disposition'] || '';
+        const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+        const filename = (m && decodeURIComponent(m[1])) || `SPED_${successInjectedId.value}.txt`;
+        const url = URL.createObjectURL(res.data);
+        const a = document.createElement('a'); a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+        let msg = e.message;
+        try { const txt = (e.response?.data instanceof Blob) ? await e.response.data.text() : ''; const j = txt ? JSON.parse(txt) : null; msg = j?.message || j?.resumo || j?.erro || txt || msg; } catch (_) {}
+        alert('Erro ao exportar: ' + msg);
+    }
 }
 
 async function standaloneExport() {

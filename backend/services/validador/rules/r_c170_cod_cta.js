@@ -1,14 +1,14 @@
-// DOC-C170-CODCTA-01 (E-Auditoria 2451) — COD_CTA (código da conta analítica) vazio no C170.
+// DOC-C170-CODCTA-01 (catálogo de referência 2451) — COD_CTA (código da conta analítica) vazio no C170.
 // Campo "OC" (obrigatório se houver informação).
 //
 // GATE DO PAINEL (cross-empresa 2026-07-08 §2.6 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
 //   Se o arquivo NÃO tem 0500 (plano de contas na EFD), COD_CTA vazio é 100% LEGÍTIMO — preencher geraria
 //   erro PVA "0500 inexistente". SÓ-DETECÇÃO, NUNCA auto-preencher (sem campoIdx; não há conta a inventar).
-//   Detecta reproduzindo o E-Auditoria (todos os C170 sem COD_CTA), mas quando não há 0500 a mensagem
+//   Detecta reproduzindo o catálogo de referência (todos os C170 sem COD_CTA), mas quando não há 0500 a mensagem
 //   deixa claro que é legítimo/desconsiderável. A UI pode agregar num alerta por arquivo.
 module.exports = {
     id: 'DOC-C170-CODCTA-01',
-    refEAuditoria: '2451',
+    refCatalogo: '2451',
     bloco: 'C',
     registro: 'C170',
     titulo: 'COD_CTA (conta analítica) não informado no C170',

@@ -1,7 +1,7 @@
-// COMB-1300-1320-01 (E-Auditoria 2023) — VOL_SAIDAS do 1300 (campo 7) deve ser a soma das vendas por
+// COMB-1300-1320-01 (catálogo de referência 2023) — VOL_SAIDAS do 1300 (campo 7) deve ser a soma das vendas por
 // bico (VOL_VENDAS, campo 11 dos 1320) do mesmo produto/dia: [1300.f7 = Σ 1320.f11].
 // ADV: divergências abaixo de ~1 litro são ARREDONDAMENTO legítimo (cada bico arredonda a 3 casas;
-// a soma acumula sub-litro) — mesma lição do E-Aud 2481. Por isso aplicamos tolerância: o E-Auditor
+// a soma acumula sub-litro) — mesma lição do ref. 2481. Por isso aplicamos tolerância: o painel de auditoria
 // usa tolerância R$0,00 e aponta todo sub-litro (no arq 2028 = 140 ocorrências, TODAS ≤ 0,013 L de
 // arredondamento). Aqui só apontamos divergência REAL (acima da tolerância), evitando poluir com ruído.
 //
@@ -18,7 +18,7 @@ module.exports = {
     severidade: 'ADV',
     classeCorrecao: 'manual',
     jaCorrigidoNoExport: false,
-    refEAuditoria: '2023',
+    refCatalogo: '2023',
     instrucaoERP: 'No LMC/ERP, o volume total de saídas do produto no dia (1300) deve ser a soma das vendas de todos os bicos daquele produto (1320). Divergências de poucos mililitros são arredondamento e podem ser ignoradas; diferenças acima de ~1 litro indicam venda de bico não somada ou saída lançada a mais/menos.',
     detectar(model) {
         const erros = [];

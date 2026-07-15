@@ -22,7 +22,7 @@ function validar(model) {
                 severidade: a.severidade || regra.severidade || 'ADV',
                 classeCorrecao: a.classeCorrecao || regra.classeCorrecao || 'manual',
                 jaCorrigidoNoExport: (a.jaCorrigidoNoExport ?? !!regra.jaCorrigidoNoExport),
-                refEAuditoria: (regra.refEAuditoria || null),
+                refCatalogo: (regra.refCatalogo || null),
                 titulo: regra.titulo,
                 linha: (a.linha ?? null),
                 campo: a.campo || '',

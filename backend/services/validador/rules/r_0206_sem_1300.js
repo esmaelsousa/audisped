@@ -1,4 +1,4 @@
-// COMB-0206-1300-01 (E-Auditoria 2321) — produto com registro 0206 (código ANP) que não possui
+// COMB-0206-1300-01 (catálogo de referência 2321) — produto com registro 0206 (código ANP) que não possui
 // movimentação no LMC (nenhum 1300 com o mesmo COD_ITEM). Típico de lubrificantes: têm 0206 mas
 // não são combustíveis controlados pelo LMC.
 //
@@ -6,11 +6,11 @@
 //   (a) SÓ roda se o arquivo mantém LMC (≥1 registro 1300) — senão é distribuidora/TRR/não-posto ou
 //       período sem LMC e TODO 0206 viraria falso positivo. [aplicado — não muda o POSTO CG, que tem 1300]
 //   (b) o painel sugere restringir a combustível AUTOMOTIVO (ANP/NCM); NÃO aplicado à detecção para
-//       preservar a paridade com o E-Auditoria (os 2 do POSTO CG são lubrificantes) — a ressalva vai no
+//       preservar a paridade com o catálogo de referência (os 2 do POSTO CG são lubrificantes) — a ressalva vai no
 //       detalhe. SÓ-DETECÇÃO/alerta: nunca auto-gerar 1300 (fabricaria movimentação de LMC ilegal).
 module.exports = {
     id: 'COMB-0206-1300-01',
-    refEAuditoria: '2321',
+    refCatalogo: '2321',
     bloco: '0',
     registro: '0206',
     titulo: 'Produto com 0206 (ANP) sem movimentação no 1300 (LMC)',

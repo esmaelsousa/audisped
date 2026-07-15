@@ -1,8 +1,8 @@
-// DOC-C170-ICMSSEMBASE-01 (E-Auditoria 2075) — C170 com ALIQ_ICMS > 0 mas VL_BC_ICMS ou VL_ICMS = 0.
+// DOC-C170-ICMSSEMBASE-01 (catálogo de referência 2075) — C170 com ALIQ_ICMS > 0 mas VL_BC_ICMS ou VL_ICMS = 0.
 // Caso típico: item de uso/consumo (CFOP 1556/1407…) que herdou a alíquota mas não tem crédito.
 //
 // ⚠️ GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.2 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
-//   DETECÇÃO reproduz o E-Auditoria (dispara com OR: BC==0 OU VL_ICMS==0). Mas a AUTO-CORREÇÃO
+//   DETECÇÃO reproduz o catálogo de referência (dispara com OR: BC==0 OU VL_ICMS==0). Mas a AUTO-CORREÇÃO
 //   (zerar ALIQ) só é segura no SUBCONJUNTO genuinamente não-creditante — senão destrói crédito real
 //   de distribuidora (CST 00/20 com ALIQ>0 e BC zerada por glitch → o certo é PREENCHER a base, não zerar).
 //   Guards obrigatórios no coletor: f13(BC)==0 E f15(ICMS)==0 E f18(VL_ICMS_ST)==0 E CFOP uso/consumo
@@ -12,7 +12,7 @@
 const { toCents } = require('../money');
 module.exports = {
     id: 'DOC-C170-ICMSSEMBASE-01',
-    refEAuditoria: '2075',
+    refCatalogo: '2075',
     bloco: 'C',
     registro: 'C170',
     titulo: 'ALIQ_ICMS > 0 no C170 com base/valor de ICMS zerados',
