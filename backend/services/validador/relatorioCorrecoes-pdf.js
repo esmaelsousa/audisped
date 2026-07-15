@@ -1,5 +1,5 @@
 // Relatório consolidado de CORREÇÕES do SPED (PDF) — documento para o contribuinte enviar à
-// contabilidade / setor fiscal. Layout inspirado no laudo do E-Auditor: identificação, cards por
+// contabilidade / setor fiscal. Layout inspirado no laudo de auditoria: identificação, cards por
 // "Correção sugerida" (descrição em linguagem natural + ocorrências NF a NF), pendências restantes
 // (o que o Validador ainda aponta), e correções desligadas. NÃO recalcula nada — só formata os dados.
 // Sem caracteres fora do WinAnsi (usa "de X para Y", não a seta →) para não quebrar na fonte embutida.
@@ -26,10 +26,12 @@ const LABEL_REGRA = {
     'DOC-C170-ICMSSEMBASE-01': 'ICMS/alíquota do C170 sem base',
     'DOC-C190-ICMSSEMBASE-01': 'ICMS/alíquota do C190 sem base',
     'DOC-C190-REDBC-01': 'VL_RED_BC sem redução de base',
+    'DOC-C100-SER-01': 'Série do C100 alinhada à chave de acesso',
+    'DOC-C100-5929-01': 'CFOP 5929 (espelho de ECF): ICMS duplicado removido',
     'CADASTRO': 'Correção de dado cadastral (IE / contabilista)',
 };
 
-// Texto "Correção sugerida" (linguagem natural) por regra — estilo do laudo do E-Auditor.
+// Texto "Correção sugerida" (linguagem natural) por regra — estilo do laudo de auditoria.
 const DESCRICAO_SUGESTAO = {
     'USO-CONSUMO-X90': 'Identificamos aquisição de uso/consumo com CST/CFOP indicando crédito de ICMS indevido; o CST foi ajustado para o grupo x90 e a base/alíquota/ICMS foram zerados na operação sem direito a crédito.',
     'DOC-C100-VLDOC-01': 'O valor total do documento (VL_DOC) estava divergente da composição dos itens por despesa acessória indevida; o valor foi ajustado.',
@@ -38,6 +40,8 @@ const DESCRICAO_SUGESTAO = {
     'DOC-C190-REDBC-01': 'Valor de redução de base (VL_RED_BC) informado sem redução de base de cálculo; o valor foi ajustado.',
     'COMB-CST-01': 'CST 61 informado antes da vigência da tributação monofásica; ajustado para CST 60.',
     'DOC-C170-CFOP-01': 'CFOP de entrada incorreto no item; o CFOP foi corrigido.',
+    'DOC-C100-SER-01': 'A série informada no documento (campo SER do C100) divergia da série contida na chave de acesso; a série foi alinhada à chave, que é a identidade do documento fiscal.',
+    'DOC-C100-5929-01': 'Nota de CFOP 5929 (espelho de operação já tributada no cupom/ECF): o ICMS duplicado foi removido do C190 e do cabeçalho C100, e o débito foi decrementado da apuração (E110), evitando bitributação.',
     'INV-E116-01': 'Registro E116 (ICMS a recolher) ausente; o registro foi injetado para conciliar a apuração.',
     'INV-H005-01': 'Data do inventário (H005) fora do período de apuração; a data foi ajustada.',
     'INV-H010-01': 'Valor do inventário (VL_INV no H005) divergente da soma dos itens (H010); o total foi ajustado.',
@@ -55,7 +59,7 @@ function limparMotivo(m) {
         .trim();
 }
 
-// Reagrupa o changelog (bloco→registro→entradas) por "Correção sugerida" (regra), no estilo E-Auditor:
+// Reagrupa o changelog (bloco→registro→entradas) por "Correção sugerida" (regra), no estilo do painel:
 // cada card = uma regra, com a descrição em linguagem natural e a lista de ocorrências (expandidas NF a NF
 // quando há itens[]). `total` soma as quantidades reais. Ordena por total desc.
 function agruparPorSugestao(agrupado) {

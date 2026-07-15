@@ -6483,7 +6483,7 @@ app.post('/api/validador/corrigir', authMiddleware, async (req, res) => {
 });
 
 // ===== "Corrigir todas as seguras" — aplicação em LOTE das correções determinísticas =====
-// Reproduz o que o E-Auditoria acha e, para o subconjunto SEGURO (BLOQ + corrigível + fiscal-
+// Reproduz o que o catálogo de referência acha e, para o subconjunto SEGURO (BLOQ + corrigível + fiscal-
 // determinístico + com valor sugerido, passando o gate cross-empresa do painel POR REGRA), grava
 // val_correcoes num LOTE (lote_id) — o export já sai corrigido e o lote inteiro é reversível num
 // clique. dry_run=true → só PREVIEW (não grava nada). Regras ⚪ (alerta) e o recompute de VL_DOC
@@ -6493,9 +6493,12 @@ function _loteGateSeguro(e, c100PorChave) {
     if (e.severidade !== 'BLOQ' || e.classeCorrecao !== 'fiscal-deterministico') return false;
     switch (e.regra_id) {
         case 'DOC-C100-VLDOC-01': {
-            // Só o caso PRÓPRIA + despesa acessória (VL_OUT_DA, campo 20) espúria → 0,00. O recompute
-            // de VL_DOC de terceiros (campo 12) fica MANUAL (pode ter FCP-ST/desoneração/importação).
-            if (e.campoIdx !== 20) return false;
+            // Auto SÓ em dois casos comprovadamente seguros (não alteram total/vNF nem imposto):
+            //   • PRÓPRIA + despesa acessória VL_OUT_DA (campo 20) espúria → 0,00;
+            //   • TERCEIROS Cenário 1 — VL_MERC (campo 16) embutiu o adicional, CONFIRMADO pelos itens
+            //     (Σ C170); baixa o VL_MERC e preserva o VL_DOC. O recompute de VL_DOC (campo 12, inflar)
+            //     fica MANUAL (pode ter FCP-ST/desoneração/importação que o C100 não representa).
+            if (e.campoIdx !== 20 && e.campoIdx !== 16) return false;
             if (!/^\d{44}$/.test(String(e.chaveNatural || ''))) return false; // chave 44 válida (mod 55/65)
             const f = c100PorChave.get(String(e.chaveNatural));               // gate painel §2.1: sem ICMS-ST
             if (f && Math.round((parseFloat(String(f[24] || '0').replace(',', '.')) || 0) * 100) !== 0) return false;
@@ -6525,10 +6528,20 @@ app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) =>
         if (!cam || !fs.existsSync(cam)) return res.status(400).json({ message: 'Arquivo físico não localizado.' });
         const { parseSped } = require('./services/validador/parser');
         const { validar } = require('./services/validador/engine');
-        const model = parseSped(fs.readFileSync(cam, 'latin1'));
+        const rawTxt = fs.readFileSync(cam, 'latin1');
+        const model = parseSped(rawTxt);
         model.dominio = await require('./services/validador/dominio').carregarDominio(dbClient);
         await marcarCadApuracaoE116(model, dbClient);
         const resultado = validar(model);
+        // 5929 (bitributação ECF): correção NÃO é por-linha — é uma transformação com decremento do E110,
+        // aplicada no export via um MARCADOR opt-in. Conta quantas linhas seriam corrigidas (com os gates).
+        let n5929 = 0;
+        try {
+            const { corrigir5929Bitributacao } = require('./services/spedCostureiraService');
+            const lg = { items: [], add(x) { this.items.push(x); } };
+            corrigir5929Bitributacao(rawTxt.split(/\r?\n/).filter(l => l.startsWith('|')), model.uf || '', lg);
+            n5929 = lg.items.filter(x => x.regraId === 'DOC-C100-5929-01' && (x.registro === 'C190' || x.registro === 'C170')).length;
+        } catch (_) {}
         // índice C100 por chave 44 (p/ o gate do painel ler VL_ICMS_ST do documento)
         const c100PorChave = new Map();
         for (const l of (model.porReg.get('C100') || [])) c100PorChave.set(String(l.f[9] || '').replace(/\D/g, ''), l.f);
@@ -6551,13 +6564,19 @@ app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) =>
             alvo.push(e);
             porRegra[e.regra_id] = (porRegra[e.regra_id] || 0) + 1;
         }
+        // 5929: já optado-in? (marcador ativo) → não re-inserir.
+        const ja5929 = jaSet.has('C190::__5929__::-1');
+        const n5929Novo = ja5929 ? 0 : n5929;
+        const porRegraOut = Object.assign({}, porRegra);
+        if (n5929Novo > 0) porRegraOut['DOC-C100-5929-01'] = n5929Novo;
+        const totalOut = alvo.length + n5929Novo;
         if (dryRun) {
             return res.json({
-                preview: true, total: alvo.length, porRegra,
+                preview: true, total: totalOut, porRegra: porRegraOut,
                 amostra: alvo.slice(0, 8).map(e => ({ linha: e.linha, regra_id: e.regra_id, registro: e.registro, campo: e.campo, campoIdx: e.campoIdx, valorAtual: e.valorAtual, valorSugerido: e.valorSugerido, titulo: e.titulo })),
             });
         }
-        if (!alvo.length) return res.json({ ok: true, total: 0, porRegra: {}, lote_id: null, message: 'Nada seguro a corrigir (ou já corrigido).' });
+        if (!totalOut) return res.json({ ok: true, total: 0, porRegra: {}, lote_id: null, message: 'Nada seguro a corrigir (ou já corrigido).' });
         const loteId = 'LOTE' + Date.now();
         await dbClient.query('BEGIN');
         for (const e of alvo) {
@@ -6567,8 +6586,16 @@ app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) =>
                 [arquivoId, e.regra_id, e.registro, e.chaveNatural, e.campoIdx, e.valorAtual != null ? String(e.valorAtual) : null, String(e.valorSugerido), req.user?.id || null, loteId]
             );
         }
+        // Marcador OPT-IN do 5929 (a transformação real roda no export via corrigir5929Bitributacao; desfeito com o lote).
+        if (n5929Novo > 0) {
+            await dbClient.query(
+                `INSERT INTO val_correcoes (id_sped_arquivo, regra_id, registro, chave_natural, campo_idx, valor_original, valor_corrigido, origem, usuario_id, lote_id)
+                 VALUES ($1,'DOC-C100-5929-01','C190','__5929__',-1,NULL,$2,'LOTE',$3,$4)`,
+                [arquivoId, String(n5929Novo), req.user?.id || null, loteId]
+            );
+        }
         await dbClient.query('COMMIT');
-        res.json({ ok: true, lote_id: loteId, total: alvo.length, porRegra });
+        res.json({ ok: true, lote_id: loteId, total: totalOut, porRegra: porRegraOut });
     } catch (e) {
         await safeRollback(dbClient);
         logger.error('Erro no corrigir-lote:', e);
@@ -6640,14 +6667,17 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         // Exporta internamente e valida o RESULTADO (bytes que iriam ao download).
         const PORT_ = process.env.PORT || 15435;
         const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-revalidar', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
-        const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}` } });
+        // Accept: application/json → o export devolve o payload ESTRUTURADO (não a página HTML).
+        const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}`, Accept: 'application/json' } });
         if (!exp.ok) {
             // O export pode ABORTAR com motivo claro (ex.: 422 = falta CAP_TANQUE no leiaute 020).
-            // Propaga ESSE motivo p/ o usuário, em vez de um "HTTP 422" genérico.
-            const motivo = (await exp.text().catch(() => '')).trim();
+            let payload = null;
+            try { payload = await exp.json(); } catch (_) { payload = { message: (await exp.text().catch(() => '')).trim() }; }
+            // Bloqueio estruturado (ex.: CAP_TANQUE_FALTANTE) → REPASSA íntegro p/ o front abrir o modal.
+            if (exp.status === 422 && payload && payload.bloqueio) return res.status(422).json(payload);
             return res.status(exp.status === 422 ? 422 : 502).json({
                 bloqueio: exp.status === 422,
-                message: motivo || `Falha ao gerar o SPED corrigido para re-validar (HTTP ${exp.status}).`,
+                message: (payload && payload.message) || `Falha ao gerar o SPED corrigido para re-validar (HTTP ${exp.status}).`,
             });
         }
         const txt = Buffer.from(await exp.arrayBuffer()).toString('latin1');
@@ -7911,12 +7941,41 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const aindaFaltam = faltantes.filter(ci => !((mapCapacidadesPorItem.get(ci) || 0) > 0));
                 if (aindaFaltam.length > 0) {
                     logger.error(`[CAP2026] Export abortado: sem CAP_TANQUE p/ CNPJ ${_cnpjArq}, itens [${aindaFaltam.join(', ')}]`);
-                    return res.status(422).send(
-                        `Exportação bloqueada: a partir de janeiro/2026 (leiaute 020) o registro 1310 exige a CAPACIDADE DO TANQUE (CAP_TANQUE), ` +
-                        `e esse dado não consta no arquivo original (leiaute ${prescanVer}) nem em nenhum arquivo anterior deste CNPJ. ` +
-                        `Informe a capacidade dos tanques dos produtos [${aindaFaltam.join(', ')}] em "Configuração de Tanques" e exporte novamente. ` +
-                        `Se exportar sem a capacidade, o PVA rejeitará o arquivo.`
-                    );
+                    // Nunca deixar o navegador cachear esta resposta de bloqueio (Safari é agressivo e
+                    // servia o JSON velho mesmo depois de corrigido).
+                    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+                    // Nome do combustível (sped_produtos) p/ exibir no lugar do código do produto.
+                    let _nomes = {};
+                    try {
+                        const _nr = await dbClient.query(`SELECT TRIM(cod_item) AS cod, TRIM(descr_item) AS nome FROM sped_produtos WHERE id_sped_arquivo=$1 AND TRIM(cod_item) = ANY($2::text[])`, [arquivoId, aindaFaltam.map(x => String(x).trim())]);
+                        for (const row of _nr.rows) if (row.nome) _nomes[row.cod] = row.nome;
+                    } catch (_) { /* sem nomes → usa o código */ }
+                    const _lblItem = (ci) => _nomes[String(ci).trim()] ? `${_nomes[String(ci).trim()]} (cód. ${ci})` : `produto ${ci}`;
+                    const itensNomeados = aindaFaltam.map(_lblItem).join(', ');
+                    // Se o NAVEGADOR abriu a URL do export direto — em vez do app via axios — devolvemos uma
+                    // PÁGINA amigável, nunca JSON cru. Sinal robusto: `Sec-Fetch-Mode: navigate` (toda navegação
+                    // top-level manda isso) OU o Accept preferir html. Ordem ['html','json'] faz o `*/*` (que
+                    // alguns window.open do Safari mandam) cair em HTML; o app manda Accept application/json → JSON.
+                    const _ehNavegacao = req.get('sec-fetch-mode') === 'navigate' || req.accepts(['html', 'json']) === 'html';
+                    if (_ehNavegacao) {
+                        return res.status(422).type('html').send(`<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exportação bloqueada — capacidade dos tanques</title><style>body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#f5f3ee;color:#2b2a27;margin:0;padding:40px 16px;display:flex;justify-content:center}.c{background:#fff;border:1px solid #e5e0d6;border-radius:12px;max-width:560px;padding:28px;box-shadow:0 6px 24px rgba(0,0,0,.06)}h1{font-size:18px;margin:0 0 6px}p{font-size:14px;line-height:1.55;color:#4a463f}.b{background:#faf8f3;border:1px solid #e5e0d6;border-radius:8px;padding:14px;margin:16px 0;font-size:13px}.t{font-weight:600;color:#a8471f}.i{font-family:ui-monospace,Menlo,monospace}</style></head><body><div class="c"><h1>⚠️ Falta a capacidade dos tanques</h1><p>Falta a <b>capacidade</b> de <b>${aindaFaltam.length} tanque(s)</b>: <span class="i">${itensNomeados}</span> — exigência do leiaute de 2026 (registro 1310).</p><div class="b"><p class="t" style="margin:0 0 6px">Você está vendo a resposta técnica da API.</p><p style="margin:0">Volte ao <b>AudiSped</b> → abra o <b>Validador</b> → clique em <b>“Baixar SPED corrigido”</b>. O sistema vai abrir uma janela para você <b>informar as capacidades aqui mesmo</b> e exportar na hora (fica salvo para os próximos meses).</p></div><p style="font-size:12px;color:#8a857a"><b>Alternativa:</b> cadastre a capacidade dos tanques no seu ERP e emita o SPED no leiaute 020 — o campo já vem preenchido na origem.</p></div></body></html>`);
+                    }
+                    // Payload ESTRUTURADO (padrão do Validador: resumo + ação no sistema + instrução ERP):
+                    // o frontend renderiza um resumo curto + a correção em 1 clique (informar as capacidades
+                    // aqui mesmo) + a alternativa no ERP. `message` = texto legível para consumidores antigos.
+                    return res.status(422).json({
+                        bloqueio: 'CAP_TANQUE_FALTANTE',
+                        resumo: `Falta a capacidade de ${aindaFaltam.length} tanque(s) para exportar (exigência do leiaute de 2026).`,
+                        itens: aindaFaltam,
+                        nomes: _nomes,
+                        cnpj: _cnpjArq,
+                        acaoSistema: { tipo: 'informar-capacidades', label: 'Informar capacidades e exportar', cnpj: _cnpjArq, itens: aindaFaltam },
+                        instrucaoErp: 'Alternativa: cadastre a capacidade dos tanques no seu ERP e emita o SPED no leiaute 020 — o campo já vem preenchido na origem e o aviso não volta.',
+                        message: `Exportação bloqueada: a partir de janeiro/2026 (leiaute 020) o registro 1310 exige a CAPACIDADE DO TANQUE (CAP_TANQUE), ` +
+                            `e esse dado não consta no arquivo original (leiaute ${prescanVer}) nem em nenhum arquivo anterior deste CNPJ. ` +
+                            `Informe a capacidade dos tanques (${itensNomeados}) e exporte novamente. ` +
+                            `Se exportar sem a capacidade, o PVA rejeitará o arquivo.`,
+                    });
                 }
             }
         }
@@ -9850,6 +9909,13 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             if (n) { changesApplied += n; logger.info(`[D100] ${n} D100 cancelado(s)/denegado(s) limpo(s) no arquivo ${arquivoId}.`); }
         }
 
+        // ── C100: SÉRIE (f7) alinhada à série da chave de acesso ────────────────
+        {
+            const { corrigirSerChave } = require('./services/spedCostureiraService');
+            const n = corrigirSerChave(outputLines, changelog);
+            if (n) { changesApplied += n; logger.info(`[C100] ${n} SER alinhado(s) à série da chave no arquivo ${arquivoId}.`); }
+        }
+
         // ── Dedup de 0200 por COD_ITEM (produto duplicado) ──────────────────────
         {
             const { dedupar0200 } = require('./services/spedCostureiraService');
@@ -9939,6 +10005,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // "VL_TOT_AJ_DÉBITOS/CRÉDITOS deve corresponder à soma dos E111". Recalcula f4/f5/f8/f9
         // pela natureza (4ª pos do COD_AJ_APUR) e propaga p/ o saldo (f11/f13/f14). Só altera o
         // que muda; no-op byte-idêntico quando já coerente (379/400 da frota). Antes do recálculo X990.
+        // 5929 (bitributação ECF) — OPT-IN: só corrige se o cliente acionou "Corrigir SPED" (marcador ativo
+        // em val_correcoes). ANTES do recalcularE110 (decrementa o VL_TOT_DEBITOS que o E110 depois cascateia).
+        try {
+            const opt5929 = await dbClient.query(`SELECT 1 FROM val_correcoes WHERE id_sped_arquivo=$1 AND regra_id='DOC-C100-5929-01' AND ativo=TRUE LIMIT 1`, [arquivoId]);
+            if (opt5929.rows.length) {
+                const { corrigir5929Bitributacao } = require('./services/spedCostureiraService');
+                const uf5929 = (outputLines.find(l => l.split('|')[1] === '0000') || '').split('|')[9] || '';
+                const _r5929 = corrigir5929Bitributacao(outputLines, uf5929, changelog);
+                if (_r5929 !== outputLines) { outputLines.length = 0; for (const _l of _r5929) outputLines.push(_l); }
+            }
+        } catch (_) {}
         {
             const { recalcularE110, recalcularE116 } = require('./services/spedCostureiraService');
             recalcularE110(outputLines, changelog); // muta in-place

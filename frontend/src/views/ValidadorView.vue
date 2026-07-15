@@ -13,7 +13,7 @@ const resultadoId = ref(null);   // id do arquivo (do banco) a que o resultado A
 const filtroBloco = ref('');
 const filtroSev = ref('');
 const expandido = ref(null);
-const buscaErro = ref('');           // filtro de texto (tipo/registro/código) — estilo E-Auditor
+const buscaErro = ref('');           // filtro de texto (tipo/registro/código) — estilo do painel
 const grupoAberto = ref(null);       // regra_id do grupo com ocorrências expandidas
 const dicaAberta = ref(null);        // regra_id do grupo com a "dica" (explicação) aberta
 const occAberta = ref(null);         // keyErro da ocorrência individual expandida
@@ -73,23 +73,23 @@ const errosFiltrados = computed(() => {
   return resultado.value.erros.filter(e =>
     (!filtroBloco.value || e.bloco === filtroBloco.value) &&
     (!filtroSev.value || e.severidade === filtroSev.value) &&
-    (!q || normTxt(`${e.titulo || ''} ${e.registro || ''} ${e.regra_id || ''} ${e.refEAuditoria || ''}`).includes(q))
+    (!q || normTxt(`${e.titulo || ''} ${e.registro || ''} ${e.regra_id || ''} ${e.refCatalogo || ''}`).includes(q))
   );
 });
 
-// Agrupa os erros por TIPO (regra) — estilo E-Auditor: 1 linha por tipo, com contagem, código e dica.
+// Agrupa os erros por TIPO (regra) — estilo do painel: 1 linha por tipo, com contagem, código e dica.
 const errosAgrupados = computed(() => {
   const m = new Map();
   for (const e of errosFiltrados.value) {
     let g = m.get(e.regra_id);
-    if (!g) { g = { regra_id: e.regra_id, titulo: e.titulo, registro: e.registro, bloco: e.bloco, codigo: e.refEAuditoria || '—', severidade: e.severidade, instrucaoERP: e.instrucaoERP, ocorrencias: [] }; m.set(e.regra_id, g); }
+    if (!g) { g = { regra_id: e.regra_id, titulo: e.titulo, registro: e.registro, bloco: e.bloco, codigo: e.refCatalogo || '—', severidade: e.severidade, instrucaoERP: e.instrucaoERP, ocorrencias: [] }; m.set(e.regra_id, g); }
     g.ocorrencias.push(e);
     if (e.severidade === 'BLOQ') g.severidade = 'BLOQ'; // grupo é bloqueante se qualquer ocorrência for
   }
   return [...m.values()].sort((a, b) => (a.severidade !== b.severidade ? (a.severidade === 'BLOQ' ? -1 : 1) : b.ocorrencias.length - a.ocorrencias.length));
 });
 
-// Categoria de ocorrência (nomenclatura do E-Auditor), por código; fallback por severidade.
+// Categoria de ocorrência (nomenclatura do painel de auditoria), por código; fallback por severidade.
 const CATEGORIA_COD = {
   '2890': 'Divergências de Valores', '2075': 'Divergências de Valores', '2951': 'Divergências de Valores', '2800': 'Divergências de Valores', '2481': 'Divergências de Valores', '2023': 'Divergências de Valores', '2033': 'Divergências de Valores',
   '2441': 'Conteúdo Inválido', '2451': 'Conteúdo Inválido',
@@ -363,7 +363,9 @@ async function revalidar() {
     const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
     resultado.value = res.data; // valida o SPED EXPORTADO (auto-ajustes + correções) → erros resolvidos aparecem
   } catch (e) {
-    erro.value = e.response?.data?.message || ('Erro ao revalidar: ' + e.message);
+    const d = e.response?.data;
+    if (d && d.bloqueio === 'CAP_TANQUE_FALTANTE') abrirCapBloqueio(d); // export interno bloqueou → mesmo modal
+    else erro.value = d?.message || ('Erro ao revalidar: ' + e.message);
   } finally { loading.value = false; }
 }
 
@@ -412,10 +414,57 @@ async function desfazerLote() {
   } finally { corrigindoLote.value = false; }
 }
 
-function baixarCorrigido() {
+// Bloqueio de export com correção INLINE (ex.: CAP_TANQUE faltante no leiaute 2026).
+const capBloqueio = ref(null);   // payload estruturado do 422
+const capValores = ref({});      // cod_item -> capacidade (litros) digitada
+const capSalvando = ref(false);
+const capMsg = ref('');
+
+// Abre o modal de correção inline a partir de um payload de bloqueio (vindo do export OU do revalidar).
+function abrirCapBloqueio(d) {
+  capBloqueio.value = d;
+  const v = {}; (d.itens || []).forEach(ci => { v[ci] = ''; }); capValores.value = v;
+}
+
+async function baixarCorrigido() {
   if (!resultadoId.value) return;
-  const t = localStorage.getItem('token') || '';
-  window.open(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}?token=${encodeURIComponent(t)}`, '_blank');
+  capBloqueio.value = null; capMsg.value = '';
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/exportar-sped/${resultadoId.value}`, { headers: { ...authHeader(), Accept: 'application/json' }, responseType: 'blob' });
+    const cd = res.headers['content-disposition'] || '';
+    const m = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    const filename = (m && decodeURIComponent(m[1])) || `SPED_corrigido_${resultadoId.value}.txt`;
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    msgCorr.value = 'SPED corrigido baixado (confira os downloads do navegador).';
+  } catch (e) {
+    // o backend responde JSON (422 bloqueio / 502) COMO blob → extrai a mensagem estruturada
+    let j = null;
+    try { const txt = (e.response?.data instanceof Blob) ? await e.response.data.text() : ''; j = txt ? JSON.parse(txt) : null; } catch (_) { /* mantém genérico */ }
+    if (j && j.bloqueio === 'CAP_TANQUE_FALTANTE') abrirCapBloqueio(j);
+    else msgCorr.value = 'Erro ao exportar: ' + (j?.message || j?.erro || e.message);
+  }
+}
+
+// Grava as capacidades no nosso sistema (durável — reusado nos próximos meses do CNPJ) e REVALIDA —
+// NÃO baixa. O cliente revisa todos os erros e só depois clica em "Baixar SPED corrigido" quando quiser.
+async function salvarCapacidades() {
+  if (!capBloqueio.value) return;
+  const configs = Object.entries(capValores.value)
+    .map(([cod_item, capacidade]) => ({ cod_item, capacidade: (capacidade === '' || capacidade === null || isNaN(capacidade)) ? null : Number(capacidade) }))
+    .filter(c => c.capacidade != null && c.capacidade > 0);
+  if (configs.length !== (capBloqueio.value.itens || []).length) { capMsg.value = 'Informe a capacidade (em litros) de todos os tanques.'; return; }
+  capSalvando.value = true; capMsg.value = '';
+  try {
+    await axios.post(`${API_BASE_URL}/api/lmc/tanques-config`, { cnpj: capBloqueio.value.cnpj, configs }, { headers: authHeader() });
+    capBloqueio.value = null;
+    msgCorr.value = 'Capacidades salvas. Revise os erros e clique em "Baixar SPED corrigido" quando terminar.';
+    await revalidar(); // revalida (o bloqueio some, os erros atualizam) — SEM baixar
+  } catch (e) {
+    capMsg.value = 'Erro ao salvar capacidades: ' + (e.response?.data?.message || e.message);
+  } finally { capSalvando.value = false; }
 }
 
 // Relatório "o que foi corrigido": re-exporta (revalidar grava o changelog e o devolve em .alteracoes)
@@ -445,9 +494,15 @@ async function verAlteracoes() {
 // Re-exporta (aplicando os skips atuais) e atualiza erros residuais + o relatório. Usado após LIGAR/
 // DESLIGAR uma correção — ação explícita que muda o resultado do export. NÃO é o botão "O que foi corrigido".
 async function reexportarEAtualizarRelatorio() {
-  const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
-  resultado.value = res.data;
-  alteracoes.value = res.data.alteracoes || { total: 0, agrupado: [], totais: {} };
+  try {
+    const res = await axios.post(`${API_BASE_URL}/api/validador/revalidar/${resultadoId.value}`, {}, { headers: authHeader() });
+    resultado.value = res.data;
+    alteracoes.value = res.data.alteracoes || { total: 0, agrupado: [], totais: {} };
+  } catch (e) {
+    const d = e.response?.data;
+    if (d && d.bloqueio === 'CAP_TANQUE_FALTANTE') abrirCapBloqueio(d);
+    else erro.value = d?.message || ('Erro ao re-exportar: ' + e.message);
+  }
 }
 
 // DOC-C170-01 — vincular COD_ITEM órfão a um produto 0200 (lista suspensa, estilo PVA)
@@ -560,7 +615,7 @@ async function baixarRelatorioPdf() {
 
 // Fase B — ligar/desligar correções. Só fiscais/injeções; estruturais sempre aplicadas.
 const EXCLUIVEIS = new Set(['INV-E116-01', 'CAD-0150-08', 'COMB-1350-1360-01', 'COMB-CST-01', 'DOC-C170-CFOP-01', 'USO-CONSUMO-X90']);
-const LABEL_REGRA = { 'INV-E116-01': 'Injetar E116 (ICMS a recolher)', 'CAD-0150-08': '0150 da credenciadora (1601)', 'COMB-1350-1360-01': 'Injetar lacres (1360)', 'COMB-CST-01': 'CST 61→60 (pré-monofásico)', 'DOC-C170-CFOP-01': 'Corrigir CFOP de entrada', 'USO-CONSUMO-X90': 'Uso/consumo → CST x90' };
+const LABEL_REGRA = { 'INV-E116-01': 'Injetar E116 (ICMS a recolher)', 'CAD-0150-08': '0150 da credenciadora (1601)', 'COMB-1350-1360-01': 'Injetar lacres (1360)', 'COMB-CST-01': 'CST 61→60 (pré-monofásico)', 'DOC-C170-CFOP-01': 'Corrigir CFOP de entrada', 'USO-CONSUMO-X90': 'Uso/consumo → CST x90', 'DOC-C100-SER-01': 'Série do C100 = série da chave', 'DOC-C100-5929-01': 'CFOP 5929 espelho de ECF (ICMS duplicado)' };
 function rotuloRegra(r) { return LABEL_REGRA[r] || r; }
 // chave de exclusão: 0150 é por credenciadora (it.chave); as demais desligam a regra toda ('').
 function chaveSkip(it) { return it.regraId === 'CAD-0150-08' ? (it.chave || '') : ''; }
@@ -699,6 +754,44 @@ onMounted(async () => {
             <component :is="resultado.porBloco[b]?.erros ? AlertTriangle : CheckCircle2" class="w-3.5 h-3.5" :stroke-width="1.7" />
             {{ nomeBloco(b) }}<span v-if="resultado.porBloco[b]?.erros" class="font-mono"> · {{ resultado.porBloco[b].erros }}</span>
           </button>
+        </div>
+      </div>
+
+      <!-- Bloqueio de exportação com correção INLINE (ex.: CAP_TANQUE faltante no leiaute 2026) -->
+      <div v-if="capBloqueio" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" @click.self="capBloqueio = null">
+        <div class="bg-sheet rounded-lg border border-line shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div class="p-5 border-b border-line flex items-start gap-3">
+            <AlertTriangle class="w-5 h-5 text-lacre shrink-0 mt-0.5" :stroke-width="1.8" />
+            <div>
+              <h3 class="font-display text-[15px] font-semibold text-ink">Falta a capacidade dos tanques</h3>
+              <p class="text-[12px] text-risco mt-1">{{ capBloqueio.resumo }}</p>
+            </div>
+          </div>
+          <div class="p-5 space-y-4">
+            <p class="text-[12px] text-ink/80">Informe a <b>capacidade total (em litros)</b> de cada tanque. Fica salvo (e reaproveitado nos próximos meses deste CNPJ); depois revise os erros e clique em <b>Baixar SPED corrigido</b> quando terminar.</p>
+            <div class="space-y-2">
+              <div v-for="ci in capBloqueio.itens" :key="ci" class="flex items-center gap-3">
+                <label class="text-[12px] text-ink font-medium w-52 truncate" :title="capBloqueio.nomes?.[ci] || ('Produto ' + ci)">{{ capBloqueio.nomes?.[ci] || ('Produto ' + ci) }} <span class="text-[10px] text-risco font-mono">(cód. {{ ci }})</span></label>
+                <input v-model="capValores[ci]" type="number" min="0" step="0.001" placeholder="ex.: 15000"
+                  class="h-9 flex-1 text-[13px] bg-paper border border-line rounded-md px-3 font-mono text-ink outline-none focus:border-bronze transition-colors" />
+                <span class="text-[11px] text-risco">L</span>
+              </div>
+            </div>
+            <p v-if="capMsg" class="text-[12px] text-lacre">{{ capMsg }}</p>
+            <div class="rounded-md bg-paper border border-line p-3">
+              <p class="text-[11px] text-risco"><b>Prefere corrigir no ERP?</b> {{ capBloqueio.instrucaoErp }}</p>
+            </div>
+            <details class="text-[11px] text-risco">
+              <summary class="cursor-pointer select-none">Ver detalhe técnico</summary>
+              <p class="mt-2 leading-relaxed">{{ capBloqueio.message }}</p>
+            </details>
+          </div>
+          <div class="p-5 border-t border-line flex items-center justify-end gap-3">
+            <button @click="capBloqueio = null" class="text-[12px] text-risco hover:text-ink font-medium">Cancelar</button>
+            <UiButton @click="salvarCapacidades" :disabled="capSalvando" class="disabled:opacity-50">
+              <Loader2 v-if="capSalvando" class="w-4 h-4 animate-spin" :stroke-width="1.8" /><CheckCircle2 v-else class="w-4 h-4" :stroke-width="1.8" /> Salvar capacidades
+            </UiButton>
+          </div>
         </div>
       </div>
 
@@ -910,7 +1003,7 @@ onMounted(async () => {
                   <td colspan="7" class="px-6 py-3 bg-bronze/[0.04] border-t border-bronze/15 text-[12px] space-y-1">
                     <p class="text-ink"><b>O que é:</b> {{ g.titulo }}</p>
                     <p class="text-ink"><b>Como corrigir:</b> {{ g.instrucaoERP || 'Corrija na origem (ERP) e gere o arquivo novamente.' }}</p>
-                    <p class="text-[10px] text-risco">Código E-Auditoria {{ g.codigo }} · {{ categoriaOcorrencia(g) }} · {{ g.severidade === 'BLOQ' ? 'Bloqueante' : 'Advertência' }} · registro {{ g.registro }}</p>
+                    <p class="text-[10px] text-risco">Código de referência {{ g.codigo }} · {{ categoriaOcorrencia(g) }} · {{ g.severidade === 'BLOQ' ? 'Bloqueante' : 'Advertência' }} · registro {{ g.registro }}</p>
                   </td>
                 </tr>
                 <!-- Ocorrências individuais (com "corrigir") -->

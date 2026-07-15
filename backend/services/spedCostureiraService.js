@@ -861,6 +861,114 @@ function normalizarUsoConsumoCst90(linhas, log) {
     return out;
 }
 
+// Corrige a bitributação de CFOP 5929/6929 (nota-espelho de operação já tributada no ECF/cupom): zera
+// BASE/ALÍQ/ICMS do C190 (e do C170 casado), relabela o CST tributado-integral x00 → x90 ("Outras"),
+// PRESERVA o VL_OPR (mantém C100.VL_DOC = Σ C190.VL_OPR) e DECREMENTA o E110.VL_TOT_DEBITOS pelo Σ exato do
+// ICMS removido — o recalcularE110 ativo lê o VL_TOT_DEBITOS verbatim; sem este decremento o débito duplicado
+// permaneceria e a bitributação persistiria. Depois funde os C190 por CST|CFOP|ALIQ.
+// GATES (parecer do time fiscal, TODOS obrigatórios): CFOP 5929/6929; CST tributado-integral (sufixo '00' —
+// isola 060/061 monofásico, ST e CSOSN do Simples); linha FORTE (VL_ICMS≠0 ou ALIQ≠0); IND_OPER=1 do C100 pai
+// (saída própria); UF ∉ {MG,RN,SC}; e CONTRAPARTIDA de cupom no arquivo (NFC-e mod 65 OU C400/C405 OU
+// C800/C850/C860) — sem ela o 5929 pode ser débito real. OPT-IN: o export só chama quando o cliente aciona
+// "Corrigir SPED" (ação explícita + trilha). Campos C190: f2=CST f3=CFOP f4=ALIQ f5=VL_OPR f6=VL_BC f7=VL_ICMS.
+function corrigir5929Bitributacao(linhas, uf, log) {
+    const CFOP = new Set(['5929', '6929']);
+    if (['MG', 'RN', 'SC'].includes(String(uf || '').toUpperCase())) return linhas; // exceção legal por UF
+    const num = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;
+
+    // GATE de arquivo: precisa haver contrapartida de cupom escriturada (senão o 5929 pode ser débito real).
+    let temCupom = false;
+    for (const l of linhas) {
+        const f = l.split('|');
+        if (f[1] === 'C100' && f[5] === '65') { temCupom = true; break; }              // NFC-e
+        if (['C400', 'C405', 'C800', 'C850', 'C860'].includes(f[1])) { temCupom = true; break; } // ECF / CF-e-SAT
+    }
+    if (!temCupom) return linhas;
+
+    const cst90 = (cst) => { const s = String(cst || '').padStart(3, '0'); return s.slice(0, 1) + '90'; };
+    const tribInteg = (cst) => { const s = String(cst || '').padStart(3, '0'); return s.length === 3 && s.slice(1) === '00'; };
+
+    // 1) Zera ICMS + CST x00→x90 nas linhas FORTE de 5929/6929 (C190 e C170), só em saída própria (IND_OPER=1).
+    //    Ao remover o ICMS de um C190, DECREMENTA o cabeçalho C100 pai pelo mesmo montante:
+    //    VL_BC_ICMS (campo 21) e VL_ICMS (campo 22). Sem isso, soma(C190) ≠ C100 e o PVA acusa
+    //    "soma dos analíticos deve ser igual ao mestre" (bug DOC-C100-5929-01). VL_OPR é preservado,
+    //    então VL_DOC (campo 12 = Σ VL_OPR) não muda. Decremento (e não recálculo do zero) porque o
+    //    arquivo de entrada já respeita o invariante C100=ΣC190; o clamp em 0 protege de resíduo de float.
+    let somaIcms = 0, mudou = false, indOper = null;
+    let c100Idx = -1, remBC = 0, remIcms = 0;
+    const ajustarCabecalhoC100 = () => {
+        if (c100Idx < 0 || (remBC <= 0.005 && remIcms <= 0.005)) return;
+        const h = linhas[c100Idx].split('|');
+        if (h.length <= 22) return;
+        const antesBC = h[21], antesIC = h[22];
+        h[21] = Math.max(0, num(h[21]) - remBC).toFixed(2).replace('.', ',');
+        h[22] = Math.max(0, num(h[22]) - remIcms).toFixed(2).replace('.', ',');
+        if (h[21] !== antesBC || h[22] !== antesIC) {
+            linhas[c100Idx] = h.join('|');
+            if (log) log.add({ registro: 'C100', regraId: 'DOC-C100-5929-01', motivo: `ajusta cabeçalho ao C190 zerado (−VL_BC ${remBC.toFixed(2)}, −VL_ICMS ${remIcms.toFixed(2)})`, escopo: 'campo', linha: c100Idx, campo: 'VL_BC_ICMS/VL_ICMS', antes: `${antesBC}/${antesIC}`, depois: `${h[21]}/${h[22]}`, origem: 'fiscal', classe: 'fiscal-deterministico' });
+        }
+    };
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] === 'C100') { ajustarCabecalhoC100(); c100Idx = i; indOper = f[2]; remBC = 0; remIcms = 0; continue; }
+        if (indOper !== '1') continue;
+        if (f[1] === 'C190' && f.length > 7 && CFOP.has(f[3]) && tribInteg(f[2]) && (num(f[4]) !== 0 || num(f[7]) !== 0)) {
+            const antes = f[2];
+            somaIcms += num(f[7]);
+            remBC += num(f[6]); remIcms += num(f[7]);                       // acumula p/ decrementar o C100 pai
+            f[2] = cst90(f[2]); f[4] = '0,00'; f[6] = '0,00'; f[7] = '0,00'; // CST→x90; ALIQ, VL_BC, VL_ICMS = 0 (VL_OPR f5 e ST f8/f9 preservados)
+            linhas[i] = f.join('|'); mudou = true;
+            if (log) log.add({ registro: 'C190', regraId: 'DOC-C100-5929-01', motivo: `CFOP ${f[3]} espelho de ECF: zera ICMS duplicado + CST ${antes}→${f[2]}`, escopo: 'linha', linha: i, campo: 'VL_ICMS/CST', antes, depois: f[2], origem: 'fiscal', classe: 'fiscal-deterministico' });
+        } else if (f[1] === 'C170' && f.length > 15 && CFOP.has(f[11]) && tribInteg(f[10]) && (num(f[14]) !== 0 || num(f[15]) !== 0)) {
+            const antes = f[10];
+            f[10] = cst90(f[10]); f[13] = '0,00'; f[14] = '0,00'; f[15] = '0,00'; // CST→x90; VL_BC, ALIQ, VL_ICMS = 0 (VL_ITEM f7 preservado)
+            linhas[i] = f.join('|'); mudou = true;
+            if (log) log.add({ registro: 'C170', regraId: 'DOC-C100-5929-01', motivo: `CFOP ${f[11]} espelho de ECF: zera ICMS do item + CST ${antes}→${f[10]}`, escopo: 'linha', linha: i, campo: 'VL_ICMS/CST', antes, depois: f[10], origem: 'fiscal', classe: 'fiscal-deterministico' });
+        }
+    }
+    ajustarCabecalhoC100(); // flush do cabeçalho da última nota do arquivo
+    if (!mudou) return linhas; // nenhum 5929 FORTE → byte-idêntico
+
+    // 2) Decrementa o E110.VL_TOT_DEBITOS (f2) pelo Σ do ICMS removido (o recalcularE110 ativo lê f2 verbatim).
+    if (somaIcms > 0.005) {
+        for (let i = 0; i < linhas.length; i++) {
+            const f = linhas[i].split('|');
+            if (f[1] === 'E110' && f.length > 2) {
+                const antes = f[2];
+                f[2] = Math.max(0, num(f[2]) - somaIcms).toFixed(2).replace('.', ',');
+                linhas[i] = f.join('|');
+                if (log) log.add({ registro: 'E110', regraId: 'DOC-C100-5929-01', motivo: `remove débito duplicado do 5929 (Σ ${somaIcms.toFixed(2)}) do VL_TOT_DEBITOS`, escopo: 'campo', linha: i, campo: 'VL_TOT_DEBITOS', antes, depois: f[2], origem: 'fiscal', classe: 'fiscal-deterministico' });
+                break; // 1º E110 (múltiplos E110 são raros; tratar se surgir)
+            }
+        }
+    }
+
+    // 3) Funde C190 de mesma chave CST|CFOP|ALIQ dentro de cada NF (o 090 pode colidir com 090 pré-existente).
+    const out = [];
+    let i = 0;
+    while (i < linhas.length) {
+        if (linhas[i].split('|')[1] !== 'C100') { out.push(linhas[i]); i++; continue; }
+        out.push(linhas[i]);
+        let j = i + 1;
+        const bloco = [], idxPorChave = new Map();
+        while (j < linhas.length && linhas[j].split('|')[1] !== 'C100') {
+            const g = linhas[j].split('|');
+            if (g[1] === 'C190') {
+                const chave = `${g[2]}|${g[3]}|${g[4]}`;
+                if (idxPorChave.has(chave)) {
+                    const ex = bloco[idxPorChave.get(chave)].split('|');
+                    for (let k = 5; k <= 11; k++) { ex[k] = (num(ex[k]) + num(g[k])).toFixed(2).replace('.', ','); }
+                    bloco[idxPorChave.get(chave)] = ex.join('|');
+                } else { idxPorChave.set(chave, bloco.length); bloco.push(linhas[j]); }
+            } else bloco.push(linhas[j]);
+            j++;
+        }
+        for (const b of bloco) out.push(b);
+        i = j;
+    }
+    return out;
+}
+
 /**
  * Garante a coerência interna dos registros 1300 (produto) e 1310 (tanque):
  *   FECH_FISICO = ESTQ_ESCR - VAL_PERDA + VAL_GANHO   (regra do PVA).
@@ -1156,6 +1264,34 @@ function corrigirC191FcpRet(linhas, log) {
     return n;
 }
 
+// ── C100: SÉRIE (f7) alinhada à série da chave de acesso ─────────────────────────────────
+// PVA (BLOQ): "O campo série que compõe a chave deverá ser igual ao campo Série informado no registro."
+// A chave (44 díg.) traz a série em [22..25]; ela é a identidade do documento → SER segue a chave.
+// Só NF-e/NFC-e (mod 55/65) regulares (COD_SIT 00/01/06/07/08) com chave de 44 díg. Só toca quando
+// parseInt(SER) ≠ parseInt(série-da-chave) — no-op byte-idêntico se já bate. C100: f5=COD_MOD,
+// f6=COD_SIT, f7=SER, f9=CHV. Grava a série no formato 3 díg. da chave (ex.: "001"), padrão do SPED.
+function corrigirSerChave(linhas, log) {
+    let n = 0;
+    for (let i = 0; i < linhas.length; i++) {
+        const f = linhas[i].split('|');
+        if (f[1] !== 'C100') continue;
+        const mod = String(f[5] || '').trim();
+        const sit = String(f[6] || '').trim();
+        if (!['55', '65'].includes(mod)) continue;
+        if (!['00', '01', '06', '07', '08'].includes(sit)) continue;
+        const ch = String(f[9] || '').replace(/\D/g, '');
+        if (ch.length !== 44) continue;
+        const serCh = ch.slice(22, 25);
+        const ser = String(f[7] || '').trim();
+        if (parseInt(ser || '-1', 10) === parseInt(serCh, 10)) continue; // já coerente
+        const antes = f[7];
+        f[7] = serCh;
+        linhas[i] = f.join('|'); n++;
+        if (log) log.add({ registro: 'C100', regraId: 'DOC-C100-SER-01', motivo: `SER alinhado à série da chave (${antes || '(vazio)'}→${serCh})`, escopo: 'campo', linha: i, campo: 'SER', antes, depois: serCh, origem: 'fiscal', classe: 'fiscal-deterministico' });
+    }
+    return n;
+}
+
 // ── D100: IND_EMIT × IND_OPER coerentes (doc de terceiros = entrada) ────────────────────
 // PVA (ADV): "Documento emitido por terceiros (IND_EMIT=1) deverá ter IND_OPER=0 (entrada)."
 // Mas seguir isso ao pé da letra pode criar CFOP de saída em doc de entrada. O CFOP do D190 filho
@@ -1294,6 +1430,7 @@ function preencherE116CodRecVazio(linhas, codRec, log) {
 module.exports = {
     injetarXmlEPersistir,
     corrigirC191FcpRet,
+    corrigirSerChave,
     corrigirD100IndEmitOper,
     corrigirD100Cancelado,
     dedupar0200,
@@ -1304,6 +1441,7 @@ module.exports = {
     costurarEAssinarLinhas,
     realocar0221,
     normalizarUsoConsumoCst90,
+    corrigir5929Bitributacao,
     enforcarCoerencia1300,
     recalcularVlInvH005,
     injetarLacres1360,

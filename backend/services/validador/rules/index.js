@@ -8,6 +8,7 @@ module.exports = [
     require('./r_ncampos_catalogo'),   // EST-NCAMPOS-01: nº de campos por registro (gerado do catálogo/leiaute.json)
     require('./r_0220_campos'),        // CAD-0220-01: nº de campos do 0220
     require('./r_chave_nfe'),          // DOC-CHV-DV: chave 44 díg. + DV
+    require('./r_c100_ser_chave'),     // DOC-C100-SER-01: SER do C100 ≠ série contida na chave
     require('./r_dup_documento'),      // DOC-DUP: C100/D100 duplicado por chave
     require('./r_hierarquia'),         // EST-HIER-01: registro filho órfão
     // Fiscais/cadastrais (Sprint 4)
@@ -28,7 +29,7 @@ module.exports = [
     require('./r_bloco1_lmc'),         // COMB-LMC: 1300/1310/1320 — negativo, coerência, vendas, CAP
     require('./r_continuidade_lmc'),   // COMB-LMC-CONT: fechamento físico ≠ abertura do dia seguinte
     require('./r_reconciliacao_1300_1310'), // COMB-1300-SUM: total do produto ≠ soma dos tanques
-    require('./r_variacao_anp_1310'),  // COMB-1310-ANP-01 (E-Aud 2033): variação físico×escritural do tanque > 0,6% ANP (ADV)
+    require('./r_variacao_anp_1310'),  // COMB-1310-ANP-01 (ref. 2033): variação físico×escritural do tanque > 0,6% ANP (ADV)
     require('./r_h005_data'),          // INV-H005-01: DT_INV do inventário > data final do período
     require('./r_h010_inventario'),    // INV-H010-01: VL_INV do H005 ≠ soma dos VL_ITEM dos H010
     require('./r_c191_fcp'),           // DOC-C191-FCP-01: VL_FCP_RET do C191 sem CST x60/500 no C190 pai
@@ -39,19 +40,19 @@ module.exports = [
     require('./r_e210_saldo'),         // APUR-E210-SALDO-01: saldo do E210 (recolher/credor a transportar) incoerente
     require('./r_e116_codrec'),        // DOC-E116-CODREC-01: E116 sem COD_REC (código de receita) — preenchido no export
     require('./r_0100_contador'),      // DOC-0100-CONTADOR-01: 0100 (contabilista) sem CPF/CRC (manual — dado externo)
-    // Catálogo E-Auditoria (2026-07-07/08) — detecção reproduz o E-Auditoria; gates de auto-correção
+    // Catálogo de referência (2026-07-07/08) — detecção reproduz o catálogo de referência; gates de auto-correção
     // no coletor (localhost), ver docs/superpowers/plans/REVISAO-CROSS-EMPRESA-2026-07-08.md.
-    require('./r_c100_vl_doc'),        // DOC-C100-VLDOC-01 (E-Aud 2890): VL_DOC ≠ total apurado
-    require('./r_c170_icms_sem_base'), // DOC-C170-ICMSSEMBASE-01 (E-Aud 2075): ALIQ>0 sem base
-    require('./r_c190_icms_sem_base'), // DOC-C190-ICMSSEMBASE-01 (E-Aud 2951): ALIQ>0 sem base
-    require('./r_c190_red_bc'),        // DOC-C190-REDBC-01 (E-Aud 2800): VL_RED_BC × CST
-    require('./r_9900_regblc'),        // EST-9900-REGBLC-01 (E-Aud 2037): REG_BLC ausente no 9900
-    require('./r_c190_vl_icms'),       // DOC-C190-VLICMS-01 (E-Aud 2481): VL_ICMS(C190) ≠ Σ VL_ICMS(C170)
-    require('./r_0400_codnat_cfop'),   // CAD-0400-CFOP-01 (E-Aud 2441): COD_NAT com CFOP (só-detecção)
-    require('./r_0206_sem_1300'),      // COMB-0206-1300-01 (E-Aud 2321): produto ANP sem LMC (só-detecção)
-    require('./r_c170_cod_cta'),       // DOC-C170-CODCTA-01 (E-Aud 2451): COD_CTA vazio (só-detecção)
-    require('./r_c100_5929'),          // DOC-C100-5929-01 (E-Aud 1003): 5929/6929 com valores (só-detecção)
-    require('./r_cfop_uf_participante'), // DOC-C190-CFOPUF-01 (E-Aud 2742): CFOP interno 1/5 com participante de outra UF (ADV)
-    require('./r_sequencia_nf_c100'),  // DOC-C100-SEQ-01 (E-Aud 4028): intervalo na sequência numérica de NF próprias (ADV)
-    require('./r_saidas_1300_1320'),   // COMB-1300-1320-01 (E-Aud 2023): VOL_SAIDAS(1300) ≠ Σ VOL_VENDAS(1320), tolerância anti-arredondamento (ADV)
+    require('./r_c100_vl_doc'),        // DOC-C100-VLDOC-01 (ref. 2890): VL_DOC ≠ total apurado
+    require('./r_c170_icms_sem_base'), // DOC-C170-ICMSSEMBASE-01 (ref. 2075): ALIQ>0 sem base
+    require('./r_c190_icms_sem_base'), // DOC-C190-ICMSSEMBASE-01 (ref. 2951): ALIQ>0 sem base
+    require('./r_c190_red_bc'),        // DOC-C190-REDBC-01 (ref. 2800): VL_RED_BC × CST
+    require('./r_9900_regblc'),        // EST-9900-REGBLC-01 (ref. 2037): REG_BLC ausente no 9900
+    require('./r_c190_vl_icms'),       // DOC-C190-VLICMS-01 (ref. 2481): VL_ICMS(C190) ≠ Σ VL_ICMS(C170)
+    require('./r_0400_codnat_cfop'),   // CAD-0400-CFOP-01 (ref. 2441): COD_NAT com CFOP (só-detecção)
+    require('./r_0206_sem_1300'),      // COMB-0206-1300-01 (ref. 2321): produto ANP sem LMC (só-detecção)
+    require('./r_c170_cod_cta'),       // DOC-C170-CODCTA-01 (ref. 2451): COD_CTA vazio (só-detecção)
+    require('./r_c100_5929'),          // DOC-C100-5929-01 (ref. 1003): 5929/6929 com valores (só-detecção)
+    require('./r_cfop_uf_participante'), // DOC-C190-CFOPUF-01 (ref. 2742): CFOP interno 1/5 com participante de outra UF (ADV)
+    require('./r_sequencia_nf_c100'),  // DOC-C100-SEQ-01 (ref. 4028): intervalo na sequência numérica de NF próprias (ADV)
+    require('./r_saidas_1300_1320'),   // COMB-1300-1320-01 (ref. 2023): VOL_SAIDAS(1300) ≠ Σ VOL_VENDAS(1320), tolerância anti-arredondamento (ADV)
 ];
