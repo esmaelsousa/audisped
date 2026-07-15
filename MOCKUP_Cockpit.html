@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AudiSped — Cockpit (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --graphite:#1C232A; --graphite-2:#232C35;
+    --paper:#F3F5F4; --sheet:#FFFFFF; --bronze:#A8631F;
+    --conforme:#3C7B58; --variacao:#B5840F; --lacre:#AE3A33;
+    --ink:#121820; --risco:#646E6A; --line:#E2E6E4; --muted:#8A949C;
+    --radius:6px;
+    --display:"Familjen Grotesk",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--body);background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased}
+  a{text-decoration:none;color:inherit}
+  svg{display:block}
+  :focus-visible{outline:2px solid var(--bronze);outline-offset:2px}
+
+  .app{display:flex;min-height:100vh}
+
+  /* ---------------- Sidebar (fiel ao AppSidebar) ---------------- */
+  .sidebar{width:240px;flex-shrink:0;background:var(--graphite);color:var(--line);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brand{height:56px;display:flex;align-items:center;gap:9px;padding:0 18px;
+    border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}
+  .brand .logo{width:22px;height:22px;border:2px solid var(--bronze);border-radius:3px;position:relative}
+  .brand .logo::after{content:"";position:absolute;left:4px;right:4px;top:4px;height:2px;background:var(--bronze)}
+  .brand b{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:-.01em;color:#fff}
+  .nav{flex:1;overflow-y:auto;padding:8px 0}
+  .grupo{padding:10px 18px 2px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:rgba(100,110,106,.8);font-weight:600}
+  .grupo:first-child{padding-top:0}
+  .item{display:flex;align-items:center;gap:10px;padding:4px 18px;font-size:13px;color:var(--muted);
+    border-left:2px solid transparent;cursor:pointer}
+  .item svg{width:15px;height:15px;flex-shrink:0}
+  .item:hover{color:#fff;background:var(--graphite-2)}
+  .item.active{color:#fff;background:rgba(168,99,31,.10);border-left-color:var(--bronze);font-weight:500}
+  .item.active svg{color:var(--bronze)}
+  .item.disabled{color:rgba(100,110,106,.6);cursor:not-allowed}
+  .item.disabled:hover{background:transparent;color:rgba(100,110,106,.6)}
+  .ativo{display:block;margin:0 10px 10px;padding:10px;border:1px solid rgba(255,255,255,.08);
+    border-radius:var(--radius);background:rgba(255,255,255,.02);flex-shrink:0}
+  .ativo:hover{border-color:rgba(168,99,31,.4);background:rgba(255,255,255,.04)}
+  .ativo-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+  .ativo-lbl{font-size:9px;letter-spacing:.10em;text-transform:uppercase;color:var(--risco);font-weight:600}
+  .ativo-trocar{display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted)}
+  .ativo-trocar svg{width:11px;height:11px}
+  .ativo:hover .ativo-trocar{color:var(--bronze)}
+  .ativo-nome{font-family:var(--display);font-size:13px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ativo-cnpj{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
+  .side-foot{display:flex;align-items:center;gap:8px;padding:8px 12px 12px;
+    border-top:1px solid rgba(255,255,255,.06);flex-shrink:0}
+  .side-foot .u{display:flex;align-items:center;gap:8px;flex:1;min-width:0;color:var(--muted);font-size:12px}
+  .side-foot .u svg{width:14px;height:14px;color:var(--risco)}
+  .side-foot .out{padding:6px;color:var(--risco);cursor:pointer}
+  .side-foot .out:hover{color:#fff}
+
+  /* ---------------- Main ---------------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:56px;flex-shrink:0;background:var(--sheet);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:5}
+  .crumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--risco)}
+  .crumb svg{width:14px;height:14px;color:var(--line)}
+  .crumb .cur{color:var(--ink);font-weight:500}
+  /* toggle de estados só do mockup */
+  .demo{display:flex;align-items:center;gap:6px;background:var(--paper);border:1px solid var(--line);
+    border-radius:var(--radius);padding:3px}
+  .demo button{font-family:var(--body);font-size:11.5px;color:var(--risco);background:transparent;border:0;
+    padding:5px 11px;border-radius:4px;cursor:pointer;font-weight:500}
+  .demo button.on{background:var(--sheet);color:var(--ink);box-shadow:0 1px 3px rgba(18,24,32,.08)}
+  .demo .lbl{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--risco);padding-left:6px;font-weight:600}
+
+  .page{max-width:1180px;width:100%;margin:0 auto;padding:28px 24px 40px;flex:1}
+  .page-head{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:20px}
+  .page-head h1{font-family:var(--display);font-size:26px;font-weight:600;letter-spacing:-.01em}
+  .page-head p{font-size:13px;color:var(--risco);margin-top:4px}
+
+  .cockpit{display:grid;grid-template-columns:300px 1fr;gap:22px;align-items:start}
+
+  /* -------- Rail (lista de clientes) -------- */
+  .rail{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 1px 4px rgba(18,24,32,.05);overflow:hidden;display:flex;flex-direction:column}
+  .rail-top{padding:12px}
+  .field{position:relative}
+  .field svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--risco)}
+  .field input{width:100%;padding:8px 10px 8px 33px;background:var(--sheet);border:1px solid var(--line);
+    border-radius:var(--radius);font-family:var(--body);font-size:13px;color:var(--ink)}
+  .field input::placeholder{color:var(--risco)}
+  .field input:focus{outline:none;border-color:var(--bronze)}
+  .btn-nova{margin-top:8px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+    padding:8px;background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);
+    font-family:var(--body);font-size:12.5px;font-weight:500;color:var(--ink);cursor:pointer}
+  .btn-nova svg{width:15px;height:15px;color:var(--risco)}
+  .btn-nova:hover{border-color:rgba(168,99,31,.4)}
+  .rail-lbl{padding:6px 14px;background:var(--paper);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--risco);font-weight:600}
+  .list{overflow-y:auto;max-height:420px}
+  .cli{display:flex;align-items:center;gap:11px;padding:11px 14px;cursor:pointer;border-left:2px solid transparent;
+    border-bottom:1px solid var(--line)}
+  .cli:last-child{border-bottom:0}
+  .cli:hover{background:var(--paper)}
+  .cli .ico{width:34px;height:34px;border-radius:var(--radius);border:1px solid var(--line);background:var(--paper);
+    display:flex;align-items:center;justify-content:center;color:var(--risco);flex-shrink:0}
+  .cli .ico svg{width:18px;height:18px}
+  .cli .txt{min-width:0;flex:1}
+  .cli .nome{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cli .sub{font-family:var(--mono);font-size:11px;color:var(--risco);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cli .uf{font-size:10.5px;font-weight:600;color:var(--risco);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;background:var(--paper);flex-shrink:0}
+  .cli.sel{background:var(--paper);border-left-color:var(--bronze)}
+  .cli.sel .ico{border-color:rgba(168,99,31,.35);color:var(--bronze)}
+  .cli.sel .nome{color:var(--ink)}
+  .rail-foot{border-top:1px solid var(--line);margin-top:auto}
+  .rail-foot .catalogo{display:flex;align-items:center;gap:10px;padding:12px 14px;color:var(--ink);cursor:pointer}
+  .rail-foot .catalogo:hover{background:var(--paper)}
+  .rail-foot .catalogo .ci{width:30px;height:30px;border-radius:var(--radius);background:var(--paper);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;color:var(--bronze);flex-shrink:0}
+  .rail-foot .catalogo .ci svg{width:16px;height:16px}
+  .rail-foot .catalogo .t{flex:1;min-width:0}
+  .rail-foot .catalogo .t b{font-size:12.5px;font-weight:500;display:block}
+  .rail-foot .catalogo .t span{font-size:11px;color:var(--risco)}
+  .rail-foot .catalogo .arw{width:15px;height:15px;color:var(--risco)}
+  .rail-count{padding:8px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--risco)}
+  .rail-count b{color:var(--ink);font-weight:600}
+
+  /* -------- Stage (upload + módulos) -------- */
+  .stage{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .dropzone{background:var(--sheet);border:1.5px dashed var(--line);border-radius:var(--radius);
+    padding:26px;display:flex;align-items:center;gap:20px;transition:border-color .15s,background .15s;cursor:pointer}
+  .dropzone:hover{border-color:rgba(168,99,31,.55);background:#FCFAF7}
+  .dropzone .dz-ico{width:52px;height:52px;border-radius:var(--radius);background:var(--paper);
+    border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--bronze);flex-shrink:0}
+  .dropzone .dz-ico svg{width:26px;height:26px}
+  .dropzone .dz-txt h3{font-family:var(--display);font-size:16px;font-weight:600}
+  .dropzone .dz-txt p{font-size:12.5px;color:var(--risco);margin-top:3px;line-height:1.5}
+  .dropzone .dz-txt .kbd{font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--paper);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+
+  .client-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .client-head .ch-left{display:flex;align-items:center;gap:12px;min-width:0}
+  .client-head .ch-ico{width:40px;height:40px;border-radius:var(--radius);border:1px solid var(--line);
+    background:var(--sheet);display:flex;align-items:center;justify-content:center;color:var(--bronze);flex-shrink:0}
+  .client-head .ch-ico svg{width:21px;height:21px}
+  .client-head h2{font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .client-head .meta{font-size:12px;color:var(--risco);margin-top:1px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .client-head .meta .cnpj{font-family:var(--mono);color:var(--ink)}
+  .badge-per{font-size:11px;font-weight:500;color:var(--conforme);background:rgba(60,123,88,.10);
+    border:1px solid rgba(60,123,88,.25);border-radius:20px;padding:3px 10px;white-space:nowrap}
+
+  .modules{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .mod{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);padding:18px;
+    display:flex;flex-direction:column;gap:14px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .mod:hover{border-color:rgba(168,99,31,.4);box-shadow:0 1px 4px rgba(18,24,32,.07)}
+  .mod-top{display:flex;align-items:flex-start;justify-content:space-between}
+  .mod .mico{padding:9px;border-radius:var(--radius);border:1px solid var(--line);background:var(--paper);color:var(--risco)}
+  .mod:hover .mico{color:var(--bronze);border-color:rgba(168,99,31,.3)}
+  .mod .mico svg{width:20px;height:20px}
+  .selo{font-size:10px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:20px;
+    border:1px solid var(--line);color:var(--risco);background:var(--paper)}
+  .selo.b{color:var(--bronze);border-color:rgba(168,99,31,.3);background:rgba(168,99,31,.07)}
+  .mod h3{font-family:var(--display);font-size:15px;font-weight:600}
+  .mod p{font-size:12.5px;color:var(--risco);line-height:1.55;margin-top:3px}
+  .mod-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;min-height:18px}
+  .mod-foot .go{font-size:12px;font-weight:500;color:var(--bronze);display:flex;align-items:center;gap:4px;opacity:0;transition:opacity .15s}
+  .mod-foot .go svg{width:14px;height:14px}
+  .mod:hover .mod-foot .go{opacity:1}
+  .mod-foot .warn{font-size:12px;font-weight:500;color:var(--variacao);display:flex;align-items:center;gap:6px}
+  .mod-foot .warn .dot{width:6px;height:6px;border-radius:50%;background:var(--variacao)}
+  /* pílula e mensagem de bloqueio (escondidas por padrão) */
+  .lockpill{display:none;align-items:center;gap:5px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+    font-weight:600;padding:3px 8px;border-radius:20px;border:1px solid var(--line);color:var(--risco);background:var(--paper)}
+  .lockpill svg{width:11px;height:11px}
+  .mod-foot .lockmsg{display:none;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--risco)}
+  .mod-foot .lockmsg svg{width:13px;height:13px}
+  /* estado plano restrito: cards fora do plano ficam bloqueados */
+  body.restrito .mod:not(.keep){opacity:.62;cursor:default;background:var(--paper)}
+  body.restrito .mod:not(.keep):hover{border-color:var(--line);box-shadow:none}
+  body.restrito .mod:not(.keep) .mico{color:var(--risco);border-color:var(--line);background:var(--sheet)}
+  body.restrito .mod:not(.keep) .selo{display:none}
+  body.restrito .mod:not(.keep) .lockpill{display:inline-flex}
+  body.restrito .mod:not(.keep) .mod-foot .go{display:none}
+  body.restrito .mod:not(.keep) .mod-foot .warn{display:none}
+  body.restrito .mod:not(.keep) .mod-foot .lockmsg{display:flex}
+
+  /* -------- Estado boas-vindas (sem seleção) -------- */
+  .welcome{display:none}
+  .dz-hero{background:var(--sheet);border:1.5px dashed var(--line);border-radius:var(--radius);
+    padding:56px 32px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+  .dz-hero:hover{border-color:rgba(168,99,31,.55);background:#FCFAF7}
+  .dz-hero .h-ico{width:64px;height:64px;margin:0 auto 16px;border-radius:var(--radius);background:var(--paper);
+    border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--bronze)}
+  .dz-hero .h-ico svg{width:32px;height:32px}
+  .dz-hero h3{font-family:var(--display);font-size:19px;font-weight:600}
+  .dz-hero p{font-size:13px;color:var(--risco);margin-top:6px;max-width:420px;margin-left:auto;margin-right:auto;line-height:1.6}
+
+  /* Alterna estados via classe no body */
+  body.empty .stage>.dropzone,
+  body.empty .client-head,
+  body.empty .modules{display:none}
+  body.empty .welcome{display:block}
+  body.empty .cli.sel{background:transparent;border-left-color:transparent}
+  body.empty .cli.sel .ico{border-color:var(--line);color:var(--risco)}
+  body.empty .cli.sel .nome{color:var(--ink)}
+
+  /* Responsivo */
+  @media (max-width:1080px){ .modules{grid-template-columns:1fr} }
+  @media (max-width:880px){
+    .sidebar{display:none}
+    .cockpit{grid-template-columns:1fr}
+    .list{max-height:none}
+    .demo .lbl{display:none}
+  }
+</style>
+</head>
+<body>
+<!-- Sprite de ícones (lucide) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-search" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>
+  <g id="i-plus" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></g>
+  <g id="i-building" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></g>
+  <g id="i-upload-cloud" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></g>
+  <g id="i-bar" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></g>
+  <g id="i-shield" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></g>
+  <g id="i-file" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></g>
+  <g id="i-hdu" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-4-4-4 4"/><path d="M12 2v8"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></g>
+  <g id="i-db" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 15 21.84"/><path d="M21 5V8"/><path d="M21 12 18 17h4l-3 5"/><path d="M3 12A9 3 0 0 0 14.59 14.87"/></g>
+  <g id="i-book" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></g>
+  <g id="i-chev" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></g>
+  <g id="i-dash" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></g>
+  <g id="i-trend" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></g>
+  <g id="i-upload" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></g>
+  <g id="i-truck" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></g>
+  <g id="i-swap" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></g>
+  <g id="i-settings" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></g>
+  <g id="i-tag" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></g>
+  <g id="i-printer" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect width="12" height="8" x="6" y="14"/></g>
+  <g id="i-mail" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></g>
+  <g id="i-users" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></g>
+  <g id="i-user" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g>
+  <g id="i-out" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></g>
+  <g id="i-lock" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+</defs></svg>
+
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand"><span class="logo"></span><b>AudiSped</b></div>
+    <nav class="nav">
+      <div class="grupo">Carteira</div>
+      <div class="item active"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg>Empresas</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-dash"/></svg>Hub do Cliente</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-db"/></svg>Gestão de Arquivos</div>
+
+      <div class="grupo">Conferir</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-bar"/></svg>Analisador</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg>Validador</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-trend"/></svg>Posição de Estoque</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-book"/></svg>Catálogo de Regras</div>
+
+      <div class="grupo">Corrigir</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-upload"/></svg>Injetor XML</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-truck"/></svg>Injetor CTe</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-swap"/></svg>De-Para XML</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-settings"/></svg>Regras Fiscais</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-tag"/></svg>Cadastro de CFOPs</div>
+
+      <div class="grupo">LMC &amp; Envio</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-file"/></svg>Livro LMC</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-printer"/></svg>Impressão LMC</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-mail"/></svg>Manifesto NFe</div>
+
+      <div class="grupo">Administração</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-users"/></svg>Usuários</div>
+    </nav>
+
+    <a class="ativo" id="ativoCard">
+      <div class="ativo-top">
+        <span class="ativo-lbl" id="ativoLbl">Cliente Ativo</span>
+        <span class="ativo-trocar"><svg viewBox="0 0 24 24"><use href="#i-swap"/></svg>trocar</span>
+      </div>
+      <div class="ativo-nome" id="ativoNome">AUTO POSTO APACHE</div>
+      <div class="ativo-cnpj" id="ativoCnpj">09.153.856/0001-71</div>
+    </a>
+
+    <div class="side-foot">
+      <div class="u"><svg viewBox="0 0 24 24"><use href="#i-user"/></svg>Esmael Sousa</div>
+      <div class="out"><svg viewBox="0 0 24 24" width="14" height="14"><use href="#i-out"/></svg></div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb">
+        <span>Carteira</span>
+        <svg viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+        <span class="cur">Central de Operações</span>
+      </div>
+      <div class="demo">
+        <span class="lbl">Pré-visualizar</span>
+        <button class="on" id="btnSel">Plano completo</button>
+        <button id="btnRestrito">Plano restrito</button>
+        <button id="btnEmpty">Boas-vindas</button>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="page-head">
+        <h1>Central de Operações</h1>
+        <p>Escolha um cliente à esquerda ou envie um SPED para começar a auditoria.</p>
+      </div>
+
+      <div class="cockpit">
+        <!-- ---------- RAIL ---------- -->
+        <div class="rail">
+          <div class="rail-top">
+            <div class="field">
+              <svg viewBox="0 0 24 24"><use href="#i-search"/></svg>
+              <input type="text" placeholder="Buscar razão social ou CNPJ…" />
+            </div>
+            <button class="btn-nova"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg>Nova empresa</button>
+          </div>
+          <div class="rail-lbl">Clientes</div>
+          <div class="list">
+            <div class="cli sel" data-cli="apache" data-nome="AUTO POSTO APACHE" data-cnpj="09.153.856/0001-71">
+              <div class="ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div class="txt"><div class="nome">AUTO POSTO APACHE</div><div class="sub">09.153.856/0001-71</div></div>
+              <span class="uf">BA</span>
+            </div>
+            <div class="cli" data-cli="freitas" data-nome="POSTO FREITAS" data-cnpj="29.922.765/0001-60">
+              <div class="ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div class="txt"><div class="nome">POSTO FREITAS</div><div class="sub">29.922.765/0001-60</div></div>
+              <span class="uf">BA</span>
+            </div>
+            <div class="cli" data-cli="jg" data-nome="REDE JG SOUZA" data-cnpj="34.733.564/0001-55">
+              <div class="ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div class="txt"><div class="nome">REDE JG SOUZA</div><div class="sub">34.733.564/0001-55</div></div>
+              <span class="uf">BA</span>
+            </div>
+            <div class="cli" data-cli="chapada" data-nome="AUTO POSTO DA CHAPADA" data-cnpj="09.069.475/0001-09">
+              <div class="ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div class="txt"><div class="nome">AUTO POSTO DA CHAPADA</div><div class="sub">09.069.475/0001-09</div></div>
+              <span class="uf">BA</span>
+            </div>
+            <div class="cli" data-cli="esplanada" data-nome="AUTO POSTO ESPLANADA" data-cnpj="12.656.384/0002-65">
+              <div class="ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div class="txt"><div class="nome">AUTO POSTO ESPLANADA</div><div class="sub">12.656.384/0002-65</div></div>
+              <span class="uf">BA</span>
+            </div>
+          </div>
+          <div class="rail-foot">
+            <div class="catalogo">
+              <div class="ci"><svg viewBox="0 0 24 24"><use href="#i-book"/></svg></div>
+              <div class="t"><b>Catálogo de regras</b><span>44 regras ativas do validador</span></div>
+              <svg class="arw" viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+            </div>
+            <div class="rail-count"><b>5</b> clientes indexados a partir dos SPEDs.</div>
+          </div>
+        </div>
+
+        <!-- ---------- STAGE ---------- -->
+        <div class="stage">
+          <!-- upload compacto (estado com cliente) -->
+          <div class="dropzone">
+            <div class="dz-ico"><svg viewBox="0 0 24 24"><use href="#i-upload-cloud"/></svg></div>
+            <div class="dz-txt">
+              <h3>Enviar arquivo SPED</h3>
+              <p>Arraste o <span class="kbd">.txt</span> aqui ou clique para selecionar. O cliente é identificado automaticamente e a análise começa em seguida.</p>
+            </div>
+          </div>
+
+          <!-- cabeçalho do cliente -->
+          <div class="client-head">
+            <div class="ch-left">
+              <div class="ch-ico"><svg viewBox="0 0 24 24"><use href="#i-building"/></svg></div>
+              <div>
+                <h2 id="chNome">AUTO POSTO APACHE</h2>
+                <div class="meta"><span class="cnpj" id="chCnpj">09.153.856/0001-71</span><span>·</span><span>Bahia</span></div>
+              </div>
+            </div>
+            <span class="badge-per">SPED carregado · 12/2024</span>
+          </div>
+
+          <!-- módulos (a grade é filtrada pelo plano; no estado 'restrito' só o Validador fica liberado) -->
+          <div class="modules">
+            <div class="mod mod-analisador">
+              <div class="mod-top">
+                <span class="mico"><svg viewBox="0 0 24 24"><use href="#i-bar"/></svg></span>
+                <span class="selo b">Análise</span>
+                <span class="lockpill"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído</span>
+              </div>
+              <div><h3>Analisador</h3><p>Cruze entradas, saídas, CSTs e alíquotas para achar inconsistências antes de fechar.</p></div>
+              <div class="mod-foot">
+                <span class="go">Abrir módulo<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+                <span class="lockmsg"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído no seu plano — fale com o suporte</span>
+              </div>
+            </div>
+            <div class="mod mod-validador keep">
+              <div class="mod-top">
+                <span class="mico"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg></span>
+                <span class="selo">Validação</span>
+                <span class="lockpill"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído</span>
+              </div>
+              <div><h3>Validador SPED</h3><p>Rode as regras do validador e corrija os apontamentos antes de passar pelo PVA.</p></div>
+              <div class="mod-foot">
+                <span class="go">Abrir módulo<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+                <span class="lockmsg"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído no seu plano — fale com o suporte</span>
+              </div>
+            </div>
+            <div class="mod mod-lmc">
+              <div class="mod-top">
+                <span class="mico"><svg viewBox="0 0 24 24"><use href="#i-file"/></svg></span>
+                <span class="selo">Obrigação</span>
+                <span class="lockpill"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído</span>
+              </div>
+              <div><h3>Livro LMC</h3><p>Gere o Livro de Movimentação de Combustíveis a partir das leituras de bomba do SPED.</p></div>
+              <div class="mod-foot">
+                <span class="go">Abrir módulo<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+                <span class="lockmsg"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído no seu plano — fale com o suporte</span>
+              </div>
+            </div>
+            <div class="mod mod-injetor">
+              <div class="mod-top">
+                <span class="mico"><svg viewBox="0 0 24 24"><use href="#i-hdu"/></svg></span>
+                <span class="selo">Operacional</span>
+                <span class="lockpill"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído</span>
+              </div>
+              <div><h3>Injetor de XMLs</h3><p>Adicione ou substitua notas fiscais direto no arquivo SPED retificado.</p></div>
+              <div class="mod-foot">
+                <span class="go">Abrir módulo<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+                <span class="lockmsg"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído no seu plano — fale com o suporte</span>
+              </div>
+            </div>
+            <div class="mod mod-gestao">
+              <div class="mod-top">
+                <span class="mico"><svg viewBox="0 0 24 24"><use href="#i-db"/></svg></span>
+                <span class="selo">Repositório</span>
+                <span class="lockpill"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído</span>
+              </div>
+              <div><h3>Gestão de SPEDs</h3><p>Histórico de arquivos processados, originais e relatórios gerados deste cliente.</p></div>
+              <div class="mod-foot">
+                <span class="go">Abrir módulo<svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></span>
+                <span class="lockmsg"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Não incluído no seu plano — fale com o suporte</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- estado boas-vindas (sem cliente) -->
+          <div class="welcome">
+            <div class="dz-hero">
+              <div class="h-ico"><svg viewBox="0 0 24 24"><use href="#i-upload-cloud"/></svg></div>
+              <h3>Comece por um arquivo SPED</h3>
+              <p>Arraste o <span class="kbd" style="font-family:var(--mono);font-size:12px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:1px 6px">.txt</span> aqui ou clique para selecionar. O cliente é cadastrado automaticamente pelo arquivo. Já tem clientes? Escolha um na lista ao lado.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const body = document.body;
+  const btnSel = document.getElementById('btnSel');
+  const btnRestrito = document.getElementById('btnRestrito');
+  const btnEmpty = document.getElementById('btnEmpty');
+  const ativoLbl = document.getElementById('ativoLbl');
+  const ativoNome = document.getElementById('ativoNome');
+  const ativoCnpj = document.getElementById('ativoCnpj');
+  const badgePer = document.querySelector('.badge-per');
+  const btns = [btnSel, btnRestrito, btnEmpty];
+  const setOn = (b) => btns.forEach(x => x.classList.toggle('on', x === b));
+
+  btnSel.addEventListener('click', () => {
+    body.classList.remove('empty','restrito'); setOn(btnSel);
+    badgePer.textContent = 'SPED carregado · 12/2024';
+  });
+  btnRestrito.addEventListener('click', () => {
+    body.classList.remove('empty'); body.classList.add('restrito'); setOn(btnRestrito);
+    badgePer.textContent = 'Plano: Validador · 12/2024';
+  });
+  btnEmpty.addEventListener('click', () => {
+    body.classList.add('empty'); body.classList.remove('restrito'); setOn(btnEmpty);
+    document.querySelectorAll('.cli').forEach(c => c.classList.remove('sel'));
+    ativoLbl.textContent = 'Carteira'; ativoNome.textContent = 'Selecionar empresa'; ativoCnpj.textContent = '';
+  });
+
+  // selecionar cliente na lista atualiza cabeçalho + card lateral
+  document.querySelectorAll('.cli').forEach(cli => cli.addEventListener('click', () => {
+    body.classList.remove('empty'); setOn(body.classList.contains('restrito') ? btnRestrito : btnSel);
+    document.querySelectorAll('.cli').forEach(c => c.classList.remove('sel'));
+    cli.classList.add('sel');
+    const nome = cli.dataset.nome, cnpj = cli.dataset.cnpj;
+    document.getElementById('chNome').textContent = nome;
+    document.getElementById('chCnpj').textContent = cnpj;
+    ativoLbl.textContent = 'Cliente Ativo'; ativoNome.textContent = nome; ativoCnpj.textContent = cnpj;
+  }));
+</script>
+</body>
+</html>
