@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AudiSped — Livro LMC (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --graphite:#1C232A; --graphite-2:#232C35; --graphite-4:#2C353E;
+    --paper:#F3F5F4; --sheet:#FFFFFF; --bronze:#A8631F;
+    --conforme:#3C7B58; --variacao:#B5840F; --lacre:#AE3A33;
+    --ink:#121820; --risco:#646E6A; --line:#E2E6E4; --muted:#8A949C;
+    --radius:6px;
+    --display:"Familjen Grotesk",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--body);background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased}
+  a{text-decoration:none;color:inherit}
+  svg{display:block}
+  :focus-visible{outline:2px solid var(--bronze);outline-offset:2px}
+  .mono{font-family:var(--mono)}
+  .app{display:flex;min-height:100vh}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{width:240px;flex-shrink:0;background:var(--graphite);color:var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brand{height:56px;display:flex;align-items:center;gap:9px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .brand .logo{width:22px;height:22px;border:2px solid var(--bronze);border-radius:3px;position:relative}
+  .brand .logo::after{content:"";position:absolute;left:4px;right:4px;top:4px;height:2px;background:var(--bronze)}
+  .brand b{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:-.01em;color:#fff}
+  .nav{flex:1;overflow-y:auto;padding:8px 0}
+  .grupo{padding:10px 18px 2px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(100,110,106,.8);font-weight:600}
+  .grupo:first-child{padding-top:0}
+  .item{display:flex;align-items:center;gap:10px;padding:4px 18px;font-size:13px;color:var(--muted);border-left:2px solid transparent;cursor:pointer}
+  .item svg{width:15px;height:15px;flex-shrink:0}
+  .item:hover{color:#fff;background:var(--graphite-2)}
+  .item.active{color:#fff;background:rgba(168,99,31,.10);border-left-color:var(--bronze);font-weight:500}
+  .item.active svg{color:var(--bronze)}
+  .side-foot{display:flex;align-items:center;gap:8px;padding:8px 12px 12px;border-top:1px solid rgba(255,255,255,.06);margin-top:auto}
+  .side-foot .u{display:flex;align-items:center;gap:8px;flex:1;color:var(--muted);font-size:12px}
+  .side-foot .u svg{width:14px;height:14px;color:var(--risco)}
+
+  /* ---------- Main ---------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{height:56px;background:var(--sheet);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:5}
+  .crumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--risco)}
+  .crumb svg{width:14px;height:14px;color:var(--line)}
+  .crumb .cur{color:var(--ink);font-weight:500}
+
+  .page{max-width:1180px;width:100%;margin:0 auto;padding:26px 24px 44px;flex:1}
+
+  /* Cabeçalho da página: título + navegação de período + exportar */
+  .lmc-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  .lmc-title h1{font-family:var(--display);font-size:26px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  .lmc-title h1 svg{width:24px;height:24px;color:var(--bronze)}
+  .lmc-title p{font-size:12.5px;color:var(--risco);margin-top:3px}
+  .lmc-head-right{display:flex;align-items:center;gap:14px}
+  .period{display:flex;align-items:center;gap:8px}
+  .period button{width:32px;height:32px;border:1px solid var(--line);background:var(--sheet);border-radius:var(--radius);color:var(--risco);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .period button:hover{background:var(--bronze);border-color:var(--bronze);color:#fff}
+  .period button svg{width:16px;height:16px}
+  .period select{font-family:var(--body);font-size:13px;font-weight:500;color:var(--ink);border:1px solid var(--line);background:var(--sheet);border-radius:var(--radius);padding:6px 10px;cursor:pointer}
+  .btn-export{display:inline-flex;align-items:center;gap:7px;background:var(--bronze);color:#fff;border:0;border-radius:var(--radius);font-size:12.5px;font-weight:600;letter-spacing:.02em;padding:9px 15px;cursor:pointer}
+  .btn-export:hover{opacity:.9}
+  .btn-export svg{width:15px;height:15px}
+
+  /* Abas internas */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:20px}
+  .tab{position:relative;font-family:var(--body);font-size:13.5px;font-weight:500;color:var(--risco);background:transparent;border:0;padding:11px 16px;cursor:pointer;display:flex;align-items:center;gap:8px}
+  .tab svg{width:16px;height:16px}
+  .tab:hover{color:var(--ink)}
+  .tab.on{color:var(--ink)}
+  .tab.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--bronze);border-radius:2px}
+  .tab .count{font-family:var(--mono);font-size:10px;font-weight:500;background:var(--lacre);color:#fff;border-radius:20px;padding:1px 6px}
+
+  .panel{display:none;animation:fade .25s ease}
+  .panel.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---------- Aba LIVRO: tabela dia-a-dia (cabeçalho grafite) ---------- */
+  .card{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 4px rgba(18,24,32,.05)}
+  .totais{display:flex;gap:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:16px;background:var(--sheet)}
+  .totais .cel{flex:1;padding:12px 16px;border-right:1px solid var(--line)}
+  .totais .cel:last-child{border-right:0}
+  .totais .cel .k{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--risco);font-weight:600}
+  .totais .cel .v{font-family:var(--mono);font-size:16px;color:var(--ink);margin-top:3px}
+  .totais .cel .v.pos{color:var(--conforme)} .totais .cel .v.neg{color:var(--lacre)}
+  .tbl-wrap{overflow-x:auto;border-radius:var(--radius)}
+  table.livro{width:100%;border-collapse:collapse;min-width:820px;font-size:12px}
+  table.livro thead th{background:var(--graphite);color:#fff;font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--graphite-4)}
+  table.livro thead th:first-child{text-align:left}
+  table.livro tbody td{padding:8px 12px;text-align:right;font-family:var(--mono);color:var(--ink);border-bottom:1px solid var(--line);white-space:nowrap}
+  table.livro tbody td:first-child{text-align:left;color:var(--risco)}
+  table.livro tbody tr:hover{background:var(--paper)}
+  .pos{color:var(--conforme)} .neg{color:var(--lacre)} .warn{color:var(--variacao)}
+  .pill{font-family:var(--body);font-size:9px;font-weight:600;text-transform:uppercase;padding:2px 7px;border-radius:4px;border:1px solid}
+  .pill.ok{color:var(--conforme);background:rgba(60,123,88,.1);border-color:rgba(60,123,88,.25)}
+  .pill.bad{color:var(--lacre);background:rgba(174,58,51,.1);border-color:rgba(174,58,51,.25)}
+
+  /* ---------- Aba AUDITORIA ---------- */
+  .filtros{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;box-shadow:0 1px 4px rgba(18,24,32,.05);margin-bottom:16px}
+  .filtros .fg{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fld{position:relative}
+  .fld svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--risco)}
+  .fld input[type=text]{padding:7px 10px 7px 30px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);font-size:12px;color:var(--ink);width:180px}
+  .fld input:focus{outline:none;border-color:var(--bronze)}
+  .date{padding:7px 10px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);font-family:var(--mono);font-size:12px;color:var(--risco)}
+  .chk{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--risco);cursor:pointer}
+  .cfg{display:flex;flex-wrap:wrap;gap:8px}
+  .btn-cfg{display:inline-flex;align-items:center;gap:7px;background:var(--graphite);color:#fff;border:0;border-radius:var(--radius);font-size:12px;font-weight:500;padding:8px 13px;cursor:pointer}
+  .btn-cfg.sec{background:var(--graphite-2)}
+  .btn-cfg:hover{opacity:.9}
+  .btn-cfg svg{width:14px;height:14px}
+
+  .banner{background:rgba(181,132,15,.1);border:1px solid rgba(181,132,15,.3);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+  .banner-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .banner-top .bl{display:flex;gap:10px}
+  .banner-top .bl svg{width:20px;height:20px;color:var(--variacao);flex-shrink:0;margin-top:1px}
+  .banner-top .bl b{font-size:13px;font-weight:600;color:var(--variacao);display:block}
+  .banner-top .bl p{font-size:12px;color:var(--risco);margin-top:2px}
+  .btn-sync{background:var(--variacao);color:#fff;border:0;border-radius:var(--radius);font-size:12px;font-weight:500;padding:7px 14px;cursor:pointer;white-space:nowrap}
+  .diverg{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .diverg .nome{font-size:12px;font-weight:500;color:var(--ink)}
+  .diverg .nome span{font-family:var(--mono);font-size:10px;color:var(--risco);display:block}
+  .diverg .nums{display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:12px}
+  .diverg .nums .b{text-align:center}
+  .diverg .nums .b k{display:block;font-family:var(--body);font-size:9px;text-transform:uppercase;letter-spacing:.03em;color:var(--risco);font-weight:600}
+  .diverg .btn-sync{font-size:10px;padding:6px 12px}
+
+  /* accordion por combustível */
+  .fuel{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 4px rgba(18,24,32,.05);margin-bottom:10px;overflow:hidden}
+  .fuel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;gap:16px}
+  .fuel-head:hover{background:var(--paper)}
+  .fuel-id{display:flex;align-items:center;gap:12px;min-width:0}
+  .fuel-id .arw{color:var(--risco);transition:transform .2s;width:14px;height:14px}
+  .fuel.open .arw{transform:rotate(90deg)}
+  .fuel-id .bar{width:4px;height:20px;background:var(--bronze);border-radius:3px}
+  .fuel-id .n{font-size:13px;font-weight:500;color:var(--ink);text-transform:uppercase;letter-spacing:-.01em}
+  .fuel-id .cod{font-family:var(--mono);font-size:9px;color:var(--risco);background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:1px 8px}
+  .kpis{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end}
+  .kpi{display:flex;flex-direction:column;align-items:flex-end}
+  .kpi k{font-size:8px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
+  .kpi .val{font-family:var(--mono);font-size:12px;color:var(--ink);margin-top:1px}
+  .kpi.e k{color:var(--conforme)} .kpi.s k{color:var(--variacao)} .kpi k{color:var(--risco)}
+  .sep{width:1px;height:24px;background:var(--line)}
+  .fuel-body{border-top:1px solid var(--line);display:none}
+  .fuel.open .fuel-body{display:block}
+  table.anp{width:100%;border-collapse:collapse;min-width:760px;font-size:11px}
+  table.anp thead th{background:var(--paper);color:var(--risco);font-size:9px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+  table.anp thead th:first-child{text-align:left}
+  table.anp tbody td{padding:7px 12px;text-align:right;font-family:var(--mono);border-bottom:1px solid var(--line);white-space:nowrap}
+  table.anp tbody td:first-child{text-align:left;color:var(--risco)}
+  table.anp tbody tr:hover{background:var(--paper)}
+
+  @media (max-width:880px){ .sidebar{display:none} }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-building" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></g>
+  <g id="i-dash" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></g>
+  <g id="i-db" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 15 21.84"/><path d="M21 5V8"/><path d="M21 12 18 17h4l-3 5"/><path d="M3 12A9 3 0 0 0 14.59 14.87"/></g>
+  <g id="i-bar" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></g>
+  <g id="i-shield" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></g>
+  <g id="i-book" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></g>
+  <g id="i-file" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></g>
+  <g id="i-hdu" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-4-4-4 4"/><path d="M12 2v8"/><rect width="20" height="8" x="2" y="14" rx="2"/></g>
+  <g id="i-printer" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect width="12" height="8" x="6" y="14"/></g>
+  <g id="i-mail" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></g>
+  <g id="i-upload" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></g>
+  <g id="i-user" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g>
+  <g id="i-chev" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></g>
+  <g id="i-chevL" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></g>
+  <g id="i-dl" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m8 17 4 4 4-4"/></g>
+  <g id="i-search" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></g>
+  <g id="i-settings" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></g>
+  <g id="i-lock" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>
+  <g id="i-card" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M2 10h20"/></g>
+  <g id="i-receipt" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/></g>
+  <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></g>
+  <g id="i-zap" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></g>
+  <g id="i-pencil" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></g>
+</defs></svg>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand"><span class="logo"></span><b>AudiSped</b></div>
+    <nav class="nav">
+      <div class="grupo">Carteira</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-dash"/></svg>Hub de Clientes</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-db"/></svg>Gestão de Arquivos</div>
+      <div class="grupo">Conferir</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-bar"/></svg>Analisador</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg>Validador</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-book"/></svg>Catálogo de Regras</div>
+      <div class="grupo">Corrigir</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-upload"/></svg>Injetor XML</div>
+      <div class="grupo">LMC &amp; Envio</div>
+      <div class="item active"><svg viewBox="0 0 24 24"><use href="#i-file"/></svg>Livro LMC</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-printer"/></svg>Impressão LMC</div>
+      <div class="item"><svg viewBox="0 0 24 24"><use href="#i-mail"/></svg>Manifesto NFe</div>
+    </nav>
+    <div class="side-foot"><div class="u"><svg viewBox="0 0 24 24"><use href="#i-user"/></svg>Esmael Sousa</div></div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb">
+        <span>AUTO POSTO APACHE</span>
+        <svg viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+        <span class="cur">Livro LMC</span>
+      </div>
+      <div class="crumb"><span class="mono">09.153.856/0001-71</span></div>
+    </div>
+
+    <div class="page">
+
+      <!-- Cabeçalho: título + período + exportar -->
+      <div class="lmc-head">
+        <div class="lmc-title">
+          <h1><svg viewBox="0 0 24 24"><use href="#i-file"/></svg>Livro LMC</h1>
+          <p>Movimentação de combustíveis — AUTO POSTO APACHE</p>
+        </div>
+        <div class="lmc-head-right">
+          <div class="period">
+            <button title="Período anterior"><svg viewBox="0 0 24 24"><use href="#i-chevL"/></svg></button>
+            <select><option>Janeiro/2026</option><option>Dezembro/2025</option><option>Novembro/2025</option></select>
+            <button title="Próximo período"><svg viewBox="0 0 24 24"><use href="#i-chev"/></svg></button>
+          </div>
+          <button class="btn-export"><svg viewBox="0 0 24 24"><use href="#i-dl"/></svg>Exportar SPED</button>
+        </div>
+      </div>
+
+      <!-- Abas internas -->
+      <div class="tabs">
+        <button class="tab on" data-tab="livro"><svg viewBox="0 0 24 24"><use href="#i-file"/></svg>Livro LMC</button>
+        <button class="tab" data-tab="auditoria"><svg viewBox="0 0 24 24"><use href="#i-shield"/></svg>Auditoria <span class="count">3</span></button>
+      </div>
+
+      <!-- ============ PAINEL: LIVRO ============ -->
+      <div class="panel on" data-panel="livro">
+        <div class="totais">
+          <div class="cel"><div class="k">Volume de compra</div><div class="v pos">+184.520,000 L</div></div>
+          <div class="cel"><div class="k">Volume de venda</div><div class="v">181.947,300 L</div></div>
+          <div class="cel"><div class="k">Quebra líquida</div><div class="v neg">-612,700 L</div></div>
+          <div class="cel"><div class="k">Estoque final</div><div class="v">31.284,120 L</div></div>
+        </div>
+        <div class="card tbl-wrap">
+          <table class="livro">
+            <thead>
+              <tr>
+                <th>Data</th><th>Est. Inicial</th><th>Entradas</th><th>Estq. Disponível</th>
+                <th>Saídas</th><th>Escritural</th><th>Físico</th><th>Diferença</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>01/01/2026</td><td>28.410,000</td><td class="pos">+15.000,000</td><td>43.410,000</td><td>6.120,400</td><td>37.289,600</td><td>37.290,000</td><td class="pos">+0,400</td><td><span class="pill ok">OK</span></td></tr>
+              <tr><td>02/01/2026</td><td>37.290,000</td><td class="pos">+0,000</td><td>37.290,000</td><td>5.842,100</td><td>31.447,900</td><td>31.445,000</td><td class="neg">-2,900</td><td><span class="pill ok">OK</span></td></tr>
+              <tr><td>03/01/2026</td><td>31.445,000</td><td class="pos">+20.000,000</td><td>51.445,000</td><td>6.980,700</td><td>44.464,300</td><td>44.180,000</td><td class="neg">-284,300</td><td><span class="pill bad">FORA LIMITE</span></td></tr>
+              <tr><td>04/01/2026</td><td>44.180,000</td><td class="pos">+0,000</td><td>44.180,000</td><td>7.213,900</td><td>36.966,100</td><td>36.966,000</td><td class="neg">-0,100</td><td><span class="pill ok">OK</span></td></tr>
+              <tr><td>05/01/2026</td><td>36.966,000</td><td class="pos">+18.000,000</td><td>54.966,000</td><td>6.401,250</td><td>48.564,750</td><td>48.565,000</td><td class="pos">+0,250</td><td><span class="pill ok">OK</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ============ PAINEL: AUDITORIA ============ -->
+      <div class="panel" data-panel="auditoria">
+        <!-- filtros + config -->
+        <div class="filtros">
+          <div class="fg">
+            <div class="fld"><svg viewBox="0 0 24 24"><use href="#i-search"/></svg><input type="text" placeholder="Filtrar combustível…"></div>
+            <input class="date" type="date" value="2026-01-01">
+            <label class="chk"><input type="checkbox"> Só falhas</label>
+          </div>
+          <div class="cfg">
+            <button class="btn-cfg"><svg viewBox="0 0 24 24"><use href="#i-settings"/></svg>Configurar tanques</button>
+            <button class="btn-cfg sec"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg>Lacres das bombas</button>
+            <button class="btn-cfg sec"><svg viewBox="0 0 24 24"><use href="#i-card"/></svg>Credenciadoras (1601)</button>
+            <button class="btn-cfg sec"><svg viewBox="0 0 24 24"><use href="#i-receipt"/></svg>Apuração ICMS (E116)</button>
+          </div>
+        </div>
+
+        <!-- banner continuidade -->
+        <div class="banner">
+          <div class="banner-top">
+            <div class="bl">
+              <svg viewBox="0 0 24 24"><use href="#i-alert"/></svg>
+              <div>
+                <b>Continuidade de estoque — divergência detectada</b>
+                <p>O estoque de abertura deste mês difere do fechamento físico de <span class="mono" style="color:var(--ink)">12/2025</span>. Sincronize para corrigir a base de cálculo.</p>
+              </div>
+            </div>
+            <button class="btn-sync">Sincronizar todos</button>
+          </div>
+          <div class="diverg">
+            <div class="nome">Gasolina Comum<span>Cód: 000001</span></div>
+            <div class="nums">
+              <div class="b"><k>Fech. ant.</k><span class="pos">28.700,000 L</span></div>
+              <div style="color:var(--line)">→</div>
+              <div class="b"><k>Abertura</k><span style="color:var(--ink)">28.410,000 L</span></div>
+              <div class="b"><k>Diferença</k><span class="neg">-290,000 L</span></div>
+            </div>
+            <button class="btn-sync">Sincronizar</button>
+          </div>
+        </div>
+
+        <!-- accordion por combustível -->
+        <div class="fuel open">
+          <div class="fuel-head" onclick="this.parentNode.classList.toggle('open')">
+            <div class="fuel-id">
+              <svg class="arw" viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+              <span class="bar"></span><span class="n">Gasolina Comum</span><span class="cod">000001</span>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><k>Est. Inicial</k><span class="val">28.410,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi e"><k>Entradas</k><span class="val">+53.000,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi s"><k>Saídas</k><span class="val">-52.558,350</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Quebra</k><span class="val neg">-287,300 L</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Saldo M+1</k><span class="val">28.564,350</span></div>
+              <div class="sep"></div>
+              <span class="pill bad">1 Irreg.</span>
+              <button class="btn-cfg" style="padding:6px 9px" title="Otimizador matemático"><svg viewBox="0 0 24 24"><use href="#i-zap"/></svg></button>
+            </div>
+          </div>
+          <div class="fuel-body tbl-wrap">
+            <table class="anp">
+              <thead>
+                <tr>
+                  <th>Data</th><th>Capacidade</th><th>Est. Inicial</th><th>Entradas</th>
+                  <th class="warn">Saídas</th><th>Escritural</th><th>Físico</th><th>Diferença</th><th>Var %</th><th>Status ANP</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>01/01/2026</td><td>30.000 L</td><td>28.410,000</td><td class="pos">+15.000,000</td><td class="warn">6.120,400</td><td>37.289,600</td><td>37.290,000</td><td class="pos">+0,400</td><td>0,001%</td><td><span class="pill ok">OK</span></td></tr>
+                <tr><td>03/01/2026</td><td>30.000 L</td><td>31.445,000</td><td class="pos">+20.000,000</td><td class="warn">6.980,700</td><td>44.464,300</td><td>44.180,000</td><td class="neg">-284,300</td><td style="color:var(--lacre)">0,639%</td><td><span class="pill bad">FORA LIMITE</span></td></tr>
+                <tr><td>05/01/2026</td><td>30.000 L</td><td>36.966,000</td><td class="pos">+18.000,000</td><td class="warn">6.401,250</td><td>48.564,750</td><td>48.565,000</td><td class="pos">+0,250</td><td>0,000%</td><td><span class="pill ok">OK</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="fuel">
+          <div class="fuel-head" onclick="this.parentNode.classList.toggle('open')">
+            <div class="fuel-id">
+              <svg class="arw" viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+              <span class="bar"></span><span class="n">Etanol Hidratado</span><span class="cod">000002</span>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><k>Est. Inicial</k><span class="val">12.880,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi e"><k>Entradas</k><span class="val">+24.000,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi s"><k>Saídas</k><span class="val">-23.640,900</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Quebra</k><span class="val pos">+61,100 L</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Saldo M+1</k><span class="val">13.300,200</span></div>
+              <div class="sep"></div>
+              <span class="pill ok">Conforme</span>
+              <button class="btn-cfg" style="padding:6px 9px" title="Otimizador matemático"><svg viewBox="0 0 24 24"><use href="#i-zap"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="fuel">
+          <div class="fuel-head" onclick="this.parentNode.classList.toggle('open')">
+            <div class="fuel-id">
+              <svg class="arw" viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+              <span class="bar"></span><span class="n">Óleo Diesel S10</span><span class="cod">000003</span>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><k>Est. Inicial</k><span class="val">41.200,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi e"><k>Entradas</k><span class="val">+92.000,000</span></div>
+              <div class="sep"></div>
+              <div class="kpi s"><k>Saídas</k><span class="val">-91.203,600</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Quebra</k><span class="val neg">-386,500 L</span></div>
+              <div class="sep"></div>
+              <div class="kpi"><k>Saldo M+1</k><span class="val">41.609,900</span></div>
+              <div class="sep"></div>
+              <span class="pill bad">2 Irreg.</span>
+              <button class="btn-cfg" style="padding:6px 9px" title="Otimizador matemático"><svg viewBox="0 0 24 24"><use href="#i-zap"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'))
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'))
+    t.classList.add('on')
+    document.querySelector(`.panel[data-panel="${t.dataset.tab}"]`).classList.add('on')
+  }))
+</script>
+</body>
+</html>
