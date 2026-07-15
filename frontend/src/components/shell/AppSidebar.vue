@@ -15,7 +15,6 @@ import {
   Mail,
   LayoutDashboard,
   DatabaseZap,
-  Building2,
   LogOut,
   User,
   Users
@@ -62,12 +61,8 @@ const grupo = 'px-[18px] pb-[2px] pt-[10px] text-[10px] tracking-[.12em] upperca
       <!-- CARTEIRA -->
       <div :class="grupo">Carteira</div>
       <RouterLink to="/" @click="nav" :class="linkBase" exact-active-class="!text-white !bg-bronze/10 !border-l-bronze font-medium [&_svg]:text-bronze">
-        <Building2 :size="15" :stroke-width="1.6" />
-        Empresas
-      </RouterLink>
-      <RouterLink v-if="empresaSelecionada" :to="`/dashboard/${empresaSelecionada.id}`" @click="nav" :class="linkBase" :active-class="linkActive">
         <LayoutDashboard :size="15" :stroke-width="1.6" />
-        Hub do Cliente
+        Hub de Clientes
       </RouterLink>
       <RouterLink v-if="empresaSelecionada" :to="`/empresa/${empresaSelecionada.id}`" @click="nav" :class="linkBase" :active-class="linkActive">
         <DatabaseZap :size="15" :stroke-width="1.6" />
