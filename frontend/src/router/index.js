@@ -1,8 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { token, usuario, precisaTrocarSenha } from '../store'
+import { modulosPermitidos, ROTA_PARA_MODULO } from '../config/modulos'
 
 // Importação das Views
-import EmpresasView from '../views/homeView.vue'
+import CockpitView from '../views/CockpitView.vue'
 import ExploradorView from '../views/ExploradorView.vue'
 import AnalisadorView from '../views/AnalisadorView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -28,14 +29,14 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: EmpresasView, // Lista de Empresas
+      component: CockpitView, // Cockpit: seleção de empresa + upload + módulos
       meta: { requiresAuth: true }
     },
     {
+      // Retrocompatibilidade: o antigo Hub por empresa agora é o Cockpit com a empresa pré-selecionada.
       path: '/dashboard/:id',
       name: 'dashboard-cliente',
-      component: () => import('../views/DashboardHubView.vue'),
-      meta: { requiresAuth: true }
+      redirect: (to) => ({ path: '/', query: { empresa: to.params.id } })
     },
     {
       path: '/injetor-xml',
@@ -155,6 +156,12 @@ router.beforeEach((to, from, next) => {
   }
   // 3) rotas por papel (default-deny se sessão antiga sem role)
   if (to.meta.roles && !to.meta.roles.includes(usuario.value?.role)) {
+    return next('/');
+  }
+  // 4) rotas por módulo (gating PRESENTACIONAL — a trava real é do backend, Fase 1 SaaS).
+  //    Fail-open para interno/sessão sem grants (ver config/modulos.js).
+  const moduloDaRota = ROTA_PARA_MODULO[to.name];
+  if (moduloDaRota && !modulosPermitidos(usuario.value).has(moduloDaRota)) {
     return next('/');
   }
   next();
