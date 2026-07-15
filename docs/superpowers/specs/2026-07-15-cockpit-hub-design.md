@@ -61,6 +61,13 @@ Fundir as duas telas de entrada numa **cockpit master-detail única** (`/`) que 
 ## 5. Camada de entitlement (o coração do gating)
 
 ### Catálogo de módulos (fonte única)
+
+> **⚠️ Classificação PROVISÓRIA — a definir pelo usuário no futuro.** A divisão core vs sellable
+> abaixo (e quais módulos entram em quais planos) é uma **decisão de negócio ainda em aberto**.
+> O cockpit é deliberadamente **agnóstico** a ela: lê a tabela de `frontend/src/config/modulos.js`.
+> Redefinir a classificação depois = editar esse arquivo (uma linha por chave), **sem tocar na UI**.
+> Os valores abaixo são apenas o default de partida, espelhando o catálogo do plano SaaS atual.
+
 As chaves seguem o catálogo canônico do plano SaaS (`PLANO_CONTROLE_USUARIOS_SAAS.md §2.6`, a virar `backend/modulos.js` na Fase 1):
 
 | Card do cockpit    | chave         | categoria |
