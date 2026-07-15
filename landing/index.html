@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AudiSped — Seu posto sempre em dia com o Fisco</title>
+  <meta name="description" content="O AudiSped valida seu SPED, controla o LMC e cruza suas notas com a SEFAZ — corrigindo os erros antes que virem multa. Auditoria fiscal feita para postos de combustível." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231C232A'/%3E%3Crect x='7' y='6' width='11' height='20' rx='2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3Crect x='9.5' y='9' width='6' height='4.5' rx='1' fill='%23A8631F'/%3E%3Cpath d='M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --graphite: #1C232A;
+      --ink: #121820;
+      --paper: #F3F5F4;
+      --sheet: #FFFFFF;
+      --bronze: #A8631F;
+      --bronze-bright: #E0902F;
+      --conforme: #3C7B58;
+      --line: #E2E6E4;
+      --line-dark: #2C3540;
+      --muted: #8A949C;
+      --muted-light: #A8B0AE;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Archivo', system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--graphite);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      overflow-x: hidden;
+    }
+
+    .wrap { width: 100%; max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+    .eyebrow {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--bronze);
+    }
+
+    /* ---------- Buttons ---------- */
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      font-family: 'Archivo', sans-serif;
+      font-weight: 600; font-size: 16px;
+      padding: 15px 26px; border-radius: 10px;
+      text-decoration: none; cursor: pointer;
+      border: 1.5px solid transparent;
+      transition: transform .15s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease;
+    }
+    .btn-wa {
+      background: var(--bronze); color: #fff;
+      box-shadow: 0 8px 24px -8px rgba(168,99,31,.65);
+    }
+    .btn-wa:hover { background: var(--bronze-bright); transform: translateY(-2px); box-shadow: 0 14px 30px -10px rgba(224,144,47,.7); }
+    .btn-ghost { background: transparent; color: #fff; border-color: var(--line-dark); }
+    .btn-ghost:hover { border-color: var(--bronze); color: var(--bronze-bright); }
+    .btn-ghost-dark { background: transparent; color: var(--graphite); border-color: var(--line); }
+    .btn-ghost-dark:hover { border-color: var(--bronze); color: var(--bronze); }
+    .btn svg { width: 20px; height: 20px; flex: none; }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      position: relative;
+      background:
+        radial-gradient(120% 90% at 82% 8%, rgba(168,99,31,.20), transparent 55%),
+        radial-gradient(90% 70% at 0% 100%, rgba(60,123,88,.10), transparent 60%),
+        var(--graphite);
+      color: #fff;
+      padding: 22px 0 88px;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: linear-gradient(var(--line-dark) 1px, transparent 1px), linear-gradient(90deg, var(--line-dark) 1px, transparent 1px);
+      background-size: 64px 64px;
+      opacity: .16;
+      mask-image: radial-gradient(80% 70% at 50% 30%, #000 30%, transparent 78%);
+      pointer-events: none;
+    }
+    .nav {
+      position: relative; z-index: 2;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 0 40px;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; }
+    .brand-mark { width: 34px; height: 34px; flex: none; }
+    .brand-name { font-weight: 900; font-size: 21px; letter-spacing: -.01em; color: #fff; }
+    .brand-name b { color: var(--bronze-bright); font-weight: 900; }
+    .nav-access {
+      font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500;
+      color: var(--muted-light); text-decoration: none; letter-spacing: .02em;
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 14px; border: 1px solid var(--line-dark); border-radius: 8px;
+      transition: border-color .2s, color .2s;
+    }
+    .nav-access:hover { color: #fff; border-color: var(--bronze); }
+
+    .hero-grid {
+      position: relative; z-index: 2;
+      display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center;
+      padding-top: 24px;
+    }
+    .hero h1 {
+      font-weight: 900; letter-spacing: -.025em; line-height: 1.02;
+      font-size: clamp(38px, 6vw, 66px);
+      margin: 22px 0 20px;
+    }
+    .hero h1 .accent { color: var(--bronze-bright); }
+    .hero-sub {
+      font-size: clamp(16px, 2.1vw, 19px); color: #C7CDCB; max-width: 30em;
+      margin-bottom: 34px; font-weight: 400;
+    }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    .hero-trust {
+      margin-top: 30px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px;
+      color: var(--muted-light); letter-spacing: .02em; display: flex; align-items: center; gap: 10px;
+    }
+    .hero-trust .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--conforme); box-shadow: 0 0 0 4px rgba(60,123,88,.18); }
+
+    /* ---------- Signature: painel-encerrante ---------- */
+    .pump {
+      position: relative;
+      background: linear-gradient(180deg, #10161C, #0B0F14);
+      border: 1px solid var(--line-dark);
+      border-radius: 18px;
+      padding: 22px;
+      box-shadow: 0 30px 70px -30px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .pump-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .pump-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .18em; color: var(--muted); text-transform: uppercase; }
+    .pump-live { display: inline-flex; align-items: center; gap: 7px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--conforme); letter-spacing: .1em; }
+    .pump-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--conforme); animation: blink 2.4s ease-in-out infinite; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    .readout {
+      background: #05080B;
+      border: 1px solid #1C242C;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: inset 0 2px 18px rgba(0,0,0,.7);
+    }
+    .readout-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .2em; color: var(--muted); text-transform: uppercase; }
+    .readout-big {
+      font-family: 'IBM Plex Mono', monospace; font-weight: 600;
+      font-size: clamp(52px, 9vw, 78px); line-height: 1; letter-spacing: -.02em;
+      color: var(--bronze-bright);
+      text-shadow: 0 0 22px rgba(224,144,47,.4);
+      margin: 6px 0 2px;
+    }
+    .readout-cap { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #6B7A78; letter-spacing: .04em; }
+
+    .pump-rows { margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
+    .prow {
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: 'IBM Plex Mono', monospace; font-size: 13.5px;
+      padding: 11px 4px; border-bottom: 1px dashed #1B232B;
+    }
+    .prow:last-child { border-bottom: 0; }
+    .prow .k { color: #AEB7B5; letter-spacing: .05em; }
+    .prow .v { display: inline-flex; align-items: center; gap: 8px; color: var(--conforme); font-weight: 500; letter-spacing: .06em; }
+    .prow .v svg { width: 15px; height: 15px; }
+
+    /* ---------- Generic section ---------- */
+    section { padding: 84px 0; }
+    .sec-head { max-width: 42em; margin-bottom: 46px; }
+    .sec-head h2 {
+      font-weight: 900; letter-spacing: -.02em; line-height: 1.06;
+      font-size: clamp(28px, 4.2vw, 42px); margin: 14px 0 0;
+    }
+    .sec-head p { margin-top: 14px; font-size: 17px; color: #5A635F; }
+
+    /* Dores (light/paper) */
+    .light { background: var(--paper); color: var(--ink); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+    .pain {
+      background: var(--sheet); border: 1px solid var(--line); border-radius: 14px;
+      padding: 28px 26px;
+    }
+    .pain-ico {
+      width: 46px; height: 46px; border-radius: 11px; display: grid; place-items: center;
+      background: rgba(174,58,51,.09); color: #AE3A33; margin-bottom: 18px;
+    }
+    .pain-ico svg { width: 24px; height: 24px; }
+    .pain h3 { font-size: 20px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 8px; }
+    .pain p { font-size: 15.5px; color: #5A635F; }
+
+    /* Solução (white) */
+    .sheet-bg { background: var(--sheet); color: var(--ink); }
+    .grid-4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .sol {
+      position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 30px 28px;
+      background: var(--sheet);
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+    }
+    .sol:hover { border-color: var(--bronze); transform: translateY(-3px); box-shadow: 0 18px 40px -24px rgba(28,35,42,.4); }
+    .sol-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--bronze); letter-spacing: .16em; }
+    .sol h3 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; margin: 12px 0 9px; }
+    .sol p { font-size: 15.5px; color: #5A635F; }
+
+    /* Confiança (dark band) */
+    .band-dark { background: var(--graphite); color: #fff; padding: 78px 0; }
+    .band-dark .sec-head h2 { color: #fff; }
+    .trust-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 6px; }
+    .tcard { border: 1px solid var(--line-dark); border-radius: 14px; padding: 30px 26px; background: rgba(255,255,255,.02); }
+    .tcard .ti { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; background: rgba(168,99,31,.15); color: var(--bronze-bright); margin-bottom: 18px; }
+    .tcard .ti svg { width: 23px; height: 23px; }
+    .tcard h3 { font-size: 19px; font-weight: 800; margin-bottom: 8px; letter-spacing: -.01em; }
+    .tcard p { font-size: 15px; color: #B2BAB8; }
+
+    /* CTA final (bronze) */
+    .cta {
+      background: linear-gradient(135deg, #B56C1E, #8F5316);
+      color: #fff; padding: 76px 0; text-align: center; position: relative; overflow: hidden;
+    }
+    .cta::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: linear-gradient(rgba(255,255,255,.09) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.09) 1px, transparent 1px);
+      background-size: 48px 48px; opacity: .5;
+      mask-image: radial-gradient(70% 100% at 50% 0%, #000, transparent 75%);
+    }
+    .cta > .wrap { position: relative; z-index: 2; }
+    .cta h2 { font-size: clamp(28px, 4.4vw, 44px); font-weight: 900; letter-spacing: -.02em; line-height: 1.05; margin-bottom: 16px; }
+    .cta p { font-size: 18px; color: rgba(255,255,255,.9); margin-bottom: 30px; }
+    .cta .btn-wa { background: #fff; color: #8F5316; box-shadow: 0 12px 30px -12px rgba(0,0,0,.4); }
+    .cta .btn-wa:hover { background: #FFF7EE; }
+    .cta-note { margin-top: 18px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: rgba(255,255,255,.8); letter-spacing: .04em; }
+
+    /* Footer */
+    footer { background: var(--ink); color: #8994A0; padding: 46px 0; }
+    .foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; }
+    .foot .brand-name { font-size: 18px; }
+    .foot-links { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+    .foot-links a { color: #8994A0; text-decoration: none; font-size: 14px; font-family: 'IBM Plex Mono', monospace; letter-spacing: .02em; transition: color .2s; }
+    .foot-links a:hover { color: var(--bronze-bright); }
+    .foot-copy { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #5A6472; margin-top: 24px; }
+
+    /* Reveal animation */
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity .7s ease, transform .7s ease; }
+    .reveal.in { opacity: 1; transform: none; }
+
+    a:focus-visible, .btn:focus-visible { outline: 3px solid var(--bronze-bright); outline-offset: 3px; border-radius: 8px; }
+
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+      .pump { max-width: 460px; }
+      .grid-3, .trust-grid { grid-template-columns: 1fr; }
+      .grid-4 { grid-template-columns: 1fr; }
+      section { padding: 64px 0; }
+    }
+    @media (max-width: 520px) {
+      .nav { padding-bottom: 26px; }
+      .hero-cta .btn { flex: 1 1 auto; justify-content: center; }
+      .foot { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .pump-live i { animation: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="wrap">
+      <nav class="nav">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="7" fill="#232C35"/>
+            <rect x="7" y="6" width="11" height="20" rx="2" fill="none" stroke="#E0902F" stroke-width="2"/>
+            <rect x="9.5" y="9" width="6" height="4.5" rx="1" fill="#E0902F"/>
+            <path d="M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2" fill="none" stroke="#E0902F" stroke-width="2"/>
+          </svg>
+          <span class="brand-name">Audi<b>Sped</b></span>
+        </div>
+        <a class="nav-access" href="https://app.audisped.com.br">
+          Acessar o sistema
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </nav>
+
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow">Auditoria fiscal para postos de combustível</span>
+          <h1>Seu posto sempre<br>em dia com o <span class="accent">Fisco</span>.</h1>
+          <p class="hero-sub">O AudiSped valida seu SPED, fecha o LMC e cruza suas notas com a SEFAZ — e corrige os erros antes que virem multa.</p>
+          <div class="hero-cta">
+            <a class="btn btn-wa" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto." target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.5 14.4c-.3-.2-1.7-.8-2-.9-.3-.1-.5-.2-.7.1-.2.3-.7.9-.9 1.1-.2.2-.3.2-.6.1-1.6-.8-2.7-1.4-3.7-3.2-.3-.5.3-.5.8-1.5.1-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.6-.3z"/><path d="M12 2C6.5 2 2 6.5 2 12c0 1.8.5 3.4 1.3 4.9L2 22l5.3-1.4c1.4.8 3 1.2 4.7 1.2 5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18.3c-1.5 0-3-.4-4.3-1.2l-.3-.2-3.1.8.8-3-.2-.3C4 15 3.6 13.5 3.6 12 3.6 7.4 7.4 3.6 12 3.6S20.4 7.4 20.4 12 16.6 20.3 12 20.3z"/></svg>
+              Falar no WhatsApp
+            </a>
+            <a class="btn btn-ghost" href="https://app.audisped.com.br">Já sou cliente</a>
+          </div>
+          <div class="hero-trust"><span class="dot"></span> Feito por quem entende de posto e SPED fiscal</div>
+        </div>
+
+        <!-- Signature: painel-encerrante -->
+        <div class="pump" aria-label="Painel de status fiscal do posto">
+          <div class="pump-top">
+            <span class="pump-tag">AudiSped · Encerrante fiscal</span>
+            <span class="pump-live"><i></i> AO VIVO</span>
+          </div>
+          <div class="readout">
+            <div class="readout-label">Conformidade do posto</div>
+            <div class="readout-big" id="counter" data-target="100">100</div>
+            <div class="readout-cap">% em dia · 0 pendências com o Fisco</div>
+          </div>
+          <div class="pump-rows">
+            <div class="prow"><span class="k">SPED FISCAL</span><span class="v"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 12l5 5L20 6"/></svg> VALIDADO</span></div>
+            <div class="prow"><span class="k">LMC · ENCERRANTES</span><span class="v"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 12l5 5L20 6"/></svg> CONFERIDO</span></div>
+            <div class="prow"><span class="k">NOTAS × SEFAZ</span><span class="v"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M4 12l5 5L20 6"/></svg> CRUZADO</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ DORES ============ -->
+  <section class="light">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="eyebrow">O que tira seu sono</span>
+        <h2>Um erro no arquivo hoje é uma autuação amanhã.</h2>
+      </div>
+      <div class="grid-3">
+        <div class="pain reveal">
+          <div class="pain-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+          <h3>Medo da autuação</h3>
+          <p>Um detalhe errado no SPED e a SEFAZ bate à porta. Nem sempre você sabe onde está o problema — até chegar a multa.</p>
+        </div>
+        <div class="pain reveal">
+          <div class="pain-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M8 17V9M13 17V5M18 17v-6"/></svg></div>
+          <h3>LMC que não fecha</h3>
+          <p>Encerrantes, tanques e bicos. Fechar o Livro de Movimentação de Combustíveis na mão consome horas — e ainda sobra diferença.</p>
+        </div>
+        <div class="pain reveal">
+          <div class="pain-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg></div>
+          <h3>Retrabalho no PVA</h3>
+          <p>Importar, validar, corrigir, repetir. O programa da Receita aponta o erro mas não resolve — e não explica o porquê.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SOLUÇÃO ============ -->
+  <section class="sheet-bg">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="eyebrow">O que o AudiSped faz por você</span>
+        <h2>Do arquivo bagunçado ao SPED pronto para transmitir.</h2>
+        <p>Uma ferramenta desenhada para a realidade do posto — combustível, encerrante e monofásico incluídos.</p>
+      </div>
+      <div class="grid-4">
+        <div class="sol reveal">
+          <span class="sol-num">01</span>
+          <h3>Validação do SPED</h3>
+          <p>Encontra os erros que o PVA aponta — e muitos que ele não aponta — e mostra exatamente onde e como corrigir.</p>
+        </div>
+        <div class="sol reveal">
+          <span class="sol-num">02</span>
+          <h3>LMC automático</h3>
+          <p>Encerrantes, estoque e vendas conferidos e fechados. O livro sai pronto, na sequência certa e sem diferença.</p>
+        </div>
+        <div class="sol reveal">
+          <span class="sol-num">03</span>
+          <h3>Cruzamento com a SEFAZ</h3>
+          <p>Suas notas de entrada e saída batidas contra a base da SEFAZ. Nada de nota faltando nem lançada a mais.</p>
+        </div>
+        <div class="sol reveal">
+          <span class="sol-num">04</span>
+          <h3>Correção antes da multa</h3>
+          <p>O sistema corrige o arquivo antes da entrega. Você transmite tranquilo, com tudo batendo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONFIANÇA ============ -->
+  <section class="band-dark">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="eyebrow">Por que confiar</span>
+        <h2>Não é um sistema genérico adaptado.<br>É feito para postos.</h2>
+      </div>
+      <div class="trust-grid">
+        <div class="tcard reveal">
+          <div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Do jeito que o Fisco exige</h3>
+          <p>Regras da SEFAZ e da EFD ICMS/IPI aplicadas ao pé da letra, incluindo as particularidades do combustível.</p>
+        </div>
+        <div class="tcard reveal">
+          <div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg></div>
+          <h3>Menos multa, mais controle</h3>
+          <p>Você enxerga o mês inteiro antes de transmitir e resolve a divergência enquanto ela ainda é barata.</p>
+        </div>
+        <div class="tcard reveal">
+          <div class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <h3>Suporte que fala sua língua</h3>
+          <p>Do outro lado tem gente que entende de bomba, encerrante e monofásico — não um atendimento de manual.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CTA FINAL ============ -->
+  <section class="cta">
+    <div class="wrap">
+      <h2 class="reveal">Veja seu posto em dia com o Fisco.</h2>
+      <p class="reveal">Chame no WhatsApp e a gente mostra o AudiSped funcionando com os dados do seu posto.</p>
+      <div class="reveal">
+        <a class="btn btn-wa" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto." target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.5 14.4c-.3-.2-1.7-.8-2-.9-.3-.1-.5-.2-.7.1-.2.3-.7.9-.9 1.1-.2.2-.3.2-.6.1-1.6-.8-2.7-1.4-3.7-3.2-.3-.5.3-.5.8-1.5.1-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.6-.3z"/><path d="M12 2C6.5 2 2 6.5 2 12c0 1.8.5 3.4 1.3 4.9L2 22l5.3-1.4c1.4.8 3 1.2 4.7 1.2 5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18.3c-1.5 0-3-.4-4.3-1.2l-.3-.2-3.1.8.8-3-.2-.3C4 15 3.6 13.5 3.6 12 3.6 7.4 7.4 3.6 12 3.6S20.4 7.4 20.4 12 16.6 20.3 12 20.3z"/></svg>
+          Falar no WhatsApp
+        </a>
+      </div>
+      <div class="cta-note reveal">Resposta rápida · Sem compromisso</div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="wrap">
+      <div class="foot">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="7" fill="#1C232A"/>
+            <rect x="7" y="6" width="11" height="20" rx="2" fill="none" stroke="#A8631F" stroke-width="2"/>
+            <rect x="9.5" y="9" width="6" height="4.5" rx="1" fill="#A8631F"/>
+            <path d="M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2" fill="none" stroke="#A8631F" stroke-width="2"/>
+          </svg>
+          <span class="brand-name" style="color:#C7CDCB">Audi<b style="color:var(--bronze)">Sped</b></span>
+        </div>
+        <div class="foot-links">
+          <a href="https://wa.me/5574991985228" target="_blank" rel="noopener">WhatsApp (74) 99198-5228</a>
+          <a href="https://app.audisped.com.br">Acessar o sistema</a>
+        </div>
+      </div>
+      <div class="foot-copy">© 2026 AudiSped · Auditoria fiscal para postos de combustível</div>
+    </div>
+  </footer>
+
+  <script>
+    // Reveal on scroll
+    (function () {
+      var els = document.querySelectorAll('.reveal');
+      if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+        });
+      }, { threshold: 0.14 });
+      els.forEach(function (e) { io.observe(e); });
+    })();
+
+    // Counter animation (respects reduced motion)
+    (function () {
+      var el = document.getElementById('counter');
+      if (!el) return;
+      var target = parseInt(el.getAttribute('data-target'), 10);
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = target; return; }
+      var started = false;
+      var run = function () {
+        if (started) return; started = true;
+        var t0 = null, dur = 1100;
+        function step(ts) {
+          if (!t0) t0 = ts;
+          var p = Math.min((ts - t0) / dur, 1);
+          var eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = Math.round(eased * target);
+          if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      };
+      var io = new IntersectionObserver(function (ents) {
+        ents.forEach(function (e) { if (e.isIntersecting) run(); });
+      }, { threshold: 0.5 });
+      io.observe(el);
+    })();
+  </script>
+</body>
+</html>

@@ -1,37 +1,51 @@
 # Caddyfile — borda do AudiSped
 #
-# ESTADO ATUAL (sem domínio ainda): serve por HTTP no IP da VPS para testes
-# ponta-a-ponta. Quando o domínio estiver registrado e apontando para a VPS,
-# TROQUE o bloco ":80" abaixo por:
+# app.audisped.com.br   -> sistema (frontend + /api -> backend). Canônico do app.
+# www.audisped.com.br   -> landing institucional estática (/srv/landing).
+# audisped.com.br (raiz)-> redireciona 301 para www (a landing pública).
+# :80                   -> fallback do sistema por acesso direto via IP.
 #
-#     audisped.SEU-DOMINIO.com.br {
-#         encode gzip zstd
-#         @api path /api/*
-#         handle @api {
-#             reverse_proxy audisped-backend:15435
-#         }
-#         handle {
-#             reverse_proxy audisped-frontend:80
-#         }
-#     }
-#
-# ...e o Caddy provisiona/renova o certificado HTTPS (Let's Encrypt) sozinho.
-# (e-mail para avisos do Let's Encrypt já configurado abaixo)
+# HTTPS (Let's Encrypt) automático para os 3 nomes. Backups: /opt/audisped/Caddyfile.bak.*
 
 {
 	email esmaelsousa@gmail.com
 }
 
-:80 {
+# --- Sistema (app) ---
+app.audisped.com.br {
 	encode gzip zstd
 
-	# /api/* -> backend Express (porta interna 15435)
 	@api path /api/*
 	handle @api {
 		reverse_proxy audisped-backend:15435
 	}
 
-	# todo o resto -> frontend (nginx servindo o build Vue, com fallback SPA)
+	handle {
+		reverse_proxy audisped-frontend:80
+	}
+}
+
+# --- Landing institucional (www) ---
+www.audisped.com.br {
+	encode gzip zstd
+	root * /srv/landing
+	file_server
+}
+
+# --- Raiz -> www (landing) ---
+audisped.com.br {
+	redir https://www.audisped.com.br{uri} permanent
+}
+
+# --- Fallback por IP (HTTP direto) -> sistema ---
+:80 {
+	encode gzip zstd
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy audisped-backend:15435
+	}
+
 	handle {
 		reverse_proxy audisped-frontend:80
 	}
