@@ -6627,9 +6627,21 @@ app.get('/api/validador/correcoes/:id', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
-        await require('./services/validador/correcoes').ensureTabela(dbClient);
+        const correcoesSvc = require('./services/validador/correcoes');
+        await correcoesSvc.ensureTabela(dbClient);
         const r = await dbClient.query('SELECT id, regra_id, registro, chave_natural, campo_idx, valor_original, valor_corrigido, origem, criado_em FROM val_correcoes WHERE id_sped_arquivo=$1 AND ativo=TRUE ORDER BY criado_em', [idArq]);
-        res.json({ correcoes: r.rows });
+        const rows = r.rows;
+        // Enriquece com NF (número/data/item) para a UI mostrar "NF 123 · dd/mm/aaaa · item 1" no
+        // lugar da chave crua. Data vem do C100; se o arquivo não abrir, degrada p/ a chave (sem quebrar).
+        try {
+            const a = await dbClient.query('SELECT caminho_arquivo FROM sped_arquivos WHERE id=$1', [idArq]);
+            let cam = a.rows[0] && a.rows[0].caminho_arquivo;
+            if (cam) { try { const j = JSON.parse(cam); if (j && typeof j === 'object') cam = Object.values(j)[0]; } catch (_) {} }
+            if (cam && fs.existsSync(cam)) {
+                correcoesSvc.enriquecerComNF(rows, correcoesSvc.mapaC100(fs.readFileSync(cam, 'latin1')));
+            }
+        } catch (_) { /* sem data → UI cai na chave crua */ }
+        res.json({ correcoes: rows });
     } catch (e) {
         res.status(500).json({ message: 'Erro ao listar correções: ' + e.message });
     } finally {

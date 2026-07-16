@@ -150,4 +150,62 @@ function aplicar(outputLines, correcoes, log) {
     return aplicadas;
 }
 
-module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, ordinalH005, aplicar };
+// ── Rótulo legível de ocorrência (NF + data + item) a partir da chave_natural ────────────────
+// A chave_natural de C100/C170/C190 começa com a chave de acesso de 44 díg. (nNF nas pos. 26-34)
+// e pode ter sufixo #NUM_ITEM (C170) ou #NUM_ITEM|CFOP|ALIQ (C190). O número da NF e o item saem
+// da própria chave; a DATA (DT_DOC) não está na chave → vem do C100 via mapaDtDocC100.
+function parseChaveNF(chaveNatural) {
+    const m = String(chaveNatural || '').match(/^(\d{44})(?:#(\d+))?/);
+    if (!m) return null;                                   // não é chave de NF-e (0200, E110, etc.)
+    return {
+        chave44: m[1],
+        num: String(parseInt(m[1].slice(25, 34), 10) || ''), // nNF sem zeros à esquerda
+        item: m[2] ? String(parseInt(m[2], 10)) : null,       // NUM_ITEM (C170/C190)
+    };
+}
+// DT_DOC do SPED (DDMMAAAA) → DD/MM/AAAA. Vazio se não tiver 8 dígitos.
+function fmtDataSped(d) {
+    const s = String(d || '').replace(/\D/g, '');
+    return s.length === 8 ? `${s.slice(0, 2)}/${s.slice(2, 4)}/${s.slice(4, 8)}` : '';
+}
+const _num = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;
+const _fmtMoeda = (n) => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+// Varre o .txt do SPED (scan leve, sem parse completo) e mapeia chave44 → dados do C100 usados na UI:
+// DT_DOC (f10) e os adicionais frete (f18) / seguro (f19) / outras despesas (f20) — p/ explicar o VL_MERC.
+function mapaC100(rawTxt) {
+    const m = new Map();
+    for (const l of String(rawTxt || '').split(/\r?\n/)) {
+        if (l.slice(0, 6) !== '|C100|') continue;
+        const f = l.split('|');
+        const ch = String(f[9] || '').replace(/\D/g, '');
+        if (ch.length === 44) m.set(ch, { dt: f[10] || '', frt: f[18] || '', seg: f[19] || '', out: f[20] || '' });
+    }
+    return m;
+}
+// Anexa nf_num / nf_item / nf_data às linhas de correção (para a UI mostrar "NF 123 · dd/mm/aaaa · item 1"
+// no lugar da chave crua). Para o ajuste de VL_MERC (VLDOC), anexa também qual adicional estava embutido
+// (nf_ajuste_tipo = "seguro"/"frete"/..., nf_ajuste_valor) → a UI diz POR QUE aquele valor mudou.
+// Linhas sem chave de NF (produto 0200 etc.) passam intactas.
+function enriquecerComNF(rows, mapC100) {
+    for (const r of (rows || [])) {
+        const p = parseChaveNF(r.chave_natural);
+        if (!p) continue;
+        const c = mapC100 && mapC100.get(p.chave44);
+        r.nf_num = p.num || null;
+        r.nf_item = p.item;
+        r.nf_data = fmtDataSped(c && c.dt);
+        if (c && r.regra_id === 'DOC-C100-VLDOC-01' && Number(r.campo_idx) === 16) {
+            const partes = [];
+            if (_num(c.frt) > 0) partes.push({ t: 'frete', v: _num(c.frt) });
+            if (_num(c.seg) > 0) partes.push({ t: 'seguro', v: _num(c.seg) });
+            if (_num(c.out) > 0) partes.push({ t: 'outras despesas', v: _num(c.out) });
+            if (partes.length) {
+                r.nf_ajuste_tipo = partes.map(x => x.t).join(' + ');
+                r.nf_ajuste_valor = _fmtMoeda(partes.reduce((s, x) => s + x.v, 0));
+            }
+        }
+    }
+    return rows;
+}
+
+module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, ordinalH005, aplicar, parseChaveNF, fmtDataSped, mapaC100, enriquecerComNF };

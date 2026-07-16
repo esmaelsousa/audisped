@@ -220,6 +220,68 @@ const salvando = ref(null);
 const msgCorr = ref('');
 const keyErro = (e) => `${e.regra_id}|${e.chaveNatural}|${e.campoIdx}`;
 
+// Rótulo legível de uma ocorrência: "NF 588542 · 08/01/2026 · item 1" (enriquecido pelo backend);
+// se não for chave de NF (produto 0200 etc.), cai na chave crua. A chave completa fica no tooltip.
+function rotuloOcorrencia(c) {
+  if (c && c.nf_num) {
+    let s = 'NF ' + c.nf_num;
+    if (c.nf_data) s += ' · ' + c.nf_data;
+    if (c.nf_item) s += ' · item ' + c.nf_item;
+    return s;
+  }
+  return (c && c.chave_natural) || '—';
+}
+
+// "O que / por que / como" por TIPO de correção — aparece 1× ao expandir o grupo (não repete em cada linha).
+const EXPLICACAO_REGRA = {
+  'DOC-C100-VLDOC-01': {
+    oque: 'Ajustamos o valor da mercadoria (VL_MERC) da nota.',
+    porque: 'O valor informado incluía frete/seguro/outras despesas — que entram no TOTAL da nota, mas não são o valor dos produtos.',
+    como: 'Baixamos o VL_MERC até a soma dos itens. O total da nota (VL_DOC) e o imposto ficam preservados.',
+  },
+  'DOC-C170-ICMSSEMBASE-01': {
+    oque: 'Zeramos a alíquota e o ICMS do item (C170).',
+    porque: 'Havia alíquota/ICMS informados sem base de cálculo tributável (operação sem débito de ICMS).',
+    como: 'ALIQ_ICMS e VL_ICMS do item vão a 0,00; o resto do item é mantido.',
+  },
+  'DOC-C190-ICMSSEMBASE-01': {
+    oque: 'Zeramos a alíquota e o ICMS da consolidação (C190).',
+    porque: 'Alíquota/ICMS informados sem base de cálculo tributável.',
+    como: 'ALIQ_ICMS e VL_ICMS do C190 vão a 0,00.',
+  },
+  'DOC-C190-REDBC-01': {
+    oque: 'Zeramos a redução de base (VL_RED_BC) do C190.',
+    porque: 'Havia redução de base informada sem um CST que comporte redução.',
+    como: 'VL_RED_BC vai a 0,00.',
+  },
+  'DOC-C100-5929-01': {
+    oque: 'Removemos o ICMS duplicado da nota CFOP 5929 (espelho de cupom/ECF).',
+    porque: 'A venda já foi tributada no cupom fiscal; debitar de novo seria bitributação.',
+    como: 'Zeramos o ICMS no C190 e no cabeçalho C100 e reduzimos o débito na apuração (E110).',
+  },
+  'DOC-C100-SER-01': {
+    oque: 'Alinhamos a série do documento (SER) à série contida na chave de acesso.',
+    porque: 'A série informada divergia da série embutida na chave — a chave é a identidade oficial da nota.',
+    como: 'Ajustamos o campo SER para a série da chave.',
+  },
+  'DOC-0200-CEST-01': {
+    oque: 'Ajuste do CEST do produto (0200).',
+    porque: 'O CEST informado não existe na Tabela CEST (Convênio 142/2018).',
+    como: 'Você escolhe o CEST correto (ou marca "produto sem ST"); o valor é gravado.',
+  },
+  'CADASTRO': {
+    oque: 'Correção de dado cadastral (Inscrição Estadual / contabilista).',
+    porque: 'O valor cadastral estava incorreto ou foi rejeitado pela SEFAZ.',
+    como: 'Você digita o valor correto; é aplicado no SPED exportado.',
+  },
+};
+function explicacaoRegra(g) { return EXPLICACAO_REGRA[g && g.regra_id] || null; }
+// Motivo CONCRETO de UMA ocorrência (ex.: VLDOC → "R$ 134,08 de seguro estava embutido no valor").
+function motivoOcorrencia(c) {
+  if (c && c.nf_ajuste_tipo && c.nf_ajuste_valor) return `R$ ${c.nf_ajuste_valor} de ${c.nf_ajuste_tipo} estava embutido no valor da mercadoria`;
+  return '';
+}
+
 // --- "Corrigir todas as seguras" (lote determinístico: preview → aplicar → desfazer) ---
 const previewLote = ref(null);       // resultado do dry-run (preview, não grava)
 const showPreviewLote = ref(false);
@@ -831,12 +893,21 @@ onMounted(async () => {
                 <button @click="removerGrupoCorrecao(g)" class="text-[10px] text-lacre hover:opacity-80 font-medium shrink-0">remover{{ g.itens.length > 1 ? ' todas' : '' }}</button>
               </div>
               <div v-if="grupoCorrAberto === g.key" class="bg-paper max-h-[30vh] overflow-y-auto divide-y divide-line">
-                <div v-for="c in g.itens" :key="c.id" class="flex items-center gap-2 px-3 py-1.5 pl-8 text-[10px]">
-                  <span class="font-mono text-risco truncate min-w-0 flex-1" :title="c.chave_natural">{{ c.chave_natural || '—' }}</span>
-                  <span class="text-risco line-through shrink-0">{{ c.valor_original || '—' }}</span>
-                  <span class="text-risco shrink-0">→</span>
-                  <span class="font-mono text-conforme shrink-0">{{ c.valor_corrigido }}</span>
-                  <button @click="removerCorrecao(c)" class="text-lacre hover:opacity-80 font-medium shrink-0">remover</button>
+                <!-- O QUE / POR QUE / COMO — uma vez por tipo de correção -->
+                <div v-if="explicacaoRegra(g)" class="px-3 py-2 pl-8 text-[10px] bg-bronze/[0.05] space-y-0.5 leading-snug">
+                  <p><b class="text-ink">O que:</b> <span class="text-risco">{{ explicacaoRegra(g).oque }}</span></p>
+                  <p><b class="text-ink">Por que:</b> <span class="text-risco">{{ explicacaoRegra(g).porque }}</span></p>
+                  <p><b class="text-ink">Como:</b> <span class="text-risco">{{ explicacaoRegra(g).como }}</span></p>
+                </div>
+                <div v-for="c in g.itens" :key="c.id" class="px-3 py-1.5 pl-8 text-[10px]">
+                  <div class="flex items-center gap-2">
+                    <span class="text-risco truncate min-w-0 flex-1" :class="{ 'font-mono': !c.nf_num }" :title="c.chave_natural">{{ rotuloOcorrencia(c) }}</span>
+                    <span class="text-risco line-through shrink-0">{{ c.valor_original || '—' }}</span>
+                    <span class="text-risco shrink-0">→</span>
+                    <span class="font-mono text-conforme shrink-0">{{ c.valor_corrigido }}</span>
+                    <button @click="removerCorrecao(c)" class="text-lacre hover:opacity-80 font-medium shrink-0">remover</button>
+                  </div>
+                  <p v-if="motivoOcorrencia(c)" class="text-[9px] text-bronze italic mt-0.5">↳ {{ motivoOcorrencia(c) }}</p>
                 </div>
               </div>
             </template>
