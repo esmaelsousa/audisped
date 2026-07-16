@@ -1,0 +1,647 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AudiSped — auditoria fiscal para postos de combustível</title>
+<meta name="description" content="Auditoria e correção do SPED Fiscal, LMC e conciliação SEFAZ para postos de combustível. Corrigimos o erro antes de você transmitir — antes de virar multa." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231C232A'/%3E%3Crect x='7' y='6' width='11' height='20' rx='2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3Crect x='9.5' y='9' width='6' height='4.5' rx='1' fill='%23A8631F'/%3E%3Cpath d='M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Archivo:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+
+<style>
+  :root{
+    --graphite:#1C232A;
+    --ink:#121820;
+    --paper:#F3F5F4;
+    --paper-2:#EAEDEC;
+    --bronze:#A8631F;
+    --bronze-bright:#E0902F;
+    --conforme:#3C7B58;
+    --lacre:#AE3A33;
+    --variacao:#B5840F;
+    --rule:rgba(18,24,32,.16);
+    --rule-soft:rgba(18,24,32,.09);
+    --serif:"Fraunces",Georgia,"Times New Roman",serif;
+    --grotesk:"Archivo",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--grotesk);
+    font-size:clamp(16px,1rem + .2vw,18px);
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{background:rgba(168,99,31,.22)}
+  a{color:inherit}
+  img,svg{max-width:100%;display:block}
+
+  /* subtle paper tooth without a "grid" or glow */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    pointer-events:none;z-index:0;
+    background:
+      linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,0) 22%),
+      radial-gradient(120% 60% at 82% -8%, rgba(28,35,42,.035), rgba(28,35,42,0) 60%);
+  }
+
+  .wrap{
+    position:relative;z-index:1;
+    width:100%;max-width:74rem;
+    margin-inline:auto;
+    padding-inline:clamp(20px,5vw,64px);
+  }
+
+  /* ---------- document masthead ---------- */
+  .masthead{
+    border-bottom:1px solid var(--rule);
+    padding-block:16px 12px;
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:16px;flex-wrap:wrap;
+  }
+  .brand{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:1.28rem;
+    letter-spacing:.005em;
+    line-height:1;
+    display:inline-flex;align-items:center;gap:.5rem;
+  }
+  .brand b{color:var(--bronze);font-weight:600}
+  .brand svg{width:19px;height:19px;flex:none;transform:translateY(1px)}
+  .docmeta{
+    font-size:.66rem;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--graphite);opacity:.72;
+    text-align:right;line-height:1.5;
+  }
+  .docmeta span{color:var(--bronze);opacity:1}
+
+  /* ---------- eyebrow / small-caps ---------- */
+  .eyebrow{
+    font-size:.68rem;font-weight:600;
+    letter-spacing:.26em;text-transform:uppercase;
+    color:var(--bronze);
+    display:inline-flex;align-items:center;gap:.7em;
+    margin:0;
+  }
+  .eyebrow::before{
+    content:"";width:26px;height:1px;background:var(--bronze);flex:none;
+  }
+  .section-tag{
+    font-size:.66rem;font-weight:600;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--graphite);opacity:.55;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{
+    padding-block:clamp(44px,8vw,96px) clamp(40px,7vw,78px);
+    position:relative;
+  }
+  .hero-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:clamp(34px,5vw,56px);
+    align-items:start;
+  }
+  .hero-main{min-width:0}
+  h1{
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:clamp(2.7rem,6.8vw,5.4rem);
+    line-height:.97;
+    letter-spacing:-.019em;
+    margin:clamp(16px,2.4vw,26px) 0 0;
+    max-width:15ch;
+    text-wrap:balance;
+  }
+  h1 em{
+    font-style:italic;
+    color:var(--bronze);
+    font-weight:500;
+  }
+  .lede{
+    font-family:var(--serif);
+    font-optical-sizing:auto;
+    font-weight:400;
+    font-size:clamp(1.16rem,2vw,1.46rem);
+    line-height:1.46;
+    color:var(--graphite);
+    margin:clamp(22px,3vw,30px) 0 0;
+    max-width:46ch;
+  }
+  .lede::first-letter{
+    initial-letter:2;
+    -webkit-initial-letter:2;
+    font-weight:600;
+    color:var(--bronze);
+    margin-right:.12em;
+  }
+
+  /* dossier record card (ficha do parecer) */
+  .hero-ficha{
+    position:relative;
+    border:1px solid var(--rule);
+    border-top:2px solid var(--bronze);
+    padding:clamp(22px,3vw,30px);
+    background:rgba(255,255,255,.42);
+  }
+  .ficha-lbl{
+    font-size:.63rem;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--bronze);font-weight:600;display:block;margin-bottom:1.15rem;
+  }
+  .hero-ficha dl{margin:0;display:grid;gap:0}
+  .hero-ficha dl>div{
+    display:grid;grid-template-columns:4.7rem minmax(0,1fr);
+    gap:.15rem 1rem;align-items:baseline;
+    padding-block:.85rem;border-top:1px solid var(--rule-soft);
+  }
+  .hero-ficha dl>div:first-child{border-top:0;padding-top:0}
+  .hero-ficha dl>div:last-child{padding-bottom:0}
+  .hero-ficha dt{
+    font-family:var(--serif);font-style:italic;font-weight:500;
+    color:var(--bronze);font-size:1.02rem;
+  }
+  .hero-ficha dd{margin:0;color:var(--graphite);font-size:.94rem;line-height:1.5}
+  .ficha-selo{
+    position:absolute;right:clamp(14px,3vw,20px);bottom:clamp(-26px,-3.5vw,-20px);
+    width:clamp(78px,10vw,98px);height:clamp(78px,10vw,98px);
+    color:var(--conforme);transform:rotate(-12deg);
+    pointer-events:none;opacity:.92;
+  }
+  .ficha-selo svg{width:100%;height:100%}
+
+  /* ---------- CTA ---------- */
+  .cta-row{
+    display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center;
+    margin-top:clamp(26px,3vw,36px);
+  }
+  .btn{
+    font-family:var(--grotesk);
+    font-weight:600;font-size:.98rem;
+    letter-spacing:.005em;
+    display:inline-flex;align-items:center;gap:.6rem;
+    padding:.85rem 1.5rem;
+    background:var(--ink);color:var(--paper);
+    text-decoration:none;
+    border:1px solid var(--ink);
+    border-radius:2px;
+    transition:background .18s ease,transform .18s ease,color .18s ease;
+  }
+  .btn svg{width:18px;height:18px;flex:none}
+  .btn:hover{background:var(--bronze);border-color:var(--bronze);transform:translateY(-1px)}
+  .btn:focus-visible{outline:2px solid var(--bronze);outline-offset:3px}
+  .btn-2{
+    font-weight:500;font-size:.9rem;text-decoration:none;
+    color:var(--graphite);
+    border-bottom:1px solid var(--rule);
+    padding-bottom:2px;
+    letter-spacing:.01em;
+    transition:border-color .18s ease,color .18s ease;
+  }
+  .btn-2:hover{color:var(--bronze);border-color:var(--bronze)}
+  .btn-2:focus-visible{outline:2px solid var(--bronze);outline-offset:3px}
+
+  /* ---------- generic section frame ---------- */
+  section{position:relative;z-index:1}
+  .rule-top{border-top:1px solid var(--rule)}
+
+  /* two-column editorial spread: reading column + margin notes */
+  .leaf{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:clamp(20px,3vw,40px);
+    padding-block:clamp(46px,7vw,88px);
+  }
+  .leaf-head{
+    display:flex;align-items:baseline;gap:1rem;
+    margin-bottom:.4rem;
+  }
+  .sec-no{
+    font-family:var(--serif);
+    font-weight:500;font-style:italic;
+    color:var(--bronze);
+    font-size:1.05rem;
+    flex:none;
+  }
+  h2{
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:clamp(1.8rem,3.6vw,2.9rem);
+    line-height:1.05;
+    letter-spacing:-.012em;
+    margin:.3rem 0 0;
+    max-width:20ch;
+    text-wrap:balance;
+  }
+  .prose p{max-width:60ch;margin:0 0 1.15rem}
+  .prose p:last-child{margin-bottom:0}
+  .prose strong{font-weight:600}
+  .term{
+    color:var(--ink);font-weight:600;
+    border-bottom:1px solid rgba(168,99,31,.4);
+    padding-bottom:.5px;
+    white-space:nowrap;
+  }
+
+  /* margin note (marginalia) */
+  .note{
+    font-size:.82rem;line-height:1.5;
+    color:var(--graphite);
+    border-top:1px solid var(--bronze);
+    padding-top:.6rem;
+    max-width:24rem;
+  }
+  .note .lbl{
+    display:block;
+    font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--bronze);font-weight:600;margin-bottom:.3rem;
+  }
+  .note em{font-style:italic}
+
+  /* ---------- risk / pull quote ---------- */
+  .risco{padding-block:clamp(46px,7vw,90px)}
+  .pull{
+    font-family:var(--serif);
+    font-weight:400;
+    font-size:clamp(1.6rem,4.2vw,3rem);
+    line-height:1.12;
+    letter-spacing:-.014em;
+    margin:0;max-width:22ch;
+    text-wrap:balance;
+  }
+  .pull b{color:var(--bronze);font-weight:500}
+  .pull-mark{
+    font-family:var(--serif);
+    font-size:clamp(3rem,8vw,5rem);
+    line-height:0;
+    color:var(--bronze);
+    display:block;height:.55em;
+  }
+  .pull-src{
+    margin-top:1.6rem;
+    font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--graphite);opacity:.7;
+  }
+
+  /* ---------- sumário / modules index ---------- */
+  .sumario{padding-block:clamp(44px,6vw,80px)}
+  .sumario-intro{
+    display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(16px,2vw,28px);
+    align-items:end;margin-bottom:clamp(30px,4vw,48px);
+  }
+  .sumario h2{margin:0}
+  .sumario-intro p{margin:0;max-width:48ch;color:var(--graphite)}
+
+  .index{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
+  .item{
+    border-bottom:1px solid var(--rule-soft);
+    display:grid;
+    grid-template-columns:2.7rem minmax(0,1fr);
+    column-gap:clamp(14px,2.5vw,30px);
+    row-gap:.35rem;
+    padding-block:clamp(22px,3vw,30px);
+    align-items:start;
+    transition:background .2s ease;
+  }
+  .item:hover{background:linear-gradient(90deg,rgba(168,99,31,.05),rgba(168,99,31,0) 70%)}
+  .item .no{
+    font-family:var(--serif);font-style:italic;font-weight:500;
+    color:var(--bronze);font-size:1.05rem;line-height:1.2;
+    padding-top:.12rem;
+  }
+  .item h3{
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(1.22rem,2.3vw,1.62rem);
+    line-height:1.12;margin:0;
+    letter-spacing:-.01em;
+    grid-column:2;
+    display:inline-block;
+  }
+  .item h3 .draw{
+    background-image:linear-gradient(var(--bronze),var(--bronze));
+    background-repeat:no-repeat;
+    background-position:0 100%;
+    background-size:0% 1.5px;
+    transition:background-size .4s cubic-bezier(.2,.7,.2,1);
+    padding-bottom:2px;
+  }
+  .item:hover h3 .draw{background-size:100% 1.5px}
+  .item .desc{
+    grid-column:2;
+    margin:0;color:var(--graphite);
+    font-size:.98rem;line-height:1.5;max-width:56ch;
+  }
+  .item .desc b{color:var(--ink);font-weight:600}
+
+  /* ---------- achados (dores) ---------- */
+  .achados{padding-block:clamp(44px,6vw,84px)}
+  .achados-list{
+    list-style:none;margin:clamp(26px,4vw,40px) 0 0;padding:0;
+    display:grid;grid-template-columns:minmax(0,1fr);gap:0;
+  }
+  .achados-list li{
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr);
+    gap:1rem;
+    padding-block:clamp(16px,2.2vw,22px);
+    border-top:1px solid var(--rule-soft);
+    align-items:baseline;
+  }
+  .achados-list li:first-child{border-top:1px solid var(--rule)}
+  .achados-list .tick{
+    font-family:var(--serif);font-style:italic;color:var(--lacre);
+    font-size:.86rem;font-weight:500;
+    letter-spacing:.02em;white-space:nowrap;padding-top:.05rem;
+  }
+  .achados-list p{margin:0;max-width:60ch}
+  .achados-list p b{font-weight:600}
+
+  /* ---------- final invite ---------- */
+  .convite{
+    padding-block:clamp(56px,8vw,110px);
+    border-top:1px solid var(--rule);
+  }
+  .convite h2{max-width:16ch}
+  .convite .lede{margin-top:1.4rem;max-width:44ch}
+  .fine{
+    margin-top:1.5rem;font-size:.86rem;color:var(--graphite);opacity:.85;max-width:44ch;
+  }
+
+  /* ---------- footer colophon ---------- */
+  footer{
+    border-top:1px solid var(--rule);
+    padding-block:34px 44px;
+    display:flex;flex-wrap:wrap;gap:16px 32px;justify-content:space-between;
+    font-size:.76rem;color:var(--graphite);
+    letter-spacing:.02em;
+  }
+  footer .col-lbl{
+    display:block;font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--bronze);margin-bottom:.4rem;font-weight:600;
+  }
+  footer a{text-decoration:none;border-bottom:1px solid var(--rule)}
+  footer a:hover{color:var(--bronze);border-color:var(--bronze)}
+
+  /* ---------- reveal ---------- */
+  .r{opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s ease}
+  .r.in{opacity:1;transform:none}
+
+  /* ---------- desktop editorial split ---------- */
+  @media(min-width:900px){
+    .hero-grid{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:clamp(40px,5vw,72px);align-items:center}
+
+    .leaf{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}
+    .note{margin-top:clamp(40px,6vw,84px)} /* sit lower, like a margin annotation */
+
+    .risco{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:3rem;align-items:end}
+    .sumario-intro{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+
+    .item{grid-template-columns:2.7rem minmax(0,15rem) minmax(0,1fr)}
+    .item h3{grid-column:2;align-self:start}
+    .item .desc{grid-column:3}
+
+    .convite-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:3rem;align-items:start}
+  }
+
+  @media(prefers-reduced-motion:reduce){
+    *{scroll-behavior:auto!important}
+    .r{opacity:1;transform:none;transition:none}
+    .item h3 .draw{transition:none}
+    .btn{transition:none}
+  }
+</style>
+
+<div class="wrap">
+
+  <!-- MASTHEAD -->
+  <header class="masthead">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="7" y="6" width="11" height="20" rx="2" fill="none" stroke="#A8631F" stroke-width="2"/><rect x="9.5" y="9" width="6" height="4.5" rx="1" fill="#A8631F"/><path d="M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2" fill="none" stroke="#A8631F" stroke-width="2"/></svg>
+      Audi<b>Sped</b>
+    </div>
+    <div class="docmeta">
+      Conferência fiscal antes da entrega<br>
+      SPED · <span>LMC das bombas</span> · SEFAZ
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-grid">
+      <div class="hero-main">
+        <p class="eyebrow r">Auditoria fiscal especializada em postos de combustível</p>
+        <h1 class="r">Transmita o SPED do seu posto com a <em>certeza</em> de que está tudo certo.</h1>
+        <p class="lede r">Um erro no arquivo quase nunca aparece no mês em que acontece. Ele volta anos depois — como autuação, multa e juros — por uma única linha que ninguém releu. O AudiSped encontra esse erro enquanto ainda dá tempo de corrigir e devolve o seu arquivo pronto para entregar, com tranquilidade.</p>
+        <div class="cta-row r">
+          <a class="btn" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1a11 11 0 0 1-5-4.4c-.4-.6-.9-1.6-.9-2.3 0-.7.4-1.1.6-1.3.2-.2.4-.2.5-.2h.4c.2 0 .3 0 .5.4l.7 1.6c0 .2.1.3 0 .5l-.3.5-.3.3c-.1.1-.2.2 0 .5.2.3.8 1.2 1.6 1.9 1 .8 1.7 1 2 .1 .3-.4.5-.4.7-.2l1.4.7c.2.1.4.2.4.3.1.2.1.7 0 .9Z"/></svg>
+            Falar no WhatsApp
+          </a>
+          <a class="btn-2" href="https://app.audisped.com.br">Já sou cliente → acessar o sistema</a>
+        </div>
+      </div>
+
+      <aside class="hero-ficha r" aria-label="Resumo do trabalho">
+        <span class="ficha-lbl">O trabalho, em resumo</span>
+        <dl>
+          <div><dt>Entra</dt><dd>o SPED do seu posto, exatamente como ele está hoje.</dd></div>
+          <div><dt>Sai</dt><dd>o arquivo conferido e corrigido, o livro das bombas fechado e as notas batendo com a SEFAZ.</dd></div>
+          <div><dt>Quando</dt><dd>antes de você transmitir — nunca depois.</dd></div>
+        </dl>
+        <div class="ficha-selo" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="55" fill="none" stroke="currentColor" stroke-width="2.5"/>
+            <circle cx="60" cy="60" r="46" fill="none" stroke="currentColor" stroke-width="1"/>
+            <path id="arc" d="M60 22 a38 38 0 0 1 0 76 a38 38 0 0 1 0 -76" fill="none"/>
+            <text font-family="Archivo, sans-serif" font-size="7.6" font-weight="600" letter-spacing="2.2" fill="currentColor">
+              <textPath href="#arc" startOffset="3%">CONFERIDO ANTES DA ENTREGA ·</textPath>
+            </text>
+            <text x="60" y="58" text-anchor="middle" font-family="Fraunces, serif" font-size="16" font-weight="600" fill="currentColor" letter-spacing="1">CON-</text>
+            <text x="60" y="76" text-anchor="middle" font-family="Fraunces, serif" font-size="16" font-weight="600" fill="currentColor" letter-spacing="1">FORME</text>
+          </svg>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- O ERRO SILENCIOSO -->
+  <section class="leaf rule-top">
+    <div class="prose r">
+      <div class="leaf-head">
+        <span class="section-tag">O erro silencioso</span>
+      </div>
+      <h2>O problema não é o erro. É que ninguém vê a tempo.</h2>
+      <p>
+        Uma nota lançada como tributada quando não devia. Um combustível classificado no imposto errado. Um crédito que nunca existiu. O arquivo é aceito, o mês fecha, a rotina segue — e o erro fica ali, parado, dentro da escrituração.
+      </p>
+      <p>
+        Quando a fiscalização cruza os dados — e ela cruza — o que seria um ajuste de dois minutos já virou auto de infração, com multa e juros sobre o período inteiro. Quase sempre o aviso chega pelo contador: <strong>“faltou uma nota”</strong>. E a nota faltou há um ano e meio.
+      </p>
+      <p>
+        O AudiSped inverte essa ordem: primeiro <strong>encontra</strong>, depois corrige, sempre antes da entrega. Lê o seu arquivo como um auditor experiente leria — só que em segundos, e sem deixar passar.
+      </p>
+    </div>
+    <aside class="note r">
+      <span class="lbl">Nota de margem</span>
+      <em>O posto é um dos negócios mais cruzados pelo Fisco: o que sai na bomba, o que está na nota e o que a SEFAZ registrou precisam bater entre si. Quanto mais cruzamento, maior o risco — e maior o valor de conferir antes de entregar.</em>
+    </aside>
+  </section>
+
+  <!-- PULL QUOTE -->
+  <section class="risco rule-top">
+    <blockquote class="pull r">
+      <span class="pull-mark" aria-hidden="true">&ldquo;</span>
+      A fiscalização não avisa. Ela reconstrói o seu mês <b>anos depois</b> — e cobra a diferença com juros.
+    </blockquote>
+    <p class="pull-src r">Por isso a conferência acontece antes, não depois.</p>
+  </section>
+
+  <!-- SUMÁRIO / MÓDULOS -->
+  <section class="sumario rule-top">
+    <div class="sumario-intro">
+      <div class="r">
+        <p class="eyebrow" style="margin-bottom:1rem">Sumário do parecer</p>
+        <h2>Sete frentes de conferência, cada uma desenvolvida para o posto.</h2>
+      </div>
+      <p class="r">O AudiSped não é um sistema de contabilidade genérico com uma aba fiscal. Cada frente nasceu de um problema que só quem vive o posto conhece: o encerrante da bomba que não fecha, a nota que some, o combustível tributado do jeito errado.</p>
+    </div>
+
+    <ol class="index">
+      <li class="item r">
+        <span class="no">01</span>
+        <h3><span class="draw">Validador do SPED</span></h3>
+        <p class="desc">Lê o arquivo e aponta o que daria problema na hora da entrega e na fiscalização — inclusive o que o próprio programa da Receita não explica. Mostra onde está, por que é erro e <b>corrige para você</b>.</p>
+      </li>
+      <li class="item r">
+        <span class="no">02</span>
+        <h3><span class="draw">LMC das bombas, no automático</span></h3>
+        <p class="desc">Monta e fecha o Livro de Movimentação de Combustíveis: encerrantes das bombas, tanques, entradas, vendas e estoque conferidos e amarrados. Sai <b>pronto para imprimir</b>, no modelo exigido.</p>
+      </li>
+      <li class="item r">
+        <span class="no">03</span>
+        <h3><span class="draw">Conciliação com a SEFAZ</span></h3>
+        <p class="desc">Compara as suas notas de entrada e saída com o que a SEFAZ registrou. Aponta a <b>nota que faltou</b> na escrituração e a que foi <b>lançada a mais</b> — as duas pesam na hora do cruzamento.</p>
+      </li>
+      <li class="item r">
+        <span class="no">04</span>
+        <h3><span class="draw">Recuperação de notas que faltaram</span></h3>
+        <p class="desc">Busca a nota que faltou e a <b>coloca no arquivo automaticamente</b>. Sem digitar nota à mão, sem retrabalho e sem esquecer de novo no mês seguinte.</p>
+      </li>
+      <li class="item r">
+        <span class="no">05</span>
+        <h3><span class="draw">Tributação certa do combustível</span></h3>
+        <p class="desc">Aplica o imposto correto para cada produto e fornecedor — inclusive a regra especial do combustível (o <b>monofásico</b>), que a maioria dos sistemas comuns trata errado. É o que evita imposto pago a mais e crédito indevido.</p>
+      </li>
+      <li class="item r">
+        <span class="no">06</span>
+        <h3><span class="draw">Rentabilidade do posto</span></h3>
+        <p class="desc">Mostra margem e resultado a partir dos <b>seus próprios números</b> — os dados que já existem no arquivo, agora lidos como gestão do negócio, e não apenas como obrigação.</p>
+      </li>
+      <li class="item r">
+        <span class="no">07</span>
+        <h3><span class="draw">Painel para quem tem vários postos</span></h3>
+        <p class="desc">Vários postos, a situação fiscal de cada um em uma tela só. Quem cuida de uma rede vê num relance <b>onde ainda falta fechar</b> antes do prazo de entrega.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ACHADOS RECORRENTES (dores) -->
+  <section class="achados rule-top">
+    <div class="leaf-head">
+      <span class="section-tag">Achados recorrentes</span>
+    </div>
+    <h2>O que costuma passar batido — e a gente encontra antes.</h2>
+    <ul class="achados-list">
+      <li class="r"><span class="tick">Achado 01</span><p><b>Arquivo entregue com erro que ninguém releu.</b> Passa na transmissão e reaparece como autuação quando a SEFAZ cruza os dados.</p></li>
+      <li class="r"><span class="tick">Achado 02</span><p><b>Encerrante e estoque que não fecham.</b> Horas perdidas para conciliar as bombas e, no fim, ainda sobra diferença de volume no tanque.</p></li>
+      <li class="r"><span class="tick">Achado 03</span><p><b>Nota de entrada faltando.</b> O contador liga: “faltou uma nota” — e ela sumiu meses atrás.</p></li>
+      <li class="r"><span class="tick">Achado 04</span><p><b>Retrabalho sem fim no programa da Receita.</b> Importa, valida, corrige, repete — sem nada explicar o que está errado de verdade.</p></li>
+      <li class="r"><span class="tick">Achado 05</span><p><b>Combustível tributado do jeito errado.</b> A regra especial do combustível fora do lugar vira imposto pago a mais ou crédito que não podia existir.</p></li>
+      <li class="r"><span class="tick">Achado 06</span><p><b>Só enxergar o mês depois de transmitir.</b> Sem ver o fechamento inteiro antes do envio, o erro só aparece quando já passou.</p></li>
+    </ul>
+  </section>
+
+  <!-- EXEMPLO / PARECER APLICADO -->
+  <section class="leaf rule-top">
+    <div class="prose r">
+      <div class="leaf-head">
+        <span class="section-tag">Parecer aplicado</span>
+      </div>
+      <h2>Como um mês passa pela nossa mesa.</h2>
+      <p>
+        Chega o arquivo do <strong>Auto Posto São Jorge</strong>. A conferência aponta três bombas sem movimento no livro, uma entrada de diesel lançada como tributada quando não devia, e duas notas de saída que a SEFAZ tem e o arquivo não.
+      </p>
+      <p>
+        O sistema recupera as notas que faltavam, corrige a tributação do combustível, ajusta os créditos e refecha o livro com os encerrantes reais das bombas. O arquivo sai <strong>conforme</strong> — e você entrega sabendo exatamente o que está assinando.
+      </p>
+      <p>
+        A mesma conferência vale para o <strong>Posto Trevo</strong> e para os outros da rede. Todos passam pelo mesmo cuidado antes de sair.
+      </p>
+    </div>
+    <aside class="note r">
+      <span class="lbl">À caneta, na margem</span>
+      <em>Nomes fictícios, situação real de posto. A ordem importa: encontrar primeiro, corrigir depois. Um arquivo aceito na entrega não é um arquivo correto — é só um arquivo que ainda não foi cruzado pelo Fisco.</em>
+    </aside>
+  </section>
+
+  <!-- CONVITE FINAL -->
+  <section class="convite">
+    <div class="convite-grid">
+      <div class="r">
+        <p class="eyebrow" style="margin-bottom:1.2rem">Encerramento do parecer</p>
+        <h2>Vamos olhar o próximo fechamento do seu posto antes que o Fisco olhe.</h2>
+        <p class="lede">Mande uma mensagem no WhatsApp. A gente entende o seu caso, mostra o AudiSped funcionando no seu tipo de posto e explica, sem enrolação, o que já dá para corrigir no próximo mês.</p>
+        <p class="fine">Você fala direto com quem entende de bomba, encerrante e escrituração de posto — não com um formulário automático.</p>
+      </div>
+      <div class="r">
+        <div class="cta-row">
+          <a class="btn" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1a11 11 0 0 1-5-4.4c-.4-.6-.9-1.6-.9-2.3 0-.7.4-1.1.6-1.3.2-.2.4-.2.5-.2h.4c.2 0 .3 0 .5.4l.7 1.6c0 .2.1.3 0 .5l-.3.5-.3.3c-.1.1-.2.2 0 .5.2.3.8 1.2 1.6 1.9 1 .8 1.7 1 2 .1 .3-.4.5-.4.7-.2l1.4.7c.2.1.4.2.4.3.1.2.1.7 0 .9Z"/></svg>
+            Falar no WhatsApp
+          </a>
+          <a class="btn-2" href="https://app.audisped.com.br">Já sou cliente → acessar o sistema</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div>
+      <span class="col-lbl">AudiSped</span>
+      Auditoria e correção fiscal para postos de combustível.<br>SPED · LMC das bombas · Conciliação com a SEFAZ.
+    </div>
+    <div>
+      <span class="col-lbl">Atendimento</span>
+      <a href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">WhatsApp (74) 99198-5228</a><br>
+      <a href="https://app.audisped.com.br">app.audisped.com.br</a>
+    </div>
+    <div>
+      <span class="col-lbl">Observação</span>
+      Os exemplos de postos citados são fictícios.<br>As situações de escrituração são reais.
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  (function(){
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var els = Array.prototype.slice.call(document.querySelectorAll(".r"));
+    if(reduce || !("IntersectionObserver" in window)){
+      els.forEach(function(e){e.classList.add("in")});
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ en.target.classList.add("in"); io.unobserve(en.target); }
+      });
+    }, {rootMargin:"0px 0px -8% 0px", threshold:0.08});
+    els.forEach(function(e){io.observe(e)});
+  })();
+</script>

@@ -63,3 +63,7 @@ frontend/dist/
 
 # Cache de compilacao Node (nao versionar)
 node-compile-cache/
+
+# Backups locais das landing pages (nao versionar)
+landing/**/index.bak-*.html
+landing/index.bak-*.html

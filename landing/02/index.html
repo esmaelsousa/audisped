@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AudiSped — auditoria e correção do SPED para postos de combustível</title>
+<meta name="description" content="AudiSped audita o SPED Fiscal, fecha o LMC e concilia notas com a SEFAZ do seu posto — corrige os erros antes de transmitir, antes de virar multa." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231C232A'/%3E%3Crect x='7' y='6' width='11' height='20' rx='2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3Crect x='9.5' y='9' width='6' height='4.5' rx='1' fill='%23A8631F'/%3E%3Cpath d='M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2' fill='none' stroke='%23A8631F' stroke-width='2'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --graphite:#1C232A;
+    --ink:#121820;
+    --paper:#F3F5F4;
+    --bronze:#A8631F;
+    --bronze-bright:#E0902F;
+    --conforme:#3C7B58;
+    --lacre:#AE3A33;
+    --variacao:#B5840F;
+
+    --panel:#212932;
+    --panel-2:#1A2129;
+    --line:rgba(255,255,255,.09);
+    --line-strong:rgba(255,255,255,.16);
+    --muted:#93A0AC;
+    --muted-2:#6C7A87;
+    --txt:#E7ECEF;
+
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:"Archivo",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--txt);
+    font-family:var(--body);
+    font-size:17px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  h1,h2,h3{font-family:var(--disp);line-height:1.05;margin:0;letter-spacing:-.02em}
+  ::selection{background:var(--bronze);color:#fff}
+
+  :focus-visible{outline:2px solid var(--bronze-bright);outline-offset:3px;border-radius:3px}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+  .eyebrow{
+    font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--bronze-bright);display:inline-flex;align-items:center;gap:9px;margin:0;
+  }
+  .eyebrow::before{content:"";width:22px;height:1px;background:var(--bronze)}
+
+  /* ---------- NAV ---------- */
+  header.nav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(18,24,32,.82);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav-in{display:flex;align-items:center;gap:24px;height:66px}
+  .brand{display:flex;align-items:center;gap:11px;font-family:var(--disp);font-weight:800;font-size:19px;letter-spacing:-.01em}
+  .brand svg{width:30px;height:30px;flex:0 0 auto}
+  .brand b{color:var(--bronze-bright);font-weight:800}
+  .nav-links{display:none;gap:26px;margin-left:auto;font-size:14.5px;color:var(--muted)}
+  .nav-links a:hover{color:var(--txt)}
+  .nav-cta{margin-left:auto;display:flex;gap:10px}
+  @media(min-width:900px){.nav-links{display:flex}.nav-cta{margin-left:28px}}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;font-family:var(--body);font-weight:600;
+    font-size:15px;padding:11px 18px;border-radius:9px;cursor:pointer;border:1px solid transparent;
+    transition:transform .15s ease, background .15s ease, border-color .15s ease;white-space:nowrap;
+  }
+  .btn svg{width:17px;height:17px}
+  .btn-wa{background:var(--bronze);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+  .btn-wa:hover{background:var(--bronze-bright)}
+  .btn-ghost{border-color:var(--line-strong);color:var(--txt)}
+  .btn-ghost:hover{border-color:var(--bronze);color:var(--bronze-bright)}
+  @media (prefers-reduced-motion:no-preference){.btn:hover{transform:translateY(-1px)}}
+  .btn-sm{padding:8px 13px;font-size:13.5px}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:72px 0 40px;position:relative}
+  .hero-grid{display:grid;gap:44px}
+  @media(min-width:1000px){.hero-grid{grid-template-columns:0.86fr 1.14fr;align-items:center;gap:52px}}
+  .hero h1{font-size:clamp(38px,6.4vw,62px);font-weight:800}
+  .hero h1 .u{
+    color:var(--bronze-bright);position:relative;white-space:nowrap;
+  }
+  .hero h1 .u::after{content:"";position:absolute;left:0;right:0;bottom:.06em;height:3px;background:var(--bronze);border-radius:2px;opacity:.55}
+  .hero p.lead{font-size:19px;color:var(--muted);max-width:44ch;margin:22px 0 0}
+  .hero .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+  .hero .reassure{margin-top:20px;display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13.5px;color:var(--muted-2);font-family:var(--mono)}
+  .hero .reassure span{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .dot.ok{background:var(--conforme)}
+  .dot.warn{background:var(--variacao)}
+  .dot.err{background:var(--lacre)}
+
+  /* ---------- PANEL / WINDOW CHROME ---------- */
+  .panel{
+    background:linear-gradient(180deg,var(--panel) 0%, var(--panel-2) 100%);
+    border:1px solid var(--line-strong);
+    border-radius:14px;
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.75), 0 2px 0 rgba(255,255,255,.03) inset;
+    overflow:hidden;
+  }
+  .win-bar{
+    display:flex;align-items:center;gap:12px;padding:11px 15px;
+    background:rgba(0,0,0,.22);border-bottom:1px solid var(--line);
+  }
+  .traffic{display:flex;gap:7px}
+  .traffic i{width:11px;height:11px;border-radius:50%;display:block;background:#3a444e}
+  .win-title{
+    font-family:var(--mono);font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:9px;
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .win-title b{color:var(--txt);font-weight:600}
+  .win-tag{
+    margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--bronze-bright);border:1px solid var(--line-strong);padding:3px 9px;border-radius:20px;white-space:nowrap;
+  }
+  .scroll-x{overflow-x:auto}
+
+  /* ---------- COCKPIT (hero mock) ---------- */
+  .cockpit-head{display:flex;align-items:baseline;gap:12px;padding:16px 18px 8px;flex-wrap:wrap}
+  .cockpit-head h3{font-size:16px;font-weight:700}
+  .cockpit-head .sub{font-family:var(--mono);font-size:12px;color:var(--muted-2)}
+  .cockpit-head .period{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted)}
+  table.grid{width:100%;border-collapse:collapse;font-size:14px;min-width:520px}
+  table.grid th{
+    text-align:left;font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted-2);padding:10px 18px;border-bottom:1px solid var(--line);
+  }
+  table.grid td{padding:13px 18px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.grid tr:last-child td{border-bottom:none}
+  table.grid tbody tr:hover{background:rgba(255,255,255,.03)}
+  .posto-name{font-weight:600}
+  .posto-cnpj{font-family:var(--mono);font-size:11.5px;color:var(--muted-2)}
+  .status-cell{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12.5px}
+  .pend{font-family:var(--mono);font-size:13px}
+  .num{font-family:var(--mono);text-align:right}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;font-weight:500;
+    padding:3px 9px;border-radius:6px;border:1px solid transparent;line-height:1.3;
+  }
+  .chip.ok{color:#9BE3BB;background:rgba(60,123,88,.16);border-color:rgba(60,123,88,.4)}
+  .chip.warn{color:#F0CE7A;background:rgba(181,132,15,.16);border-color:rgba(181,132,15,.42)}
+  .chip.err{color:#F0A19B;background:rgba(174,58,51,.16);border-color:rgba(174,58,51,.45)}
+  .chip.bronze{color:var(--bronze-bright);background:rgba(168,99,31,.14);border-color:rgba(168,99,31,.4)}
+
+  /* ---------- SECTION SCAFFOLD ---------- */
+  section{padding:66px 0}
+  .sec-head{max-width:660px}
+  .sec-head h2{font-size:clamp(28px,4vw,40px);font-weight:800;margin:16px 0 0}
+  .sec-head p{color:var(--muted);font-size:18px;margin:16px 0 0}
+
+  /* module rows */
+  .mod{display:grid;gap:34px;align-items:center;padding:52px 0;border-top:1px solid var(--line)}
+  @media(min-width:960px){
+    .mod{grid-template-columns:1fr 1.12fr;gap:56px}
+    .mod.flip .mod-copy{order:2}
+    .mod.flip .mod-mock{order:1}
+  }
+  .mod-num{font-family:var(--mono);font-size:12px;color:var(--bronze);letter-spacing:.14em}
+  .mod h3{font-size:clamp(24px,3.2vw,31px);font-weight:800;margin:14px 0 0}
+  .mod p{color:var(--muted);margin:16px 0 0;font-size:16.5px}
+  .mod ul{list-style:none;padding:0;margin:22px 0 0;display:grid;gap:11px}
+  .mod li{display:flex;gap:11px;font-size:15px;color:var(--txt)}
+  .mod li svg{width:18px;height:18px;flex:0 0 auto;margin-top:2px;color:var(--conforme)}
+  .cap{font-family:var(--mono);font-size:12.5px;color:var(--muted-2);margin-top:12px;display:flex;gap:8px;align-items:flex-start}
+  .cap::before{content:"▸";color:var(--bronze)}
+
+  /* ---------- VALIDADOR MOCK ---------- */
+  .v-summary{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .v-count{font-family:var(--disp);font-weight:800;font-size:22px}
+  .v-count small{font-family:var(--mono);font-weight:500;font-size:12px;color:var(--muted);display:block;letter-spacing:.02em}
+  .v-summary .btn{margin-left:auto}
+  .find{display:flex;gap:13px;padding:13px 18px;border-bottom:1px solid var(--line);align-items:flex-start}
+  .find:last-child{border-bottom:none}
+  .sev{
+    font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.06em;
+    padding:3px 7px;border-radius:5px;flex:0 0 auto;margin-top:1px;min-width:52px;text-align:center;
+  }
+  .sev.err{color:#F0A19B;background:rgba(174,58,51,.18)}
+  .sev.warn{color:#F0CE7A;background:rgba(181,132,15,.18)}
+  .sev.ok{color:#9BE3BB;background:rgba(60,123,88,.18)}
+  .find-body{min-width:0;flex:1}
+  .find-reg{font-family:var(--mono);font-size:12px;color:var(--bronze-bright);letter-spacing:.02em}
+  .find-msg{font-size:14px;margin-top:3px;color:var(--txt)}
+  .find-msg code{font-family:var(--mono);font-size:12.5px;color:#F0CE7A;background:rgba(255,255,255,.05);padding:1px 5px;border-radius:4px}
+  .fix-btn{
+    margin-left:auto;flex:0 0 auto;font-family:var(--body);font-size:12.5px;font-weight:600;
+    padding:6px 12px;border-radius:7px;border:1px solid var(--line-strong);color:var(--txt);background:transparent;cursor:pointer;
+    transition:border-color .15s,color .15s;align-self:center;
+  }
+  .fix-btn:hover{border-color:var(--bronze);color:var(--bronze-bright)}
+  .fix-btn.done{border-color:rgba(60,123,88,.5);color:#9BE3BB}
+
+  /* validating -> conforme animation */
+  .validating{
+    display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;
+  }
+  .spinner{width:13px;height:13px;border-radius:50%;border:2px solid rgba(255,255,255,.2);border-top-color:var(--bronze-bright);display:inline-block}
+  @media (prefers-reduced-motion:no-preference){
+    .is-run .spinner{animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  }
+
+  /* ---------- LMC MOCK ---------- */
+  table.lmc{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+  table.lmc th{
+    font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);
+    padding:10px 14px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap;
+  }
+  table.lmc th:first-child,table.lmc td:first-child{text-align:left}
+  table.lmc td{padding:11px 14px;text-align:right;border-bottom:1px solid var(--line);font-family:var(--mono);white-space:nowrap}
+  table.lmc td.prod{font-family:var(--body);font-weight:600;text-align:left}
+  table.lmc tr:hover td{background:rgba(255,255,255,.025)}
+  .lmc-total td{background:rgba(60,123,88,.09);border-top:1px solid rgba(60,123,88,.35);border-bottom:none;font-weight:600}
+  .lmc-total td:first-child{color:#9BE3BB}
+  .bico{color:var(--muted)}
+
+  /* ---------- SEFAZ MOCK ---------- */
+  .sefaz-head{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .sefaz-head .t{font-weight:700;font-size:15px}
+  .sefaz-head .t b{color:var(--lacre)}
+  .sefaz-head .live{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--conforme);display:flex;align-items:center;gap:7px}
+  .sefaz-head .live .dot{background:var(--conforme)}
+  @media (prefers-reduced-motion:no-preference){.sefaz-head .live .dot{animation:pulse 1.8s ease-in-out infinite}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .nfrow{display:grid;grid-template-columns:1fr auto;gap:6px 14px;padding:14px 18px;border-bottom:1px solid var(--line);align-items:center}
+  .nfrow:last-child{border-bottom:none}
+  .nf-forn{font-weight:600;font-size:14.5px}
+  .nf-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted-2);margin-top:3px}
+  .nf-key{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.01em}
+  .nf-val{font-family:var(--mono);font-size:15px;font-weight:600;text-align:right;color:var(--txt)}
+  .nf-inject{grid-column:1/-1;margin-top:4px}
+  .btn-inject{
+    font-family:var(--body);font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:7px;
+    border:1px solid var(--line-strong);background:transparent;color:var(--bronze-bright);cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;transition:border-color .15s,background .15s;
+  }
+  .btn-inject:hover{border-color:var(--bronze);background:rgba(168,99,31,.1)}
+
+  /* ---------- SMALL MODULES GRID ---------- */
+  .more{border-top:1px solid var(--line);padding-top:52px;margin-top:8px}
+  .more-grid{display:grid;gap:18px;margin-top:30px}
+  @media(min-width:640px){.more-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(min-width:980px){.more-grid{grid-template-columns:repeat(3,1fr)}}
+  .card{
+    background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:22px;
+    transition:border-color .18s,transform .18s;
+  }
+  @media (prefers-reduced-motion:no-preference){.card:hover{transform:translateY(-3px)}}
+  .card:hover{border-color:var(--line-strong)}
+  .card .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--bronze);display:flex;align-items:center;gap:9px}
+  .card .k svg{width:18px;height:18px}
+  .card h4{font-family:var(--disp);font-size:18.5px;font-weight:700;margin:13px 0 0}
+  .card p{color:var(--muted);font-size:14.5px;margin:9px 0 0}
+
+  /* ---------- DORES ---------- */
+  .dores{background:var(--graphite);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .dores-grid{display:grid;gap:2px;margin-top:34px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--line)}
+  @media(min-width:760px){.dores-grid{grid-template-columns:1fr 1fr}}
+  .dore{background:var(--ink);padding:22px 24px;display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start}
+  .dore .mark{font-family:var(--mono);font-size:12px;color:var(--lacre);margin-top:3px;white-space:nowrap}
+  .dore .before{color:var(--muted);font-size:15px}
+  .dore .after{color:var(--txt);font-size:15px;margin-top:8px;display:flex;gap:9px}
+  .dore .after svg{width:17px;height:17px;color:var(--conforme);flex:0 0 auto;margin-top:2px}
+  .dore .after b{color:#9BE3BB;font-weight:600}
+
+  /* ---------- FINAL CTA ---------- */
+  .final{padding:80px 0}
+  .final-panel{
+    background:linear-gradient(160deg,var(--graphite),var(--panel-2));
+    border:1px solid var(--line-strong);border-radius:18px;padding:clamp(32px,5vw,58px);
+    position:relative;overflow:hidden;
+  }
+  .final-panel::before{
+    content:"";position:absolute;right:-40px;top:-40px;width:220px;height:220px;
+    border:1px solid var(--line);border-radius:50%;opacity:.5;pointer-events:none;
+  }
+  .final h2{font-size:clamp(30px,4.6vw,46px);font-weight:800;max-width:16ch}
+  .final p{color:var(--muted);font-size:18px;margin:20px 0 0;max-width:52ch}
+  .final .actions{display:flex;flex-wrap:wrap;gap:13px;margin-top:32px}
+  .final .btn{padding:14px 22px;font-size:16px}
+  .final .fineprint{font-family:var(--mono);font-size:12.5px;color:var(--muted-2);margin-top:22px}
+
+  /* ---------- FOOTER ---------- */
+  footer{border-top:1px solid var(--line);padding:34px 0 46px}
+  .foot{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;color:var(--muted-2);font-size:13.5px}
+  .foot .brand{font-size:16px}
+  .foot a:hover{color:var(--txt)}
+
+  .num-pos{color:#9BE3BB}
+  .num-neg{color:#F0A19B}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#topo" aria-label="AudiSped">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#1C232A"/><rect x="7" y="6" width="11" height="20" rx="2" fill="none" stroke="#A8631F" stroke-width="2"/><rect x="9.5" y="9" width="6" height="4.5" rx="1" fill="#A8631F"/><path d="M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2" fill="none" stroke="#A8631F" stroke-width="2"/></svg>
+      Audi<b>Sped</b>
+    </a>
+    <nav class="nav-links" aria-label="Seções">
+      <a href="#validador">Validador</a>
+      <a href="#lmc">LMC</a>
+      <a href="#sefaz">SEFAZ</a>
+      <a href="#modulos">Módulos</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="https://app.audisped.com.br">Acessar o sistema</a>
+      <a class="btn btn-wa btn-sm" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1 3.7 3.8-1A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.6-.6-2.8-1.2-4.6-4-4.7-4.2-.2-.2-1.2-1.5-1.2-2.9 0-1.3.7-2 1-2.3.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6-.3.3c-.2.2-.3.3-.1.6.2.3.9 1.4 1.9 2.2 1.2 1.1 2.2 1.4 2.5 1.5.2.1.4.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 .9c.2.1.4.2.4.3.1.2.1.7-.1 1.3Z"/></svg>
+        Falar no WhatsApp
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<a id="topo"></a>
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Auditoria fiscal · postos de combustível</p>
+      <h1>O erro no SPED aparece aqui — <span class="u">antes</span> de virar multa.</h1>
+      <p class="lead">O AudiSped audita o seu SPED Fiscal, fecha o LMC e cruza suas notas com a base da SEFAZ. Você vê o mês inteiro conferido e corrige o arquivo antes de transmitir para o Fisco.</p>
+      <div class="actions">
+        <a class="btn btn-wa" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1 3.7 3.8-1A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.6-.6-2.8-1.2-4.6-4-4.7-4.2-.2-.2-1.2-1.5-1.2-2.9 0-1.3.7-2 1-2.3.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6-.3.3c-.2.2-.3.3-.1.6.2.3.9 1.4 1.9 2.2 1.2 1.1 2.2 1.4 2.5 1.5.2.1.4.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 .9c.2.1.4.2.4.3.1.2.1.7-.1 1.3Z"/></svg>
+          Falar no WhatsApp
+        </a>
+        <a class="btn btn-ghost" href="https://app.audisped.com.br">Acessar o sistema</a>
+      </div>
+      <div class="reassure">
+        <span><i class="dot ok"></i> LMC no modelo oficial</span>
+        <span><i class="dot warn"></i> conciliação SEFAZ ao vivo</span>
+        <span><i class="dot err"></i> erro do PVA explicado</span>
+      </div>
+    </div>
+
+    <!-- COCKPIT MOCK -->
+    <div class="panel" role="img" aria-label="Painel do cockpit multi-empresa mostrando o status fiscal de cinco postos">
+      <div class="win-bar">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="win-title">app.audisped.com.br/<b>cockpit</b></div>
+        <span class="win-tag">Multi-empresa</span>
+      </div>
+      <div class="cockpit-head">
+        <h3>Seus postos</h3>
+        <span class="sub">competência 08/2025</span>
+        <span class="period">5 empresas · atualizado agora</span>
+      </div>
+      <div class="scroll-x">
+        <table class="grid">
+          <thead>
+            <tr><th>Posto</th><th>Status fiscal</th><th>Pendências</th><th class="num">Entradas</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="posto-name">Auto Posto São Jorge</div><div class="posto-cnpj">SPED 08/2025</div></td>
+              <td><div class="status-cell"><span class="dot err"></span>14 achados</div></td>
+              <td class="pend"><span class="chip err">9 corrigíveis</span></td>
+              <td class="num">R$ 1.284.910</td>
+            </tr>
+            <tr>
+              <td><div class="posto-name">Posto Trevo</div><div class="posto-cnpj">SPED 08/2025</div></td>
+              <td><div class="status-cell"><span class="dot warn"></span>3 alertas</div></td>
+              <td class="pend"><span class="chip warn">revisar LMC</span></td>
+              <td class="num">R$ 902.114</td>
+            </tr>
+            <tr>
+              <td><div class="posto-name">Posto Boa Viagem</div><div class="posto-cnpj">SPED 08/2025</div></td>
+              <td><div class="status-cell"><span class="dot ok"></span>conforme</div></td>
+              <td class="pend"><span class="chip ok">pronto p/ transmitir</span></td>
+              <td class="num">R$ 1.107.638</td>
+            </tr>
+            <tr>
+              <td><div class="posto-name">Posto Beira-Rio</div><div class="posto-cnpj">SPED 08/2025</div></td>
+              <td><div class="status-cell"><span class="dot err"></span>2 notas faltando</div></td>
+              <td class="pend"><span class="chip err">SEFAZ</span></td>
+              <td class="num">R$ 745.320</td>
+            </tr>
+            <tr>
+              <td><div class="posto-name">Posto Serra Azul</div><div class="posto-cnpj">SPED 08/2025</div></td>
+              <td><div class="status-cell"><span class="dot ok"></span>conforme</div></td>
+              <td class="pend"><span class="chip ok">pronto p/ transmitir</span></td>
+              <td class="num">R$ 688.045</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION INTRO -->
+<section id="modulos" style="padding-bottom:8px">
+  <div class="wrap sec-head">
+    <p class="eyebrow">Veja funcionando</p>
+    <h2>Não é mais um relatório. É a tela onde você conserta o mês.</h2>
+    <p>Cada tela abaixo é do próprio sistema. Você aponta o erro, clica em corrigir e reexporta o SPED já ajustado — sem voltar para o PVA no escuro.</p>
+  </div>
+
+  <div class="wrap">
+
+    <!-- MOD 1: VALIDADOR -->
+    <div class="mod" id="validador">
+      <div class="mod-copy">
+        <span class="mod-num">MÓDULO 01</span>
+        <h3>Validador SPED</h3>
+        <p>Ele lê o seu arquivo linha a linha e aponta o que travaria no PVA — e também o que o PVA aceita calado mas a fiscalização não perdoa. Cada achado diz o registro, o produto e como corrigir.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Severidade clara: erro, alerta ou conforme.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Corrige monofásico, CST 60/61, base de ST e encerrante.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Um clique conserta e reexporta o arquivo pronto.</li>
+        </ul>
+        <p class="cap">Veja o Validador achar a nota que o PVA não te explica.</p>
+      </div>
+
+      <div class="mod-mock">
+        <div class="panel" id="validador-mock">
+          <div class="win-bar">
+            <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="win-title"><b>Auto Posto São Jorge</b> · SPED 08/2025</div>
+            <span class="win-tag" id="val-state">Validando…</span>
+          </div>
+          <div class="v-summary">
+            <div class="v-count" id="val-count"><span id="val-run" class="validating is-run"><span class="spinner"></span>lendo registros</span></div>
+            <button class="btn btn-wa btn-sm" id="val-fix" type="button">Corrigir e reexportar</button>
+          </div>
+          <div id="val-list">
+            <div class="find">
+              <span class="sev err">ERRO</span>
+              <div class="find-body">
+                <div class="find-reg">C170 · GASOLINA C</div>
+                <div class="find-msg">CST <code>60</code> sem base de ICMS ST no item (CFOP <code>5656</code>).</div>
+              </div>
+              <button class="fix-btn" type="button">Corrigir</button>
+            </div>
+            <div class="find">
+              <span class="sev err">ERRO</span>
+              <div class="find-body">
+                <div class="find-reg">Registro 1320 · Bico 03</div>
+                <div class="find-msg">Encerrante não bate com a venda do dia <code>14</code> — falta <code>318 L</code>.</div>
+              </div>
+              <button class="fix-btn" type="button">Corrigir</button>
+            </div>
+            <div class="find">
+              <span class="sev warn">ALERTA</span>
+              <div class="find-body">
+                <div class="find-reg">C190 · ETANOL</div>
+                <div class="find-msg">CST <code>61</code> monofásico com PIS/COFINS diferente de <code>04</code>.</div>
+              </div>
+              <button class="fix-btn" type="button">Corrigir</button>
+            </div>
+            <div class="find">
+              <span class="sev err">ERRO</span>
+              <div class="find-body">
+                <div class="find-reg">C100 · entrada</div>
+                <div class="find-msg">Nota da SEFAZ ausente na escrituração — <code>chave 2925…7650</code>.</div>
+              </div>
+              <button class="fix-btn" type="button">Corrigir</button>
+            </div>
+            <div class="find">
+              <span class="sev ok">OK</span>
+              <div class="find-body">
+                <div class="find-reg">E116 · apuração</div>
+                <div class="find-msg">Registro gerado para o período. Nada a fazer.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOD 2: LMC -->
+    <div class="mod flip" id="lmc">
+      <div class="mod-copy">
+        <span class="mod-num">MÓDULO 02</span>
+        <h3>LMC automático</h3>
+        <p>Encerrante de abertura e fechamento de cada bico, entradas por descarga, vendas e estoque — tudo conferido e fechado sozinho. Sai pronto no modelo oficial, é só imprimir e arquivar.</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Tanque, bico e encerrante batendo com a venda do dia.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Confronta fechamento físico com o escritural.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Acaba a diferença de estoque que ninguém explicava.</li>
+        </ul>
+        <p class="cap">O livro fecha e o estoque para de "sumir".</p>
+      </div>
+
+      <div class="mod-mock">
+        <div class="panel">
+          <div class="win-bar">
+            <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="win-title"><b>Posto Trevo</b> · LMC 08/2025</div>
+            <span class="win-tag">Modelo oficial</span>
+          </div>
+          <div class="scroll-x">
+            <table class="lmc">
+              <thead>
+                <tr>
+                  <th>Produto</th><th>Bico</th><th>Enc. abertura</th><th>Enc. fechamento</th><th>Vendido (L)</th><th>Estoque final</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class="prod">GASOLINA C</td><td class="bico">03</td><td>418.220,116</td><td>431.812,340</td><td>13.592,224</td><td>18.410,000</td></tr>
+                <tr><td class="prod">GASOLINA C</td><td class="bico">04</td><td>388.104,900</td><td>399.740,120</td><td>11.635,220</td><td>18.410,000</td></tr>
+                <tr><td class="prod">ETANOL</td><td class="bico">01</td><td>205.611,480</td><td>213.004,900</td><td>7.393,420</td><td>9.120,000</td></tr>
+                <tr><td class="prod">DIESEL S10</td><td class="bico">06</td><td>512.880,300</td><td>531.219,760</td><td>18.339,460</td><td>24.700,000</td></tr>
+                <tr class="lmc-total"><td>Fechamento físico × escritural</td><td>—</td><td colspan="2">confere em todos os tanques</td><td>50.960,324</td><td class="num-pos">bate ✓</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOD 3: SEFAZ -->
+    <div class="mod" id="sefaz">
+      <div class="mod-copy">
+        <span class="mod-num">MÓDULO 03</span>
+        <h3>Conciliação SEFAZ ao vivo</h3>
+        <p>O sistema cruza suas notas de entrada e saída contra a base da SEFAZ em tempo real. Acha a nota que faltou na escrituração — e a que foi lançada a mais — antes de o contador ligar dizendo "faltou uma nota".</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Nota faltando e nota duplicada, lado a lado.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Chave de acesso, fornecedor, valor e data conferidos.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg> Baixa o XML e injeta no SPED sem digitar nada.</li>
+        </ul>
+        <p class="cap">A nota que faltava entra no arquivo com um clique.</p>
+      </div>
+
+      <div class="mod-mock">
+        <div class="panel">
+          <div class="win-bar">
+            <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="win-title"><b>Posto Beira-Rio</b> · Conciliação</div>
+            <span class="win-tag">SEFAZ</span>
+          </div>
+          <div class="sefaz-head">
+            <div class="t"><b>3 notas na SEFAZ</b> que não estão no seu SPED</div>
+            <div class="live"><span class="dot"></span>base SEFAZ · ao vivo</div>
+          </div>
+
+          <div class="nfrow">
+            <div>
+              <div class="nf-forn">Distribuidora Vale Norte Ltda</div>
+              <div class="nf-meta">NF-e 118.402 · 12/08/2025 · CFOP 5656</div>
+              <div class="nf-key">chave 2925 0829 …9922 7650</div>
+            </div>
+            <div class="nf-val">R$ 214.880,50</div>
+            <div class="nf-inject"><button class="btn-inject" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+              Baixar XML e injetar</button></div>
+          </div>
+
+          <div class="nfrow">
+            <div>
+              <div class="nf-forn">Transportes Rota Certa (CT-e)</div>
+              <div class="nf-meta">CT-e 004.117 · 19/08/2025 · frete</div>
+              <div class="nf-key">chave 2925 0834 …7335 6415</div>
+            </div>
+            <div class="nf-val">R$ 8.940,00</div>
+            <div class="nf-inject"><button class="btn-inject" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+              Baixar XML e injetar</button></div>
+          </div>
+
+          <div class="nfrow">
+            <div>
+              <div class="nf-forn">Lubrificantes Serra Ltda</div>
+              <div class="nf-meta">NF-e 55.209 · 27/08/2025 · uso e consumo</div>
+              <div class="nf-key">chave 2925 0842 …0428 7217</div>
+            </div>
+            <div class="nf-val">R$ 3.612,30</div>
+            <div class="nf-inject"><button class="btn-inject" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+              Baixar XML e injetar</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- MORE MODULES -->
+<section class="wrap more" aria-label="Outros módulos">
+  <div class="sec-head">
+    <p class="eyebrow">E ainda</p>
+    <h2>O resto do posto, no mesmo lugar.</h2>
+  </div>
+  <div class="more-grid">
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h16M4 6h16M4 18h10"/></svg> Injetor de XML / CT-e</div>
+      <h4>A nota entra no SPED sozinha</h4>
+      <p>Baixa o XML da NF-e ou CT-e que faltou e injeta nos registros C100/C170 automaticamente — sem redigitar.</p>
+    </div>
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 2 4-6"/></svg> Motor de tributação</div>
+      <h4>Combustível tributado certo</h4>
+      <p>CFOP, CST e monofásico (CST 60/61) e ICMS ST mapeados por produto e fornecedor. Simula antes de aplicar.</p>
+    </div>
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg> Rentabilidade</div>
+      <h4>Margem a partir do fiscal</h4>
+      <p>Resultado e margem do posto calculados sobre os mesmos dados que você escritura — sem planilha paralela.</p>
+    </div>
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="14" width="8" height="6" rx="1"/><rect x="13" y="14" width="8" height="6" rx="1"/></svg> Cockpit multi-empresa</div>
+      <h4>Todos os postos num painel</h4>
+      <p>Status fiscal de cada CNPJ com bolinha verde, âmbar ou vermelha e a lista de pendências do mês.</p>
+    </div>
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 5-3.5 8-9 8s-9-3-9-8 3.5-8 9-8 9 3 9 8Z"/></svg> Validador SPED</div>
+      <h4>O erro explicado</h4>
+      <p>Achados de C170, C190, 1320 e E116 com o motivo em português — não só o código que o PVA cospe.</p>
+    </div>
+    <div class="card">
+      <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l3 3v15H6z"/><path d="M9 12h6M9 16h6"/></svg> LMC oficial</div>
+      <h4>Pronto pra imprimir</h4>
+      <p>Livro de Movimentação de Combustíveis no modelo aceito, com encerrantes e estoque já fechados.</p>
+    </div>
+  </div>
+</section>
+
+<!-- DORES -->
+<section class="dores">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Por que existe</p>
+      <h2>O que tira o sono de quem toca posto.</h2>
+    </div>
+    <div class="dores-grid">
+      <div class="dore">
+        <div class="mark">RISCO</div>
+        <div>
+          <div class="before">Erro invisível no SPED que só aparece na autuação.</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>O Validador mostra e corrige</b> antes de você transmitir.</span></div>
+        </div>
+      </div>
+      <div class="dore">
+        <div class="mark">ESTOQUE</div>
+        <div>
+          <div class="before">Encerrante e LMC que não fecham e dão diferença de estoque.</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>Bico, tanque e venda conferidos</b> — o livro fecha sozinho.</span></div>
+        </div>
+      </div>
+      <div class="dore">
+        <div class="mark">NOTA</div>
+        <div>
+          <div class="before">"O contador ligou: faltou uma nota de entrada."</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>A conciliação SEFAZ acha e injeta</b> antes da ligação.</span></div>
+        </div>
+      </div>
+      <div class="dore">
+        <div class="mark">PVA</div>
+        <div>
+          <div class="before">Retrabalho eterno no PVA sem saber o que está errado.</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>Achado explicado e corrigido</b> — você para de tatear.</span></div>
+        </div>
+      </div>
+      <div class="dore">
+        <div class="mark">MONOFÁSICO</div>
+        <div>
+          <div class="before">Tributação de combustível errada: CST 60/61, ICMS ST.</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>Motor de tributação mapeia</b> o CST certo por produto.</span></div>
+        </div>
+      </div>
+      <div class="dore">
+        <div class="mark">VISÃO</div>
+        <div>
+          <div class="before">Transmitir o mês sem enxergar o que está indo pro Fisco.</div>
+          <div class="after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>O cockpit mostra o mês inteiro</b> antes de transmitir.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final">
+  <div class="wrap">
+    <div class="final-panel">
+      <p class="eyebrow">Comece pelo seu posto</p>
+      <h2>Manda o SPED do mês. A gente te mostra o que está errado.</h2>
+      <p>Fale com a gente no WhatsApp e veja o AudiSped rodando com os dados do seu posto — o Validador, o LMC e a conciliação SEFAZ na sua tela.</p>
+      <div class="actions">
+        <a class="btn btn-wa" href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15l-1 3.7 3.8-1A10 10 0 1 0 12 2Zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.6-.6-2.8-1.2-4.6-4-4.7-4.2-.2-.2-1.2-1.5-1.2-2.9 0-1.3.7-2 1-2.3.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6-.3.3c-.2.2-.3.3-.1.6.2.3.9 1.4 1.9 2.2 1.2 1.1 2.2 1.4 2.5 1.5.2.1.4.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 .9c.2.1.4.2.4.3.1.2.1.7-.1 1.3Z"/></svg>
+          Falar no WhatsApp
+        </a>
+        <a class="btn btn-ghost" href="https://app.audisped.com.br">Acessar o sistema</a>
+      </div>
+      <p class="fineprint">Especializado em postos de combustível · SPED Fiscal / EFD ICMS-IPI · LMC · SEFAZ</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="#topo">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#1C232A"/><rect x="7" y="6" width="11" height="20" rx="2" fill="none" stroke="#A8631F" stroke-width="2"/><rect x="9.5" y="9" width="6" height="4.5" rx="1" fill="#A8631F"/><path d="M18 12h3a2 2 0 0 1 2 2v7a2 2 0 0 0 2 2" fill="none" stroke="#A8631F" stroke-width="2"/></svg>
+      Audi<b>Sped</b>
+    </a>
+    <span>Auditoria e correção fiscal para postos de combustível.</span>
+    <a href="https://wa.me/5574991985228?text=Ol%C3%A1!%20Quero%20conhecer%20o%20AudiSped%20para%20o%20meu%20posto.">WhatsApp (74) 99198-5228</a>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ----- Validador: "validando..." resolve ao entrar na viewport -----
+  var mock = document.getElementById("validador-mock");
+  var countEl = document.getElementById("val-count");
+  var stateEl = document.getElementById("val-state");
+  var resolved = false;
+
+  function resolve(){
+    if(resolved) return; resolved = true;
+    stateEl.textContent = "Concluído";
+    countEl.innerHTML = '14 achados <small>9 corrigíveis automaticamente</small>';
+  }
+
+  if(reduce){
+    resolve();
+  } else if("IntersectionObserver" in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){ setTimeout(resolve, 900); io.disconnect(); }
+      });
+    }, {threshold:.4});
+    io.observe(mock);
+  } else {
+    setTimeout(resolve, 900);
+  }
+
+  // ----- botões "Corrigir" viram "Corrigido" (demo) -----
+  document.querySelectorAll(".fix-btn").forEach(function(b){
+    b.addEventListener("click", function(){
+      if(b.classList.contains("done")) return;
+      b.classList.add("done");
+      b.textContent = "Corrigido ✓";
+    });
+  });
+
+  var fixAll = document.getElementById("val-fix");
+  if(fixAll){
+    fixAll.addEventListener("click", function(){
+      document.querySelectorAll(".fix-btn").forEach(function(b){
+        if(!b.classList.contains("done")){ b.classList.add("done"); b.textContent = "Corrigido ✓"; }
+      });
+      fixAll.textContent = "Arquivo reexportado ✓";
+    });
+  }
+
+  // ----- injeção SEFAZ (demo) -----
+  document.querySelectorAll(".btn-inject").forEach(function(b){
+    b.addEventListener("click", function(){
+      b.innerHTML = "Injetado no SPED ✓";
+      b.style.color = "#9BE3BB";
+      b.style.borderColor = "rgba(60,123,88,.5)";
+    });
+  });
+})();
+</script>
+</body>
+</html>
