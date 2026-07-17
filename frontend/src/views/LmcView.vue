@@ -4,8 +4,9 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios'
 import { API_BASE_URL } from '../api';
 import { arquivoInfo, setArquivoInfo, setEmpresaSelecionada, empresaSelecionada } from '../store';
-import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { ArrowLeft, Database, Loader2, FileX, Settings, Save, DownloadCloud, AlertTriangle, Eye, Beaker, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, ChevronLeft, ChevronRight, FileText, ShieldCheck } from 'lucide-vue-next';
 import UiButton from '../components/ui/UiButton.vue';
+import LmcAuditoria from '../components/lmc/LmcAuditoria.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -17,6 +18,14 @@ const savingMacro = ref(false);
 const selectedFuel = ref(null);
 const expandedDays = ref(new Set()); 
 const viewMode = ref('raiox'); // 'raiox' | 'laboratorio'
+const activeLmcTab = ref('livro'); // 'livro' | 'auditoria' (aba Auditoria = ex-"Auditoria LMC" do Analisador)
+const auditIrregularidades = ref(0); // total de irregularidades ANP (contador do badge da aba); alimentado pelo emit do LmcAuditoria
+
+// Aba Auditoria alterou o banco (estoque/saída/otimizador) → recarrega a aba Livro para refletir.
+function onAuditoriaChanged() {
+  const id = currentArquivoId.value || route.params.id;
+  if (id) loadData(id);
+}
 
 const metaVendas = ref('');
 const showOptimizerModal = ref(false);
@@ -775,7 +784,22 @@ async function exportarSped() {
         <p class="text-[13px] text-risco mt-1">Este SPED não possui registros consolidados mensais.</p>
     </div>
 
-    <div v-else class="space-y-4">
+    <div v-else class="space-y-5">
+        <!-- Abas internas: Livro | Auditoria (Auditoria = ex-aba do Analisador) -->
+        <div class="flex gap-0.5 border-b border-line">
+          <button @click="activeLmcTab = 'livro'" :class="['relative flex items-center gap-2 px-4 py-2.5 text-[13.5px] font-medium transition-colors', activeLmcTab === 'livro' ? 'text-ink' : 'text-risco hover:text-ink']">
+            <FileText class="w-4 h-4" :stroke-width="1.7" /> Livro LMC
+            <span v-if="activeLmcTab === 'livro'" class="absolute left-3 right-3 -bottom-px h-0.5 bg-bronze rounded-full"></span>
+          </button>
+          <button @click="activeLmcTab = 'auditoria'" :class="['relative flex items-center gap-2 px-4 py-2.5 text-[13.5px] font-medium transition-colors', activeLmcTab === 'auditoria' ? 'text-ink' : 'text-risco hover:text-ink']">
+            <ShieldCheck class="w-4 h-4" :stroke-width="1.7" /> Auditoria
+            <span v-if="auditIrregularidades > 0" class="font-mono text-[10px] font-medium bg-lacre text-white rounded-full px-1.5 py-px leading-none">{{ auditIrregularidades }}</span>
+            <span v-if="activeLmcTab === 'auditoria'" class="absolute left-3 right-3 -bottom-px h-0.5 bg-bronze rounded-full"></span>
+          </button>
+        </div>
+
+        <!-- ===== ABA LIVRO ===== -->
+        <div v-show="activeLmcTab === 'livro'" class="space-y-4">
         <!-- Dashboard Macro - SLIM VERSION -->
         <div class="bg-graphite px-5 py-3 rounded-md flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div class="flex items-center gap-3 flex-1">
@@ -1188,6 +1212,18 @@ async function exportarSped() {
                     <strong class="text-line font-medium">Engenharia Tributária:</strong> O Macro Distribuidor de Vendas recálcula todo o Estoque Físico gerando falso-positivos indetectáveis aprovados para passar na ANP (Quebra natural entre -0.35% a +0.35%). O Fechamento sempre alimenta a Abertura consecutiva.
                 </div>
             </div>
+        </div>
+        </div><!-- /aba livro -->
+
+        <!-- ===== ABA AUDITORIA ===== -->
+        <div v-show="activeLmcTab === 'auditoria'">
+          <LmcAuditoria
+            :arquivo-id="currentArquivoId || route.params.id"
+            :cnpj="arquivoInfo?.cnpj || empresaSelecionada?.cnpj || ''"
+            :active="activeLmcTab === 'auditoria'"
+            @changed="onAuditoriaChanged"
+            @irregularidades="auditIrregularidades = $event"
+          />
         </div>
     </div>
   </div>
