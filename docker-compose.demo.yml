@@ -22,7 +22,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: audisped-backend:latest
+    image: audisped-backend:demo   # tag PRÓPRIA — não sobrescreve a :latest de produção
     container_name: audisped-demo-backend
     depends_on:
       - demo-db
@@ -45,7 +45,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: audisped-frontend:latest
+    image: audisped-frontend:demo   # tag PRÓPRIA — não sobrescreve a :latest de produção
     container_name: audisped-demo-frontend
     depends_on:
       - demo-backend
