@@ -39,6 +39,7 @@ function validarContribuicoes(parsed) {
   const apontamentos = [];
   // Se há registro 0500 (plano de contas), COD_CTA é exigível; senão, ADVERTIR (pode ser livro-caixa).
   const temEscrituracaoContabil = parsed.linhas.some(l => l.reg === '0500');
+  const regime = parsed.meta ? parsed.meta.regime : null; // 0110: 1=não-cumulativo, 2=cumulativo, 3=ambos
   let indOper = null;
   let totalC170 = 0, saidas = 0, entradas = 0;
 
@@ -94,11 +95,15 @@ function validarContribuicoes(parsed) {
       });
     }
 
-    // (3) Crédito em ENTRADA — confirmar direito (vedado se monofásico/ST para revenda).
+    // (3) Crédito em ENTRADA. No regime CUMULATIVO (0110=2) NÃO existe crédito → VEDADO (ALTA).
+    //     No não-cumulativo, depende (vedado se monofásico/ST) → MEDIA (confirmar via de-para NCM).
     if (dir === 'E' && (CST_CREDITO.has(cstPis) || CST_CREDITO.has(cstCof))) {
+      const cumulativo = regime === '2';
       apontamentos.push({
-        tipo: 'CREDITO_ENTRADA', severidade: 'MEDIA', linha: l.num, reg: 'C170', direcao: dir, cst: cstPis,
-        detalhe: `Entrada com crédito (CST ${cstPis}) em "${item}": confirmar direito a crédito — é VEDADO creditar aquisição de produto monofásico/ST para revenda (Lei 10.833/03 art. 3º §2º II).`,
+        tipo: 'CREDITO_ENTRADA', severidade: cumulativo ? 'ALTA' : 'MEDIA', linha: l.num, reg: 'C170', direcao: dir, cst: cstPis,
+        detalhe: cumulativo
+          ? `Entrada com crédito (CST ${cstPis}) em "${item}" num arquivo de regime CUMULATIVO (0110=2): crédito de PIS/COFINS é VEDADO no cumulativo — reclassificar sem crédito (ex.: CST 70/98).`
+          : `Entrada com crédito (CST ${cstPis}) em "${item}": confirmar direito a crédito — é VEDADO creditar aquisição de produto monofásico/ST para revenda (Lei 10.833/03 art. 3º §2º II).`,
       });
     }
   }

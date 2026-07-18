@@ -71,3 +71,8 @@ landing/index.bak-*.html
 # Base do PVA (102MB, dado RFB/terceiro) — nunca versionar
 docs/mysql.zip
 docs/mysql/
+
+# SPEDs reais de cliente (dado fiscal sensível) — nunca versionar
+docs/sped_*.txt
+docs/*PISCOFINS*.txt
+speds/
