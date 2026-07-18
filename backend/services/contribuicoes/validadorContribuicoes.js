@@ -35,6 +35,34 @@ function temValor(s) {
 // CST tributável (01-05) que EXIGE base — 50-56 é crédito (base do crédito), tratado à parte.
 const CST_EXIGE_BASE = new Set(['01', '02', '03', '04', '05']); // (04 não exige, ver abaixo)
 
+// Posições de CST/base/valor de PIS e COFINS por registro (split('|')).
+const POS_CST = {
+  C170: { cstP: 25, bcP: 26, vlP: 30, cstC: 31, bcC: 32, vlC: 36 },
+  C175: { cstP: 5, bcP: 6, vlP: 10, cstC: 11, bcC: 12, vlC: 16 },
+};
+
+// Coerência CST × base (D5), reutilizável por registro (C170, C175…). Empurra apontamentos.
+function coerenciaCstBase(f, pos, reg, numLinha, apontamentos) {
+  const cstPis = (f[pos.cstP] || '').trim(), bcPis = f[pos.bcP], vlPis = f[pos.vlP];
+  const cstCof = (f[pos.cstC] || '').trim(), bcCof = f[pos.bcC], vlCof = f[pos.vlC];
+  const exige = (cst) => (CST_EXIGE_BASE.has(cst) && cst !== '04') || CST_CREDITO.has(cst);
+  const semBasePis = exige(cstPis) && !temValor(bcPis) && !temValor(vlPis);
+  const semBaseCof = exige(cstCof) && !temValor(bcCof) && !temValor(vlCof);
+  if (semBasePis || semBaseCof) {
+    const quais = [semBasePis ? 'PIS' : null, semBaseCof ? 'COFINS' : null].filter(Boolean).join('/');
+    apontamentos.push({
+      tipo: 'CST_SEM_BASE', severidade: 'ALTA', linha: numLinha, reg, cst: cstPis || cstCof,
+      detalhe: `CST ${quais} tributável/creditável (${cstPis || cstCof}) sem base/valor no ${reg} — o PVA reprova. Preencher a base (nunca rebaixar para 06).`,
+    });
+  }
+  if (CST_ZERO.has(cstPis) && temValor(vlPis)) {
+    apontamentos.push({
+      tipo: 'BASE_INDEVIDA', severidade: 'MEDIA', linha: numLinha, reg, cst: cstPis,
+      detalhe: `CST ${cstPis} (alíquota zero/sem crédito) com valor de PIS preenchido no ${reg} — incoerente; zerar ou revisar o CST.`,
+    });
+  }
+}
+
 function validarContribuicoes(parsed) {
   const apontamentos = [];
   // Se há registro 0500 (plano de contas), COD_CTA é exigível; senão, ADVERTIR (pode ser livro-caixa).
@@ -62,6 +90,11 @@ function validarContribuicoes(parsed) {
       }
     }
 
+    // Coerência CST×base também no C175 (consolidado analítico que os POSTOS usam no lugar do C170).
+    if (l.reg === 'C175') {
+      coerenciaCstBase(l.raw.split('|'), POS_CST.C175, 'C175', l.num, apontamentos);
+      continue;
+    }
     if (l.reg !== 'C170') continue;
 
     const f = l.raw.split('|');
