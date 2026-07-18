@@ -19,22 +19,32 @@ function mkRes() {
         json(b) { this.body = b; return this; },
     };
 }
-function run(envDemo) {
+// no app real o demoPaywall roda DEPOIS do authMiddleware → req.user sempre existe.
+const USER_DEMO = { id: 1, email: 'demo@audisped.com.br' };
+const USER_SISTEMA = { id: 1, email: 'sys@local', nome: 'validador-revalidar' };
+
+function run(envDemo, user = USER_DEMO) {
     const prev = process.env.DEMO_MODE;
     if (envDemo === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = envDemo;
     const res = mkRes();
     let nextCalled = false;
-    demoPaywall({}, res, () => { nextCalled = true; });
+    demoPaywall({ user }, res, () => { nextCalled = true; });
     process.env.DEMO_MODE = prev; // restaura
     return { res, nextCalled };
 }
 
-t('DEMO_MODE=1 → 402 com paywall:true e NÃO chama next', () => {
+t('DEMO_MODE=1 + usuário demo → 402 com paywall:true e NÃO chama next', () => {
     const { res, nextCalled } = run('1');
     assert.equal(res.statusCode, 402, 'deveria responder 402');
     assert.equal(nextCalled, false, 'NÃO deveria chamar next (handler não roda)');
     assert.ok(res.body && res.body.paywall === true, 'corpo deve marcar paywall:true');
     assert.ok(res.body.erro && /assine/i.test(res.body.erro), 'mensagem deve orientar a assinar');
+});
+
+t('DEMO_MODE=1 + token INTERNO (sys@local) → passa (Re-validar/relatório geram por dentro)', () => {
+    const { res, nextCalled } = run('1', USER_SISTEMA);
+    assert.equal(nextCalled, true, 'chamada interna do sistema deve passar');
+    assert.equal(res.statusCode, null, 'não deveria bloquear a geração interna');
 });
 
 t('sem DEMO_MODE (produção) → transparente: chama next e NÃO responde', () => {

@@ -14,9 +14,16 @@
 //
 // Uso: montar como middleware ANTES do handler nas rotas de deliverable:
 //   app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, async (req,res)=>{...})
+//
+// EXCEÇÃO — chamadas INTERNAS do sistema: alguns fluxos legítimos (Re-validar, gerar o
+// relatório "o que foi corrigido") geram o SPED corrigido POR DENTRO, via fetch a
+// /api/exportar-sped com um token de sistema (email 'sys@local', assinado com o JWT_SECRET
+// no servidor). Essas NÃO podem ser bloqueadas — senão a re-validação quebra na demo. Um
+// usuário demo não consegue forjar esse token. Bloqueamos só o download DIRETO do usuário.
+const EMAIL_SISTEMA = 'sys@local';
 
 function demoPaywall(req, res, next) {
-    if (process.env.DEMO_MODE === '1') {
+    if (process.env.DEMO_MODE === '1' && req.user && req.user.email !== EMAIL_SISTEMA) {
         return res.status(402).json({
             paywall: true,
             erro: 'Assine para baixar o arquivo. No ambiente de demonstração você testa tudo, mas o download do arquivo corrigido é exclusivo para assinantes.',
