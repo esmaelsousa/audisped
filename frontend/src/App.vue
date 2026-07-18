@@ -6,6 +6,7 @@ import { API_BASE_URL } from './api'
 import { token, logout, setUsuario, setPrecisaTrocarSenha } from './store'
 import AppSidebar from './components/shell/AppSidebar.vue'
 import AppTopbar from './components/shell/AppTopbar.vue'
+import PaywallModal from './components/PaywallModal.vue'
 
 const router = useRouter()
 const menuOpen = ref(false)
@@ -71,6 +72,9 @@ onMounted(async () => {
         <RouterView />
       </div>
     </template>
+
+    <!-- Paywall (ambiente de demonstração): overlay global, disparado no 402 -->
+    <PaywallModal />
 
   </div>
 </template>

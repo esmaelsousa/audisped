@@ -3,7 +3,7 @@ import App from './App.vue'
 import './style.css'
 import router from './router'
 import axios from 'axios'
-import { token, logout } from './store'
+import { token, logout, mostrarPaywall } from './store'
 
 // Timeout global: evita que requisições pendentes travem a UI indefinidamente
 axios.defaults.timeout = 30000;
@@ -33,6 +33,11 @@ axios.interceptors.response.use(
                 logout();
                 router.push('/login');
             }
+        }
+        // 402 = paywall do ambiente de demonstração (bloqueio de download).
+        // Mostra o modal "contrate para baixar" (o status 402 é usado SÓ por este fim).
+        if (error.response && error.response.status === 402) {
+            mostrarPaywall();
         }
         return Promise.reject(error);
     }

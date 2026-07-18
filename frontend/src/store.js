@@ -33,6 +33,11 @@ export const token = ref(typeof localStorage !== 'undefined' ? localStorage.getI
 export const usuario = ref(getStorageItem('usuario'));
 export const precisaTrocarSenha = ref(getStorageItem('precisaTrocarSenha') === true);
 
+// --- PAYWALL (ambiente de demonstração) — modal de "contrate para baixar" ---
+export const paywallVisivel = ref(false);
+export function mostrarPaywall() { paywallVisivel.value = true; }
+export function fecharPaywall() { paywallVisivel.value = false; }
+
 // --- PAPÉIS (derivados de usuario.role; default-deny se sessão antiga sem role) ---
 export const isSuper = computed(() => usuario.value?.role === 'super_admin');
 export const podeGerenciarUsuarios = computed(() => ['super_admin', 'admin'].includes(usuario.value?.role));
