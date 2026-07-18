@@ -2,16 +2,25 @@
 # O Caddy emite o cert Let's Encrypt automaticamente quando o subdomínio propagar.
 # Requer no registro.br:  A demo.audisped.com.br -> 187.127.5.210
 #
-# Roteia: /api/* -> backend demo (paywall ligado);  resto -> frontend demo (SPA Vue).
+# IMPORTANTE (rede docker): o Caddy roda em container, então NÃO use 127.0.0.1 aqui —
+# 127.0.0.1 dentro do container do Caddy é ele mesmo. Use os NOMES dos contêineres demo
+# (como os blocos de produção fazem: reverse_proxy audisped-backend:15435). Para isso o
+# Caddy precisa estar na mesma rede docker dos contêineres demo. Duas formas:
+#   (a) contêineres demo entram na rede do Caddy — recomendado, é o que o
+#       docker-compose.demo.yml faz via a rede externa `audisped_audisped-net`; OU
+#   (b) conectar o Caddy à rede do demo manualmente (menos durável — refazer se o Caddy
+#       for recriado):  docker network connect audisped-demo_default audisped-caddy
+#
+# Roteia: /api/* -> backend demo;  resto -> frontend demo (SPA Vue).
 
 demo.audisped.com.br {
     encode gzip
 
     handle /api/* {
-        reverse_proxy 127.0.0.1:15436
+        reverse_proxy audisped-demo-backend:15435
     }
 
     handle {
-        reverse_proxy 127.0.0.1:8081
+        reverse_proxy audisped-demo-frontend:80
     }
 }

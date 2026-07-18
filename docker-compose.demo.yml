@@ -38,7 +38,10 @@ services:
     volumes:
       - demo_uploads:/app/uploads  # SPEDs subidos pelo prospect (limpos no reset)
     ports:
-      - "127.0.0.1:15436:15435"    # só localhost; o Caddy publica via demo.audisped.com.br
+      - "127.0.0.1:15436:15435"    # localhost p/ debug; o Caddy alcança via rede 'proxy'
+    networks:
+      - default                    # fala com demo-db
+      - proxy                      # o Caddy (audisped-caddy) alcança por nome de container
     restart: always
 
   demo-frontend:
@@ -50,9 +53,21 @@ services:
     depends_on:
       - demo-backend
     ports:
-      - "127.0.0.1:8081:80"        # só localhost; o Caddy faz o TLS/roteamento
+      - "127.0.0.1:8081:80"        # localhost p/ debug; o Caddy faz o TLS/roteamento
+    networks:
+      - default
+      - proxy                      # o Caddy alcança este frontend por nome de container
     restart: always
 
 volumes:
   demo_db_data:
   demo_uploads:
+
+networks:
+  default:
+  proxy:
+    # rede EXTERNA onde vive o audisped-caddy (criada pelo docker-compose.prod.yml).
+    # Faz o Caddy alcançar os contêineres demo por nome, de forma durável (sobrevive a
+    # recriação do Caddy). Confirme o nome real com: docker network ls | grep audisped
+    external: true
+    name: audisped_audisped-net

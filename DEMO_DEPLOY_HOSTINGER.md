@@ -191,6 +191,12 @@ Edite o Caddyfile da VPS e cole o bloco de `demo/Caddyfile.demo-snippet`:
 nano /opt/audisped/Caddyfile
 # cole o bloco 'demo.audisped.com.br { ... }' ao lado do bloco app.audisped.com.br
 ```
+> ⚠️ **Rede docker:** o bloco faz `reverse_proxy audisped-demo-backend:15435` / `...-frontend:80`
+> (nomes de container, NÃO `127.0.0.1` — que dentro do Caddy é ele mesmo). O
+> `docker-compose.demo.yml` já coloca os contêineres demo na rede externa
+> `audisped_audisped-net` (a do Caddy), então ele os alcança por nome. Se por algum motivo
+> não estiverem na mesma rede, conecte à mão:
+> `docker network connect audisped-demo_default audisped-caddy` (refazer se o Caddy for recriado).
 Valide ANTES de recarregar (evita derrubar o prod por erro de sintaxe):
 ```bash
 # se o Caddy roda em container:
