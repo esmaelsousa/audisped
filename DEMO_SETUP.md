@@ -23,9 +23,13 @@ tocar em dado de cliente e sem levar o deliverable. Design completo em
    ```bash
    DEMO_DB_PASSWORD='<senha-forte>' docker compose -f docker-compose.demo.yml up -d --build
    ```
-4. **Criar o schema** no banco demo:
+4. **Criar o schema** no banco demo — **clone `--schema-only` do prod** (NÃO use `setup_db.js`,
+   que é incremental e quebra em banco vazio). Passo detalhado em
+   [DEMO_DEPLOY_HOSTINGER.md — Passo 5](DEMO_DEPLOY_HOSTINGER.md). Resumo:
    ```bash
-   docker exec audisped-demo-backend node setup_db.js
+   docker exec audisped-demo-db psql -U demo -d audisped_demo_db -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+   docker exec audisped-db sh -c 'pg_dump --schema-only --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB"' | docker exec -i audisped-demo-db psql -U demo -d audisped_demo_db
+   docker exec audisped-demo-db psql -U demo -d audisped_demo_db -c "ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_role_chk; ALTER TABLE usuarios ADD CONSTRAINT usuarios_role_chk CHECK (role IN ('super_admin','admin','staff','escritorio','demo'));"
    ```
 5. **Copiar a referência** (`ncm`/`cest`) do prod para o demo:
    ```bash

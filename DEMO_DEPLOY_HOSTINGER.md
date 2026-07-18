@@ -122,37 +122,52 @@ Se `demo-backend` reiniciar em loop, veja o log: `docker logs audisped-demo-back
 
 ---
 
-## Passo 5 — Criar o schema no banco demo
+## Passo 5 — Criar o schema no banco demo (clone do prod, ZERO dados)
 
-O container roda `node server.js` (não cria schema no boot). Rode à mão:
+> ⚠️ **Não use `setup_db.js` num banco vazio** — ele é incremental (faz `ALTER TABLE`
+> antes de a tabela existir) e quebra. O correto é clonar SÓ a ESTRUTURA do prod
+> (`--schema-only` = zero linhas de dado de cliente) e depois habilitar a role `demo`.
+
 ```bash
-docker exec audisped-demo-backend node setup_db.js
+# limpa qualquer resíduo e recria o schema public do demo
+docker exec audisped-demo-db psql -U demo -d audisped_demo_db -c \
+  "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# clona a estrutura do prod para o demo (por dentro dos contêineres; senha nunca aparece)
+docker exec audisped-db sh -c \
+  'pg_dump --schema-only --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  | docker exec -i audisped-demo-db psql -U demo -d audisped_demo_db
+
+# habilita a role 'demo' no CHECK
+docker exec audisped-demo-db psql -U demo -d audisped_demo_db -c \
+  "ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_role_chk; \
+   ALTER TABLE usuarios ADD CONSTRAINT usuarios_role_chk \
+   CHECK (role IN ('super_admin','admin','staff','escritorio','demo'));"
 ```
-Deve terminar sem erro (cria todas as tabelas + o CHECK já com a role `demo`).
+Confira o isolamento (deve ser 0/0) e a estrutura:
+```bash
+docker exec audisped-demo-db psql -U demo -d audisped_demo_db -tc \
+  "SELECT 'empresas='||count(*) FROM empresas UNION ALL SELECT 'usuarios='||count(*) FROM usuarios"
+```
 
 ---
 
 ## Passo 6 — Copiar a referência (`ncm`/`cest`) da produção
 
-Pegue a connection string da produção do seu `backend/.env` de prod
-(`DB_USER`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_PASSWORD`). Monte a `PROD_URL`.
-
-O container `audisped-demo-db` (postgres:16-alpine) já tem `pg_dump` e `psql`.
-Rode a cópia POR DENTRO dele (evita expor portas):
+A referência (`ncm`/`cest`) é dado público — copie os DADOS do prod pro demo por dentro
+dos contêineres (a senha do prod nunca aparece, o `pg_dump` usa o env do próprio container):
 ```bash
-docker exec audisped-demo-db sh -c \
-  "pg_dump 'postgres://USUARIO:SENHA@HOST_PROD:5432/audisped_db' \
-     --data-only --no-owner --table=ncm --table=cest \
-   | psql -U demo -d audisped_demo_db -v ON_ERROR_STOP=1"
+docker exec audisped-db sh -c \
+  'pg_dump --data-only --no-owner --table=ncm --table=cest -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  | docker exec -i audisped-demo-db psql -U demo -d audisped_demo_db
 ```
-> Se o Postgres de produção roda no HOST (não em container), use como `HOST_PROD` o IP
-> da VPS na rede docker (`172.17.0.1`) ou `host.docker.internal`. Se roda em container,
-> use o nome do serviço/rede dele.
-
-Confira que carregou:
+Confira que carregou (esperado ~15k NCM, ~1.3k CEST):
 ```bash
-docker exec audisped-demo-db psql -U demo -d audisped_demo_db -c "SELECT count(*) FROM ncm; SELECT count(*) FROM cest;"
+docker exec audisped-demo-db psql -U demo -d audisped_demo_db -tc \
+  "SELECT 'ncm='||count(*) FROM ncm UNION ALL SELECT 'cest='||count(*) FROM cest"
 ```
+> Este comando assume que prod e demo rodam como contêineres na mesma VPS (o caso atual:
+> `audisped-db` e `audisped-demo-db`). O pipe passa pelo host, não exige rede compartilhada.
 
 ---
 
