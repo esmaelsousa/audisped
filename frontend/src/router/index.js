@@ -135,6 +135,12 @@ const router = createRouter({
       meta: { requiresAuth: true, roles: ['super_admin', 'admin'] }
     },
     {
+      path: '/leads',
+      name: 'leads',
+      component: () => import('../views/LeadsView.vue'),
+      meta: { requiresAuth: true, roles: ['super_admin', 'admin'] }
+    },
+    {
       path: '/trocar-senha',
       name: 'trocar-senha',
       component: () => import('../views/TrocarSenhaView.vue'),

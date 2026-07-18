@@ -456,6 +456,88 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
+// --- TESTE GRÁTIS: captura de lead do ambiente demo (público) ---
+const DEMO_CREDS = {
+    login: process.env.DEMO_LOGIN || 'demo@audisped.com.br',
+    senha: process.env.DEMO_SENHA || 'demo1234',
+    url: process.env.DEMO_URL || 'https://demo.audisped.com.br'
+};
+const _leadThrottle = new Map(); // ip -> ts (rate-limit simples, mesmo padrão do forgot-password)
+const leadSoDigitos = (s) => String(s || '').replace(/\D/g, '');
+
+async function ensureDemoLeadsTable(pool) {
+    await pool.query(`CREATE TABLE IF NOT EXISTS demo_leads (
+        id SERIAL PRIMARY KEY,
+        cnpj VARCHAR(14),
+        email VARCHAR(180),
+        telefone VARCHAR(20),
+        ip VARCHAR(64),
+        user_agent TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+}
+
+app.post('/api/demo-lead', async (req, res) => {
+    const cnpj = leadSoDigitos(req.body.cnpj);
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const telefone = leadSoDigitos(req.body.telefone);
+
+    if (cnpj.length !== 14) return res.status(400).json({ message: 'Informe um CNPJ válido (14 dígitos).' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ message: 'Informe um e-mail válido.' });
+    if (telefone.length < 10 || telefone.length > 11) return res.status(400).json({ message: 'Informe um telefone com DDD.' });
+
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
+    const agora = Date.now();
+    const ult = _leadThrottle.get(ip);
+    if (ult && agora - ult < 30000) return res.status(200).json({ ...DEMO_CREDS }); // já liberou há pouco: devolve o acesso
+    _leadThrottle.set(ip, agora);
+
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        await dbClient.query(
+            'INSERT INTO demo_leads (cnpj, email, telefone, ip, user_agent) VALUES ($1,$2,$3,$4,$5)',
+            [cnpj, email, telefone, ip, String(req.headers['user-agent'] || '').slice(0, 400)]
+        );
+        // notifica por e-mail (fire-and-forget — não bloqueia nem derruba a resposta)
+        const notifyTo = process.env.LEADS_NOTIFY_EMAIL || 'esmael@officeinfor.com.br';
+        const cnpjFmt = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        mail.enviarEmail({
+            to: notifyTo,
+            subject: `Novo teste grátis — ${cnpjFmt}`,
+            html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1a2129">
+                <h2 style="color:#1a2129">Novo lead do teste grátis 🎉</h2>
+                <p><b>CNPJ:</b> ${cnpjFmt}</p>
+                <p><b>E-mail:</b> <a href="mailto:${email}">${email}</a></p>
+                <p><b>Telefone/WhatsApp:</b> <a href="https://wa.me/55${telefone}">${telefone}</a></p>
+                <p style="font-size:12px;color:#64748b">IP ${ip}</p>
+              </div>`
+        }).catch(e => logger.warn('[demo-lead] falha ao notificar por e-mail: ' + e.message));
+        return res.status(201).json({ ...DEMO_CREDS });
+    } catch (err) {
+        logger.error('Erro em /api/demo-lead: ' + err.message);
+        return res.status(500).json({ message: 'Não foi possível liberar o acesso agora. Tente novamente.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Listar leads do teste grátis (só admin/super) — consumido pela tela "Leads"
+app.get('/api/admin/demo-leads', authMiddleware, enrich, async (req, res) => {
+    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('SELECT id, cnpj, email, telefone, ip, created_at FROM demo_leads ORDER BY id DESC LIMIT 1000');
+        res.json(r.rows);
+    } catch (err) {
+        logger.error('Erro em /api/admin/demo-leads: ' + err.message);
+        res.status(500).json({ message: 'Erro ao listar leads.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
 // --- ROTAS PARA GESTÃO DE CFOPS ---
 app.get('/api/cfops', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
@@ -10839,4 +10921,8 @@ app.listen(PORT, '0.0.0.0', () => {
     require('./services/validador/correcoes').ensureTabela(pool)
         .then(() => logger.info('Tabela val_correcoes pronta.'))
         .catch(e => logger.warn('Falha ao garantir val_correcoes: ' + e.message));
+    // Teste grátis: tabela de leads do ambiente demo
+    ensureDemoLeadsTable(pool)
+        .then(() => logger.info('Tabela demo_leads pronta.'))
+        .catch(e => logger.warn('Falha ao garantir demo_leads: ' + e.message));
 });
