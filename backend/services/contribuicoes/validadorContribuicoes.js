@@ -23,6 +23,10 @@ const CST_TRIBUTAVEL = new Set(['01', '02', '03', '04', '05', '50', '51', '52', 
 const CST_CREDITO = new Set(['50', '51', '52', '53', '54', '55', '56']);
 const CST_ZERO = new Set(['04', '06', '07', '08', '09', '70', '71', '72', '73', '74', '75', '98', '99']);
 
+// Posição do campo COD_CTA (conta contábil) no split('|') por registro — descoberto na base do PVA
+// (o ID_CAMPO do PVA == índice do split). Ver docs/PLANO_IMPL_VALIDADOR_CONTRIBUICOES.md.
+const POS_COD_CTA = { C170: 37, A170: 17, D501: 11, D505: 11, M400: 4, M410: 4, M800: 4, M810: 4 };
+
 // Base/valor efetivamente preenchido (não vazio e não 0,00).
 function temValor(s) {
   return !!s && String(s).replace(/[0.,\s]/g, '') !== '';
@@ -33,6 +37,8 @@ const CST_EXIGE_BASE = new Set(['01', '02', '03', '04', '05']); // (04 não exig
 
 function validarContribuicoes(parsed) {
   const apontamentos = [];
+  // Se há registro 0500 (plano de contas), COD_CTA é exigível; senão, ADVERTIR (pode ser livro-caixa).
+  const temEscrituracaoContabil = parsed.linhas.some(l => l.reg === '0500');
   let indOper = null;
   let totalC170 = 0, saidas = 0, entradas = 0;
 
@@ -41,6 +47,20 @@ function validarContribuicoes(parsed) {
       indOper = (l.raw.split('|')[2] || '').trim(); // 0=entrada, 1=saída
       continue;
     }
+
+    // ---- MSG_OBRIGATORIO_COD_CTA (PVA): COD_CTA vazio nos registros que o exigem ----
+    if (POS_COD_CTA[l.reg] !== undefined) {
+      const cc = (l.raw.split('|')[POS_COD_CTA[l.reg]] || '').trim();
+      if (cc === '') {
+        apontamentos.push({
+          tipo: 'COD_CTA_OBRIGATORIO', id_mensagem: 'MSG_OBRIGATORIO_COD_CTA', severidade: 'ALTA',
+          linha: l.num, reg: l.reg, id_campo: 'COD_CTA',
+          detalhe: `COD_CTA (conta contábil) vazio no ${l.reg} — obrigatório quando há escrituração contábil (registro 0500).` +
+            (temEscrituracaoContabil ? '' : ' 0500 ausente: confirmar com o contador se a PJ mantém contabilidade (se livro-caixa, não é obrigatório).'),
+        });
+      }
+    }
+
     if (l.reg !== 'C170') continue;
 
     const f = l.raw.split('|');

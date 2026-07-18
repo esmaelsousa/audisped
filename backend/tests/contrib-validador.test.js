@@ -31,7 +31,15 @@ function main() {
   assert.strictEqual(r.resumo.total_c170, 70, `total de C170 esperado 70; veio ${r.resumo.total_c170}`);
   assert.ok(Array.isArray(r.apontamentos) && r.apontamentos.length >= 5, 'deve haver apontamentos');
 
-  // 4) read-only: o validador não muda o parsed.
+  // 4) COD_CTA obrigatório (MSG_OBRIGATORIO_COD_CTA do PVA): 74 vazios no arquivo real
+  //    (70 C170 + M400/M410/M800/M810). É o erro mais frequente do PVA.
+  const codcta = r.apontamentos.filter(a => a.tipo === 'COD_CTA_OBRIGATORIO');
+  assert.strictEqual(codcta.length, 74, `COD_CTA_OBRIGATORIO esperado 74; veio ${codcta.length}`);
+  const cc170 = codcta.filter(a => a.reg === 'C170').length;
+  assert.strictEqual(cc170, 70, `COD_CTA em C170 esperado 70; veio ${cc170}`);
+  assert.ok(codcta.some(a => a.reg === 'M400'), 'COD_CTA deve pegar M400 também');
+
+  // 5) read-only: o validador não muda o parsed.
   assert.strictEqual(parsed.linhas.length, 234, 'parser intacto (validador não altera nada)');
 
   console.log(`✓ validador OK — ${r.apontamentos.length} apontamentos; CST_SEM_BASE nas linhas ${linhas.join(',')}; ` +
