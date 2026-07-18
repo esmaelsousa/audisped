@@ -10819,6 +10819,9 @@ app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles',
     }
 });
 
+// Módulo EFD-Contribuições (isolado) — ver PLANO_INJETOR_XML_CONTRIBUICOES.md
+app.use('/api/contribuicoes', require('./routes/contribuicoesRouter')(pool, authMiddleware));
+
 // Inicia o servidor
 app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Servidor AudiSped online em http://0.0.0.0:${PORT} (acessível na rede local)`);
