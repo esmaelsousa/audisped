@@ -3,6 +3,11 @@
 // e gerência de alvo (§13.7). Capacidades por eixos ortogonais (§13.6), não hierarquia linear.
 
 const ROLES = ['super_admin', 'admin', 'staff', 'escritorio'];
+// 'demo' é role de SEED do ambiente de demonstração (DEMO_MODE=1): fora de ROLES de
+// propósito — não é criável pela tela (papeisQuePodeCriar não a lista) e não tem
+// nenhuma capacidade de gestão (canManageUsers/canManageBilling = false por não casar
+// com super_admin/admin). Só o seed do banco demo a insere. O bloqueio de download é
+// responsabilidade do middleware demoPaywall (guardado por DEMO_MODE).
 // Papéis cross-tenant de DADOS: não pertencem a uma rede (rede_id = NULL).
 const ROLES_CROSS_TENANT = ['super_admin', 'staff'];
 

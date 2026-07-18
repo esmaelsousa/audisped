@@ -60,7 +60,7 @@ async function setupDatabase() {
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usuarios_role_chk') THEN
                     ALTER TABLE usuarios ADD CONSTRAINT usuarios_role_chk
-                        CHECK (role IN ('super_admin','admin','staff','escritorio'));
+                        CHECK (role IN ('super_admin','admin','staff','escritorio','demo'));
                 END IF;
             END $$;
         `);

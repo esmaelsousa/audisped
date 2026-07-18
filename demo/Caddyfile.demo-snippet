@@ -1,0 +1,17 @@
+# Cole este bloco no /opt/audisped/Caddyfile da VPS (ao lado do bloco app.audisped.com.br).
+# O Caddy emite o cert Let's Encrypt automaticamente quando o subdomínio propagar.
+# Requer no registro.br:  A demo.audisped.com.br -> 187.127.5.210
+#
+# Roteia: /api/* -> backend demo (paywall ligado);  resto -> frontend demo (SPA Vue).
+
+demo.audisped.com.br {
+    encode gzip
+
+    handle /api/* {
+        reverse_proxy 127.0.0.1:15436
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:8081
+    }
+}

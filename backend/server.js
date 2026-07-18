@@ -152,6 +152,7 @@ const authMiddleware = (req, res, next) => {
 // --- AUTORIZAÇÃO SaaS (Fatia 1: fundação de usuários) ---
 const authz = require('./authz');
 const enrich = authz.enrich(pool); // popula req.ator re-buscando role/rede do banco por id
+const demoPaywall = require('./demoPaywall'); // 402 no download de deliverables quando DEMO_MODE=1
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 // Cadastro público DESATIVADO (§13.3): provisionamento é só via POST /api/admin/usuarios (com clamp).
@@ -2368,7 +2369,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
 });
 
 // --- NOVO: GERAÇÃO DE SPED COMPLETO (STANDALONE) APENAS COM XMLs ---
-app.post('/api/xml-injector/standalone', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
+app.post('/api/xml-injector/standalone', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 200), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
@@ -7408,7 +7409,7 @@ app.post('/api/lmc/observacoes', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE IMPRESSÃO DO LMC (PDF modelo AutoSystem) ---
-app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
+app.get('/api/lmc/imprimir/:id_sped', authMiddleware, demoPaywall, async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
     if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
 
@@ -7685,7 +7686,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE EXPORTAÇÃO RETIFICADA (FASE 10) ---
-app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
+app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     await acquireHeavySlot();
     const dbClient = await safeConnect(res);
@@ -10722,7 +10723,7 @@ app.post('/api/cte-injector/analyze', authMiddleware, uploadXml.array('xmlFiles'
  * Injeta CT-es em um arquivo SPED existente (Bloco D: D100 + D190)
  * Body (multipart): xmlFiles[] + id_arquivo (ID do SPED base)
  */
-app.post('/api/cte-injector/inject', authMiddleware, uploadXml.array('xmlFiles', 500), async (req, res) => {
+app.post('/api/cte-injector/inject', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 500), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ message: 'Nenhum arquivo XML enviado.' });
     }

@@ -1,0 +1,58 @@
+# Ambiente de DEMONSTRAÇÃO — stack isolado do de produção.
+# O backend demo aponta para um Postgres PRÓPRIO (audisped_demo_db) e NÃO tem
+# credencial do banco real: o isolamento é por INFRAESTRUTURA, não por código.
+#
+# Subir:   docker compose -f docker-compose.demo.yml up -d --build
+# Reset:   ./demo/reset.sh   (ou docker exec audisped-demo-backend node demo-reset.js)
+# Ver spec: docs/superpowers/specs/2026-07-18-ambiente-demo-prospects-design.md
+services:
+  demo-db:
+    image: postgres:16-alpine
+    container_name: audisped-demo-db
+    environment:
+      POSTGRES_USER: ${DEMO_DB_USER:-demo}
+      POSTGRES_PASSWORD: ${DEMO_DB_PASSWORD:?defina DEMO_DB_PASSWORD}
+      POSTGRES_DB: audisped_demo_db
+    volumes:
+      - demo_db_data:/var/lib/postgresql/data
+    restart: always
+    # sem ports: acessível só na rede interna do compose (não exposto ao host)
+
+  demo-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: audisped-backend:latest
+    container_name: audisped-demo-backend
+    depends_on:
+      - demo-db
+    env_file:
+      - ./backend/.env.demo        # segredos (JWT_SECRET, CERT_ENCRYPTION_KEY, tokens...)
+    environment:
+      DEMO_MODE: "1"               # LIGA o paywall de download (demoPaywall)
+      DB_HOST: demo-db
+      DB_PORT: "5432"
+      DB_DATABASE: audisped_demo_db # o 'demo' no nome também destrava o demo-reset
+      DB_USER: ${DEMO_DB_USER:-demo}
+      DB_PASSWORD: ${DEMO_DB_PASSWORD:?defina DEMO_DB_PASSWORD}
+    volumes:
+      - demo_uploads:/app/uploads  # SPEDs subidos pelo prospect (limpos no reset)
+    ports:
+      - "127.0.0.1:15436:15435"    # só localhost; o Caddy publica via demo.audisped.com.br
+    restart: always
+
+  demo-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: audisped-frontend:latest
+    container_name: audisped-demo-frontend
+    depends_on:
+      - demo-backend
+    ports:
+      - "127.0.0.1:8081:80"        # só localhost; o Caddy faz o TLS/roteamento
+    restart: always
+
+volumes:
+  demo_db_data:
+  demo_uploads:
