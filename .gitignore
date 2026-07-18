@@ -67,3 +67,7 @@ node-compile-cache/
 # Backups locais das landing pages (nao versionar)
 landing/**/index.bak-*.html
 landing/index.bak-*.html
+
+# Base do PVA (102MB, dado RFB/terceiro) — nunca versionar
+docs/mysql.zip
+docs/mysql/
