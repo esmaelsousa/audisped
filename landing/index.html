@@ -62,17 +62,19 @@
 
   header.nav{position:sticky;top:0;z-index:60;background:rgba(28,35,42,.82);
     backdrop-filter:saturate(140%) blur(14px);border-bottom:1px solid var(--line-dark)}
-  .nav-in{display:flex;align-items:center;gap:28px;height:68px}
-  .brand{display:flex;align-items:center;gap:11px;font-weight:900;font-size:21px;color:#fff;letter-spacing:-.01em}
+  .nav-in{display:flex;align-items:center;gap:20px;height:68px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:900;font-size:21px;color:#fff;letter-spacing:-.01em;flex:0 0 auto}
   .brand b{color:var(--bronze-bright);font-weight:900}
   .brand .mark{width:34px;height:34px;flex:0 0 34px}
-  .nav-links{display:flex;gap:26px;margin-left:auto;font-size:14.5px;font-weight:600;color:#C4CBD2}
-  .nav-links a{transition:color .15s}
+  .nav-links{display:flex;gap:22px;margin-left:auto;font-size:14px;font-weight:600;color:#C4CBD2}
+  .nav-links a{transition:color .15s;white-space:nowrap}
   .nav-links a:hover{color:var(--bronze-bright)}
   .nav-cta{display:flex;gap:12px;align-items:center}
   .nav-signin{color:#C4CBD2;font-weight:700;font-size:14.5px}
+  .nav-signin{white-space:nowrap}
   .nav-signin:hover{color:#fff}
-  @media(max-width:900px){.nav-links{display:none}.nav-signin{display:none}.nav-in{gap:16px}}
+  .nav-cta .btn{white-space:nowrap}
+  @media(max-width:1000px){.nav-links{display:none}.nav-signin{display:none}.nav-in{gap:16px}}
 
   section{position:relative}
   .dark{background:var(--graphite);color:#EAEEF2}
@@ -383,9 +385,9 @@
       Audi<b>Sped</b>
     </a>
     <nav class="nav-links">
-      <a href="#validador">Validador SPED</a>
+      <a href="#validador">Validador</a>
       <a href="#encerrante">Encerrante</a>
-      <a href="#fisco">Impostos em dia</a>
+      <a href="#fisco">Impostos</a>
       <a href="#passos">Como funciona</a>
       <a href="#teste" style="color:var(--bronze-bright)">Teste grátis</a>
     </nav>
@@ -402,7 +404,7 @@
     <div class="hero-halo"></div>
     <div class="wrap hero-in">
       <div class="hero-text rv">
-        <a class="hero-badge" href="#teste">🎁 <b>Novo:</b> teste grátis com o SPED do seu posto <span>→</span></a>
+        <a class="hero-badge" href="#teste"><b>Novo:</b> teste grátis com o SPED do seu posto <span>→</span></a>
         <span class="eyebrow">LMC automático · Livro de Combustível</span>
         <h1>Seu LMC fecha sozinho. <span class="hl">Você ganha tempo e tranquilidade.</span></h1>
         <p class="lead">Ele lê o encerrante dos bicos, cruza bombas, entradas e saídas e fecha o livro batendo com o físico — sem você tocar em planilha e sem susto com a multa.</p>
@@ -511,7 +513,7 @@
         </div>
         <div class="demo-stage" id="demo-stage">
           <div class="dpane active">
-            <span class="d-file">📄 dez/2024.txt · 12.480 registros</span>
+            <span class="d-file">dez/2024.txt · 12.480 registros</span>
             <div class="d-line">Lendo bombas, tanques e notas de compra…</div>
             <div class="d-prog-tr"><span class="d-prog"></span></div>
           </div>
