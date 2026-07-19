@@ -475,6 +475,8 @@ async function ensureDemoLeadsTable(pool) {
         user_agent TEXT,
         created_at TIMESTAMPTZ DEFAULT now()
     )`);
+    // notas de acompanhamento do lead (ex.: "fiz contato e não obtive resposta") — idempotente.
+    await pool.query(`ALTER TABLE demo_leads ADD COLUMN IF NOT EXISTS notas TEXT`);
 }
 
 app.post('/api/demo-lead', async (req, res) => {
@@ -528,11 +530,50 @@ app.get('/api/admin/demo-leads', authMiddleware, enrich, async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
-        const r = await dbClient.query('SELECT id, cnpj, email, telefone, ip, created_at FROM demo_leads ORDER BY id DESC LIMIT 1000');
+        const r = await dbClient.query('SELECT id, cnpj, email, telefone, ip, notas, created_at FROM demo_leads ORDER BY id DESC LIMIT 1000');
         res.json(r.rows);
     } catch (err) {
         logger.error('Erro em /api/admin/demo-leads: ' + err.message);
         res.status(500).json({ message: 'Erro ao listar leads.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Atualizar as NOTAS de acompanhamento de um lead (só admin/super).
+app.patch('/api/admin/demo-leads/:id', authMiddleware, enrich, async (req, res) => {
+    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ message: 'ID inválido.' });
+    const notas = req.body.notas == null ? null : String(req.body.notas).slice(0, 2000);
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('UPDATE demo_leads SET notas = $1 WHERE id = $2 RETURNING id, notas', [notas, id]);
+        if (!r.rowCount) return res.status(404).json({ message: 'Lead não encontrado.' });
+        res.json(r.rows[0]);
+    } catch (err) {
+        logger.error('Erro ao atualizar nota do lead: ' + err.message);
+        res.status(500).json({ message: 'Erro ao salvar a nota.' });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Excluir um lead (só admin/super).
+app.delete('/api/admin/demo-leads/:id', authMiddleware, enrich, async (req, res) => {
+    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ message: 'ID inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query('DELETE FROM demo_leads WHERE id = $1 RETURNING id', [id]);
+        if (!r.rowCount) return res.status(404).json({ message: 'Lead não encontrado.' });
+        res.json({ ok: true, id });
+    } catch (err) {
+        logger.error('Erro ao excluir lead: ' + err.message);
+        res.status(500).json({ message: 'Erro ao excluir o lead.' });
     } finally {
         dbClient.release();
     }
