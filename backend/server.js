@@ -38,22 +38,10 @@ app.use(cors());
 app.use(express.json());
 
 // --- ENDPOINT DE STREAMING DE LOGS (SSE) ---
-app.get('/api/logs/stream', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    const onLog = (msg) => {
-        res.write(`data: ${JSON.stringify({ message: msg, timestamp: new Date().toISOString() })}\n\n`);
-    };
-
-    logEmitter.on('log', onLog);
-
-    req.on('close', () => {
-        logEmitter.removeListener('log', onLog);
-    });
-});
+// GET /api/logs/stream — SSE do feed de logs. MOVIDO para depois do enrich global (Fase 1):
+// o feed reemite logs de TODOS os tenants (CNPJs, nomes de arquivo, [DIAG]) → não pode ser
+// público. A rota é redefinida com gate de papel interno logo após o app.use('/api', ...enrich).
+// (Definida aqui embaixo faz o guard global de auth rodar antes dela.)
 
 // Evita erro de favicon no navegador
 app.get('/favicon.ico', (req, res) => res.status(204).end());
@@ -152,6 +140,7 @@ const authMiddleware = (req, res, next) => {
 // --- AUTORIZAÇÃO SaaS (Fatia 1: fundação de usuários) ---
 const authz = require('./authz');
 const enrich = authz.enrich(pool); // popula req.ator re-buscando role/rede do banco por id
+const ROLES_INTERNOS = authz.ROLES_CROSS_TENANT; // ['super_admin','staff'] — time interno (gate logs/stream)
 const demoPaywall = require('./demoPaywall'); // 402 no download de deliverables quando DEMO_MODE=1
 
 // --- ENRICH GLOBAL (Fase 1, Task 3): popula req.ator em TODA rota /api de dados. ---
@@ -175,7 +164,7 @@ const demoPaywall = require('./demoPaywall'); // 402 no download de deliverables
 // req.ator fica undefined para o token de serviço; quem decide o acesso é o scopeRede via ehBypass
 // (Task 5), que reconhece o mesmo claim svc==='validador'.
 const { PUBLICAS } = require('./routeScopeRegistry');
-const { SVC_CLAIM } = require('./scopeRede');
+const { SVC_CLAIM, scopeRede, ehBypass } = require('./scopeRede');
 app.use('/api', (req, res, next) => {
     // req.path vem SEM o prefixo do mount (/api) → reconstruímos a chave completa pela originalUrl.
     const rota = `${req.method} ${req.originalUrl.split('?')[0]}`;
@@ -184,6 +173,32 @@ app.use('/api', (req, res, next) => {
     authMiddleware(req, res, () => {
         if (req.user && req.user.svc === SVC_CLAIM) return next(); // token de serviço: isento do enrich
         return enrich(req, res, next); // popula req.ator (role/rede/ativo do banco)
+    });
+});
+
+// GET /api/logs/stream — feed de logs (SSE). RECLASSIFICADA de PUBLICA → 'self' (Fase 1): o
+// feed reemite logs de TODOS os tenants → só time interno pode ver. O enrich global (acima) já
+// rodou authMiddleware+enrich e populou req.ator; aqui exigimos papel interno (super_admin/staff).
+// EventSource não manda header Authorization → o token vai por ?token= (authMiddleware aceita).
+// Autorização feita DENTRO do handler pela identidade do ator → variante 'self' no registro.
+app.get('/api/logs/stream', (req, res) => {
+    const role = req.ator && req.ator.role;
+    if (!ROLES_INTERNOS.includes(role)) {
+        return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
+    }
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onLog = (msg) => {
+        res.write(`data: ${JSON.stringify({ message: msg, timestamp: new Date().toISOString() })}\n\n`);
+    };
+
+    logEmitter.on('log', onLog);
+
+    req.on('close', () => {
+        logEmitter.removeListener('log', onLog);
     });
 });
 
@@ -682,7 +697,7 @@ app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
 });
 
 // --- ROTAS DO MANIFESTO DE DESTINATÁRIO (MD-e) ---
-app.get('/api/mde/sync/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/mde/sync/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const result = await mdeService.syncNotas(req.params.id_empresa, req.query.inicio || null, req.query.fim || null);
         res.json(result);
@@ -691,7 +706,7 @@ app.get('/api/mde/sync/:id_empresa', authMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/mde/notas/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/mde/notas/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     const { inicio, fim } = req.query;
@@ -720,7 +735,7 @@ app.get('/api/mde/notas/:id_empresa', authMiddleware, async (req, res) => {
 });
 
 
-app.get('/api/mde/xml/:chave_nfe', authMiddleware, async (req, res) => {
+app.get('/api/mde/xml/:chave_nfe', authMiddleware, scopeRede(pool, 'chave'), async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
@@ -741,7 +756,7 @@ app.get('/api/mde/xml/:chave_nfe', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/mde/manifestar', authMiddleware, async (req, res) => {
+app.post('/api/mde/manifestar', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chave_nfe, evento } = req.body;
     try {
         const result = await mdeService.manifestar(id_empresa, chave_nfe, evento);
@@ -752,7 +767,7 @@ app.post('/api/mde/manifestar', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/mde/importar-chave', authMiddleware, async (req, res) => {
+app.post('/api/mde/importar-chave', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chave } = req.body;
     try {
         // Se houver vírgula ou espaço, trata como lote via Espião
@@ -767,7 +782,7 @@ app.post('/api/mde/importar-chave', authMiddleware, async (req, res) => {
         res.status(500).json({ message: 'Erro ao importar nota por chave.', error: err.message });
     }
 });
-app.post('/api/mde/delete-notas', authMiddleware, async (req, res) => {
+app.post('/api/mde/delete-notas', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chaves } = req.body;
     if (!id_empresa || !chaves || !Array.isArray(chaves) || chaves.length === 0) {
         return res.status(400).json({ message: 'Empresa e lista de chaves são obrigatórias.' });
@@ -790,7 +805,7 @@ app.post('/api/mde/delete-notas', authMiddleware, async (req, res) => {
 });
 
 // --- ROTAS DO ESPIÃO NFE ---
-app.get('/api/espiao/sync/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/espiao/sync/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa } = req.params;
     const { inicio, fim } = req.query;
     try {
@@ -801,7 +816,7 @@ app.get('/api/espiao/sync/:id_empresa', authMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/espiao/notas/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/espiao/notas/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const notas = await espiaoNfeService.getNotas(req.params.id_empresa, req.query);
         res.json(notas);
@@ -810,7 +825,7 @@ app.get('/api/espiao/notas/:id_empresa', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/espiao/importar-lote', authMiddleware, async (req, res) => {
+app.post('/api/espiao/importar-lote', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chaves } = req.body;
     try {
         const result = await espiaoNfeService.importarChavesLote(id_empresa, chaves);
@@ -820,7 +835,7 @@ app.post('/api/espiao/importar-lote', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/espiao/conferir-sped', authMiddleware, async (req, res) => {
+app.post('/api/espiao/conferir-sped', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chaves } = req.body;
     try {
         const result = await espiaoNfeService.conferirFaltantes(id_empresa, chaves);
@@ -830,7 +845,7 @@ app.post('/api/espiao/conferir-sped', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/espiao/download-zip', authMiddleware, async (req, res) => {
+app.post('/api/espiao/download-zip', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chaves } = req.body;
     try {
         res.setHeader('Content-Type', 'application/zip');
@@ -843,7 +858,7 @@ app.post('/api/espiao/download-zip', authMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/espiao/download-xml/:id_empresa/:chave', authMiddleware, async (req, res) => {
+app.get('/api/espiao/download-xml/:id_empresa/:chave', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, chave } = req.params;
     try {
         const xml = await espiaoNfeService.downloadXml(id_empresa, chave);
@@ -854,7 +869,7 @@ app.get('/api/espiao/download-xml/:id_empresa/:chave', authMiddleware, async (re
     }
 });
 
-app.post('/api/mde/certificado', authMiddleware, async (req, res) => {
+app.post('/api/mde/certificado', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, pfx_base64, senha, nsu, periodicidade } = req.body;
     try {
         const result = await mdeService.saveCertificado(id_empresa, pfx_base64, senha, nsu, periodicidade);
@@ -865,7 +880,7 @@ app.post('/api/mde/certificado', authMiddleware, async (req, res) => {
 });
 
 // Dry-run: lê o certificado e confere CNPJ × empresa selecionada + validade, SEM salvar (preview da UI).
-app.post('/api/mde/certificado/validar', authMiddleware, async (req, res) => {
+app.post('/api/mde/certificado/validar', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { id_empresa, pfx_base64, senha } = req.body;
     try {
         const rel = await mdeService.analisarCertificado(id_empresa, pfx_base64, senha);
@@ -875,7 +890,7 @@ app.post('/api/mde/certificado/validar', authMiddleware, async (req, res) => {
     }
 });
 
-app.get('/api/mde/certificado/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/mde/certificado/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const result = await mdeService.getStatusCertificado(req.params.id_empresa);
         res.json(result);
@@ -1056,7 +1071,7 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
 //  ROTA: /api/arquivos/analisar-sintaxe (Validador Fiscal Rápido)
 //  Objetivo: Varrer o arquivo e aplicar heurísticas da Malha Fina sem gravar no DB
 // ==============================================================================
-app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file'), async (req, res) => {
+app.post('/api/arquivos/analisar-sintaxe', authMiddleware, upload.single('file'), scopeRede(pool, 'sped'), async (req, res) => {
     try {
         let filePath;
         const { id_arquivo } = req.body;
@@ -1948,7 +1963,7 @@ const extractNfeData = (nfeNode) => {
 };
 
 // --- ANALISAR ITENS DOS XMLS (PRÉ-INJEÇÃO) ---
-app.post('/api/xml-injector/analyze-items', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
+app.post('/api/xml-injector/analyze-items', authMiddleware, uploadXml.array('xmlFiles', 200), scopeRede(pool, 'empresa'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
@@ -2006,7 +2021,7 @@ app.post('/api/xml-injector/analyze-items', authMiddleware, uploadXml.array('xml
 
 
 // --- SALVAR MAPEAMENTOS EM LOTE (DE-PARA) ---
-app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res) => {
+app.post('/api/xml-injector/save-de-para-batch', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const { mapeamentos } = req.body;
     if (!mapeamentos || !Array.isArray(mapeamentos)) {
         return res.status(400).json({ error: 'Mapeamentos inválidos.' });
@@ -2074,7 +2089,7 @@ app.post('/api/xml-injector/save-de-para-batch', authMiddleware, async (req, res
     }
 });
 
-app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 200), async (req, res) => {
+app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 200), scopeRede(pool, 'sped'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
@@ -2300,7 +2315,7 @@ app.post('/api/xml-injector/parse', authMiddleware, uploadXml.array('xmlFiles', 
 });
 
 // --- INJEÇÃO EM GRUPOS (múltiplos CFOPs em uma única requisição, sem loop frontend) ---
-app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res) => {
+app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), scopeRede(pool, 'sped'), async (req, res) => {
     let gruposConfig;
     try {
         gruposConfig = JSON.parse(req.body.grupos_config || '[]');
@@ -2529,7 +2544,7 @@ app.post('/api/injetar-grupos', authMiddleware, uploadXml.any(), async (req, res
 });
 
 // --- NOVO: GERAÇÃO DE SPED COMPLETO (STANDALONE) APENAS COM XMLs ---
-app.post('/api/xml-injector/standalone', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 200), async (req, res) => {
+app.post('/api/xml-injector/standalone', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 200), scopeRede(pool, 'empresa'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ message: 'Nenhum arquivo XML enviado.' });
     }
@@ -2650,7 +2665,7 @@ app.post('/api/xml-injector/standalone', authMiddleware, demoPaywall, uploadXml.
 });
 
 // --- ROTA DE ANÁLISE COM MOTOR REAL (PRESENTE) ---
-app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
+app.post('/api/analisar/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de análise com ID inválido: ${req.params.id}`);
@@ -3322,7 +3337,7 @@ app.post('/api/analisar/:id', authMiddleware, async (req, res) => {
 });
 
 // --- Validação de encerrantes por bico (Registro 1320) — somente leitura ---
-app.get('/api/lmc/validacoes-1320/:id', authMiddleware, async (req, res) => {
+app.get('/api/lmc/validacoes-1320/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -3365,7 +3380,7 @@ app.get('/api/lmc/validacoes-1320/:id', authMiddleware, async (req, res) => {
 });
 
 // --- Correção manual de um bico (1320) — grava camada paralela _corrigido, sem tocar o original ---
-app.post('/api/lmc/1320-corrigir', authMiddleware, async (req, res) => {
+app.post('/api/lmc/1320-corrigir', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_sped_arquivo, cod_item, num_bico, num_tanque, data_mov, enc_ini_corrigido, enc_fin_corrigido, qtd_af_corrigido } = req.body || {};
     if (!id_sped_arquivo || !cod_item || !num_bico || !data_mov) return res.status(400).json({ message: 'Parâmetros obrigatórios: id_sped_arquivo, cod_item, num_bico, data_mov.' });
     const dbClient = await safeConnect(res);
@@ -3383,7 +3398,7 @@ app.post('/api/lmc/1320-corrigir', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA PARA BUSCAR ERROS (PRESENTE) ---
-app.get('/api/erros/:id', authMiddleware, async (req, res) => {
+app.get('/api/erros/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar erros com ID inválido: ${req.params.id} `);
@@ -3412,14 +3427,23 @@ app.get('/api/empresas', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
+        // List-scoping (Fase 1): admin/escritorio veem SÓ empresas da própria rede; super_admin/
+        // staff/token-de-serviço (ehBypass) veem tudo. Usa idx_empresas_rede.
+        const bypass = ehBypass(req.ator, req.user);
         let query = 'SELECT * FROM empresas';
         let params = [];
-
-        if (busca) {
-            query += ' WHERE nome_empresa ILIKE $1 OR nome_fantasia ILIKE $1 OR cnpj ILIKE $1';
-            params.push(`%${busca}%`);
+        const cond = [];
+        if (!bypass) {
+            // ator sem rede definida e sem bypass → lista vazia (fail-closed, nunca vaza cross-tenant).
+            if (!req.ator || req.ator.rede_id == null) return res.json([]);
+            params.push(req.ator.rede_id);
+            cond.push(`rede_id = $${params.length}`);
         }
-
+        if (busca) {
+            params.push(`%${busca}%`);
+            cond.push(`(nome_empresa ILIKE $${params.length} OR nome_fantasia ILIKE $${params.length} OR cnpj ILIKE $${params.length})`);
+        }
+        if (cond.length) query += ' WHERE ' + cond.join(' AND ');
         query += ' ORDER BY nome_empresa ASC';
         const { rows } = await dbClient.query(query, params);
         res.json(rows);
@@ -3436,14 +3460,24 @@ app.get('/api/arquivos', authMiddleware, async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
+        // List-scoping (Fase 1): filtra por rede via JOIN empresas (empresas.rede_id). Bypass
+        // (super_admin/staff/token-de-serviço) vê tudo. Não-bypass sem rede → vazio (fail-closed).
+        const bypass = ehBypass(req.ator, req.user);
+        const params = [];
+        let redeCond = '';
+        if (!bypass) {
+            if (!req.ator || req.ator.rede_id == null) return res.json([]);
+            params.push(req.ator.rede_id);
+            redeCond = ` AND e.rede_id = $${params.length}`;
+        }
         const query = `
             SELECT a.id, a.nome_arquivo, a.periodo_apuracao, a.data_upload, a.caminho_arquivo, e.nome_empresa, e.cnpj as cnpj_empresa
             FROM sped_arquivos a
             LEFT JOIN empresas e ON a.id_empresa = e.id
-            WHERE a.caminho_arquivo IS NOT NULL
+            WHERE a.caminho_arquivo IS NOT NULL${redeCond}
             ORDER BY a.data_upload DESC
         `;
-        const { rows } = await dbClient.query(query);
+        const { rows } = await dbClient.query(query, params);
 
         // Filtra apenas arquivos que existem fisicamente no disco
         const arquivosValidos = rows.filter(row => {
@@ -3471,7 +3505,7 @@ app.get('/api/arquivos', authMiddleware, async (req, res) => {
 });
 
 // Listar arquivos (períodos) de uma empresa específica
-app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/arquivos/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const idEmpresa = parseInt(req.params.id_empresa);
     logger.info(`[GET /api/arquivos/:id_empresa] Recebido: id_empresa=${idEmpresa}, usuário=${req.user?.id || 'anônimo'}`);
 
@@ -3496,7 +3530,7 @@ app.get('/api/arquivos/:id_empresa', authMiddleware, async (req, res) => {
 });
 
 // Buscar metadados de um arquivo específico para carregar análise
-app.get('/api/arquivo/info/:id', authMiddleware, async (req, res) => {
+app.get('/api/arquivo/info/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -3529,7 +3563,7 @@ app.get('/api/arquivo/info/:id', authMiddleware, async (req, res) => {
 // --- CONTINUIDADE DE ESTOQUE ENTRE MESES ---
 // Compara o fechamento físico ajustado do mês anterior com a abertura do mês atual.
 // Retorna divergências por combustível para exibição na UI.
-app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
+app.get('/api/lmc/continuidade/:id_sped', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
     if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
     const dbClient = await safeConnect(res);
@@ -3625,7 +3659,7 @@ app.get('/api/lmc/continuidade/:id_sped', authMiddleware, async (req, res) => {
 // --- DIAGNÓSTICO DE COMPLETUDE DO LMC (Registro 1300) ---
 // Detecta dias do período de apuração que não têm lançamento 1300, por produto.
 // Usado para alertar quando o SPED foi gerado com LMC incompleto (ex.: parou no dia 27).
-app.get('/api/lmc/diagnostico-completude/:id', authMiddleware, async (req, res) => {
+app.get('/api/lmc/diagnostico-completude/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     try {
         const id = parseInt(req.params.id);
         if (!id) return res.status(400).json({ message: 'ID inválido.' });
@@ -3698,7 +3732,7 @@ app.get('/api/lmc/diagnostico-completude/:id', authMiddleware, async (req, res) 
 });
 
 // --- RELATÓRIO DO LMC DIÁRIO ---
-app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
+app.get('/api/lmc/:id_sped', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -3901,7 +3935,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE OVERRIDE DO ESTOQUE INICIAL (FASE 20) ---
-app.post('/api/lmc/update-estoque-inicial', authMiddleware, async (req, res) => {
+app.post('/api/lmc/update-estoque-inicial', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     logger.info('[DEBUG REQ] /api/lmc/update-estoque-inicial Body:', req.body);
     const { id_arquivo, cod_item, novo_estoque } = req.body;
 
@@ -4272,7 +4306,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
 }
 
 // ─── PREVIEW: mostra o antes/depois sem salvar ───────────────────────────────
-app.post('/api/lmc/preview-sincronizacao', authMiddleware, async (req, res) => {
+app.post('/api/lmc/preview-sincronizacao', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
     if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
@@ -4294,7 +4328,7 @@ app.post('/api/lmc/preview-sincronizacao', authMiddleware, async (req, res) => {
 });
 
 // ─── CONFIRMAR: calcula e salva em transação única ───────────────────────────
-app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, async (req, res) => {
+app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { itens } = req.body; // [{ id_arquivo, cod_item, novo_estoque }]
     if (!itens || !itens.length) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
@@ -4331,7 +4365,7 @@ app.post('/api/lmc/confirmar-sincronizacao', authMiddleware, async (req, res) =>
 // ─── CORRIGIR DISTRIBUIÇÃO: aplica delta-shift (abertura nova - abertura original) ─
 // Abordagem definitiva: se abertura subiu +X, físico de TODOS os dias sobe +X.
 // Saídas voltam ao original. Preserva os padrões ANP originais dia a dia.
-app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
+app.post('/api/lmc/corrigir-distribuicao', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_arquivo, cod_item } = req.body;
     if (!id_arquivo || !cod_item) return res.status(400).json({ error: 'Parâmetros inválidos.' });
 
@@ -4385,7 +4419,7 @@ app.post('/api/lmc/corrigir-distribuicao', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/lmc/otimizador-matematico', authMiddleware, async (req, res) => {
+app.post('/api/lmc/otimizador-matematico', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_arquivo, cod_item, volume_alvo, auto } = req.body;
 
     if (!id_arquivo || !cod_item) {
@@ -4746,7 +4780,7 @@ async function deleteSpedFile(arquivoId, dbClient) {
     await dbClient.query('DELETE FROM sped_arquivos WHERE id = $1', [arquivoId]);
 }
 
-app.delete('/api/periodo/:id', authMiddleware, async (req, res) => {
+app.delete('/api/periodo/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -4764,7 +4798,7 @@ app.delete('/api/periodo/:id', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/periodo/bulk-delete', authMiddleware, async (req, res) => {
+app.post('/api/periodo/bulk-delete', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ message: "IDs não fornecidos para exclusão em lote." });
@@ -4789,7 +4823,7 @@ app.post('/api/periodo/bulk-delete', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE CONSULTA DE DOCUMENTOS DE ENTRADA (PRESENTE) ---
-app.get('/api/documentos/entradas/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/documentos/entradas/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar documentos com ID inválido: ${req.params.id_arquivo} `);
@@ -4837,7 +4871,7 @@ app.get('/api/documentos/entradas/:id_arquivo', authMiddleware, async (req, res)
 });
 
 // --- ROTA DE CONSULTA DE DOCUMENTOS DE SAÍDA (PRESENTE) ---
-app.get('/api/documentos/saidas/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/documentos/saidas/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar documentos de saída com ID inválido: ${req.params.id_arquivo} `);
@@ -4873,7 +4907,7 @@ app.get('/api/documentos/saidas/:id_arquivo', authMiddleware, async (req, res) =
 });
 
 // --- ROTA DE CONSULTA ANALITICA DE NF (C100 + C170 + C190) ---
-app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         return res.status(400).send({ message: "ID de arquivo inválido." });
@@ -4959,7 +4993,7 @@ app.get('/api/documentos/auditoria/nf/:id_arquivo', authMiddleware, async (req, 
 // --- NFe COMPLETA (todos os campos + Cálculo do Imposto) por chave de acesso ---
 // Fontes (nesta ordem): tabela nfe_completa (persistida na injeção) → pasta speds/ → mde_cache/espiao.
 // Quando não há XML, devolve fonte='sped' e nfe=null (frontend mostra o que há do C100/C170/C190).
-app.get('/api/documentos/nfe-completa/:chave', authMiddleware, async (req, res) => {
+app.get('/api/documentos/nfe-completa/:chave', authMiddleware, scopeRede(pool, 'chave'), async (req, res) => {
     const chave = String(req.params.chave || '').replace(/\D/g, '');
     if (chave.length !== 44) {
         return res.status(400).json({ message: 'Chave de acesso inválida (esperados 44 dígitos).' });
@@ -4974,7 +5008,7 @@ app.get('/api/documentos/nfe-completa/:chave', authMiddleware, async (req, res) 
 });
 
 // --- ROTA DE CONSULTA DE NF DE SAIDA (MODELO 55 e 65) ---
-app.get('/api/documentos/auditoria/saidas/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/documentos/auditoria/saidas/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     const modelo = req.query.modelo || '55';
     if (isNaN(arquivoId)) return res.status(400).send({ message: "ID de arquivo inválido." });
@@ -5123,7 +5157,7 @@ app.post('/api/empresas', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA PARA LISTAR ARQUIVOS POR EMPRESA (PRESENTE) ---
-app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, async (req, res) => {
+app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const idEmpresa = parseInt(req.params.id_empresa);
     if (isNaN(idEmpresa)) {
         logger.warn(`Tentativa de buscar arquivos com ID de empresa inválido: ${req.params.id_empresa} `);
@@ -5152,7 +5186,7 @@ app.get('/api/arquivos/empresa/:id_empresa', authMiddleware, async (req, res) =>
 });
 
 // --- ROTA PARA EXCLUIR EMPRESA ---
-app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
+app.delete('/api/empresas/:id', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const idEmpresa = parseInt(req.params.id);
     const { cascade } = req.query; // se true, exclui tudo da empresa
 
@@ -5221,7 +5255,7 @@ app.delete('/api/empresas/:id', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE RESUMO (PRESENTE) ---
-app.get('/api/resumo/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/resumo/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar resumo com ID inválido: ${req.params.id_arquivo} `);
@@ -5389,7 +5423,7 @@ app.get('/api/resumo/:id_arquivo', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE RESUMO DE ESTOQUE (NOVA - PARA CORREÇÃO DO 404) ---
-app.get('/api/estoque-resumo/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/estoque-resumo/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         return res.status(400).send({ message: "ID de arquivo inválido." });
@@ -5428,7 +5462,7 @@ lmc.cod_item as cod_item,
 
 
 // --- ROTA DE RENTABILIDADE E POSIÇÃO DE ESTOQUE (PRO) ---
-app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         return res.status(400).send({ message: "ID de arquivo inválido." });
@@ -5550,7 +5584,7 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, 
         if (dbClient) dbClient.release();
     }
 });
-app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (req, res) => {
+app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     const { grupo } = req.query; // Captura o filtro de grupo enviado pelo frontend
     const dbClient = await safeConnect(res);
@@ -5708,7 +5742,7 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (r
 // --- CONFIGURAÇÃO DE CAPACIDADE DE TANQUES (LMC) ---
 
 // Buscar configurações de tanques para um CNPJ
-app.get('/api/lmc/tanques-config/:cnpj', authMiddleware, async (req, res) => {
+app.get('/api/lmc/tanques-config/:cnpj', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const cnpj = req.params.cnpj;
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -5727,7 +5761,7 @@ app.get('/api/lmc/tanques-config/:cnpj', authMiddleware, async (req, res) => {
 });
 
 // Sugerir capacidades de tanques a partir dos registros 1310 do arquivo SPED original
-app.get('/api/lmc/tanques-sugeridos/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/lmc/tanques-sugeridos/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
 
@@ -5792,7 +5826,7 @@ app.get('/api/lmc/tanques-sugeridos/:id_arquivo', authMiddleware, async (req, re
 });
 
 // Salvar/Atualizar configurações de tanques
-app.post('/api/lmc/tanques-config', authMiddleware, async (req, res) => {
+app.post('/api/lmc/tanques-config', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const { cnpj, configs } = req.body; // configs: [{ cod_item: '...', capacidade: 123 }, ...]
     if (!cnpj || !Array.isArray(configs)) {
         return res.status(400).json({ message: "Dados inválidos." });
@@ -5839,7 +5873,7 @@ async function ensureLacresTable(db) {
 }
 
 // Lista os lacres cadastrados de um CNPJ.
-app.get('/api/lmc/lacres/:cnpj', authMiddleware, async (req, res) => {
+app.get('/api/lmc/lacres/:cnpj', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const cnpj = String(req.params.cnpj || '').replace(/\D/g, '');
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -5856,7 +5890,7 @@ app.get('/api/lmc/lacres/:cnpj', authMiddleware, async (req, res) => {
 });
 
 // Lista as BOMBAS (1350) do arquivo SPED + se já têm 1360 + os lacres cadastrados — p/ a UI.
-app.get('/api/lmc/lacres-bombas/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/lmc/lacres-bombas/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -5888,7 +5922,7 @@ app.get('/api/lmc/lacres-bombas/:id_arquivo', authMiddleware, async (req, res) =
 });
 
 // Salva (substitui) os lacres de um CNPJ.
-app.post('/api/lmc/lacres', authMiddleware, async (req, res) => {
+app.post('/api/lmc/lacres', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const cnpj = String(req.body.cnpj || '').replace(/\D/g, '');
     const lacres = req.body.lacres; // [{ serie_bomba, num_lacre, dt_aplicacao }]
     if (!cnpj || !Array.isArray(lacres)) return res.status(400).json({ message: 'Dados inválidos (cnpj + lacres[]).' });
@@ -5941,7 +5975,7 @@ async function ensureCredTable(db) {
 }
 
 // Lista as credenciadoras do 1601 de um arquivo + seu cadastro (p/ a UI).
-app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -5989,7 +6023,7 @@ app.get('/api/cad/credenciadoras-1601/:id_arquivo', authMiddleware, async (req, 
 });
 
 // Salva (upsert) o cadastro de uma ou mais credenciadoras.
-app.post('/api/cad/credenciadoras', authMiddleware, async (req, res) => {
+app.post('/api/cad/credenciadoras', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const lista = Array.isArray(req.body.credenciadoras) ? req.body.credenciadoras : [];
     if (!lista.length) return res.status(400).json({ message: 'Envie credenciadoras[].' });
     const dbClient = await safeConnect(res);
@@ -6031,7 +6065,7 @@ async function ensureApuracaoE116Table(db) {
 async function marcarCadApuracaoE116(model /*, db */) {
     model.apuracaoE116CadOk = true;
 }
-app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6049,7 +6083,7 @@ app.get('/api/cad/apuracao-e116/:id_arquivo', authMiddleware, async (req, res) =
         res.status(500).json({ message: 'Erro ao ler apuração E116.' });
     } finally { dbClient.release(); }
 });
-app.post('/api/cad/apuracao-e116', authMiddleware, async (req, res) => {
+app.post('/api/cad/apuracao-e116', authMiddleware, scopeRede(pool, 'cnpj'), async (req, res) => {
     const cnpj = String(req.body.cnpj || '').replace(/\D/g, '');
     const codRec = String(req.body.cod_rec || '').trim();
     const diaVcto = Math.min(28, Math.max(1, parseInt(req.body.dia_vcto, 10) || 9));
@@ -6075,7 +6109,7 @@ app.post('/api/cad/apuracao-e116', authMiddleware, async (req, res) => {
 // Recebe o CSV da "Relação de NF-e" da SEFAZ + o CNPJ da empresa, e cruza contra as
 // notas de entrada (documentos_c100, mod 55) já no banco — sem re-upload do SPED.
 // Período é auto-detectado pelas datas de emissão do CSV.
-app.post('/api/conciliacao/sefaz-csv', authMiddleware, upload.single('csv'), async (req, res) => {
+app.post('/api/conciliacao/sefaz-csv', authMiddleware, upload.single('csv'), scopeRede(pool, 'cnpj'), async (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'Envie o arquivo CSV da SEFAZ (campo "csv").' });
     const cnpjEmpresa = String(req.body.cnpj || '').replace(/\D/g, '');
     if (cnpjEmpresa.length < 11) {
@@ -6251,7 +6285,7 @@ async function capturarEInjetarPorChaves({ idArquivo, idEmpresa, cnpjEmpresa, ch
 }
 
 // --- Loop A/B: DETECÇÃO ao vivo (EspiãoNFe) — mesma saída da rota CSV, fonte = mde_cache ---
-app.post('/api/conciliacao/sefaz-live', authMiddleware, async (req, res) => {
+app.post('/api/conciliacao/sefaz-live', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     const idEmpresa = parseInt(req.body.id_empresa);
     const cnpjEmpresa = String(req.body.cnpj || '').replace(/\D/g, '');
     if (!Number.isInteger(idEmpresa)) return res.status(400).json({ message: 'Informe id_empresa.' });
@@ -6314,7 +6348,7 @@ app.post('/api/conciliacao/sefaz-live', authMiddleware, async (req, res) => {
 });
 
 // --- Loop A: baixar XML dos faltantes selecionados e INJETAR no SPED ---
-app.post('/api/conciliacao/aplicar-faltantes', authMiddleware, async (req, res) => {
+app.post('/api/conciliacao/aplicar-faltantes', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArquivo = parseInt(req.body.id_arquivo);
     const idEmpresa = parseInt(req.body.id_empresa);
     const chaves = Array.isArray(req.body.chaves) ? req.body.chaves : [];
@@ -6334,7 +6368,7 @@ app.post('/api/conciliacao/aplicar-faltantes', authMiddleware, async (req, res) 
 });
 
 // --- Loop B: baixar XML real das divergentes e RE-INJETAR (substituindo a nota errada) ---
-app.post('/api/conciliacao/corrigir-divergentes', authMiddleware, async (req, res) => {
+app.post('/api/conciliacao/corrigir-divergentes', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArquivo = parseInt(req.body.id_arquivo);
     const idEmpresa = parseInt(req.body.id_empresa);
     const chaves = Array.isArray(req.body.chaves) ? req.body.chaves : [];
@@ -6355,7 +6389,7 @@ app.post('/api/conciliacao/corrigir-divergentes', authMiddleware, async (req, re
 
 
 // --- ITENS (C170) de uma NF por chave — usado no expandir "+" da conciliação ---
-app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => {
+app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, scopeRede(pool, 'chave'), async (req, res) => {
     const chave = String(req.params.chave || '').replace(/\D/g, '');
     const cnpj = String(req.query.cnpj || '').replace(/\D/g, '');
     if (chave.length < 44) return res.status(400).json({ message: 'Chave inválida.' });
@@ -6411,7 +6445,7 @@ app.get('/api/conciliacao/itens-nf/:chave', authMiddleware, async (req, res) => 
 //   modo = 'preview'  → só casa e devolve o relatório (default; não grava)
 //   modo = 'aplicar'  → grava os valores das notas casadas com 1 C190
 //   modo = 'reverter' → zera (NULL) os ajustes das notas 5929 do arquivo
-app.post('/api/analisador/importar-5929/:id_arquivo', authMiddleware, upload.single('arquivo'), async (req, res) => {
+app.post('/api/analisador/importar-5929/:id_arquivo', authMiddleware, upload.single('arquivo'), scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     const modo = String(req.body.modo || 'preview').toLowerCase();
     const cleanup = () => { if (req.file) { try { fs.unlinkSync(req.file.path); } catch (_) {} } };
@@ -6545,7 +6579,7 @@ function extrairCadastro(model) {
     };
 }
 
-app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
+app.post('/api/validador/analisar/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6609,7 +6643,7 @@ app.post('/api/validador/analisar/:id', authMiddleware, async (req, res) => {
 //  Isso evita o vazamento de contexto e habilita o histórico de correções por id.)
 
 // Salvar/atualizar uma correção (override de campo) que o export passará a aplicar.
-app.post('/api/validador/corrigir', authMiddleware, async (req, res) => {
+app.post('/api/validador/corrigir', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const b = req.body || {};
     const idArq = parseInt(b.id_sped_arquivo);
     const registro = String(b.registro || '').trim();
@@ -6674,7 +6708,7 @@ function _loteGateSeguro(e, c100PorChave) {
     }
 }
 
-app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) => {
+app.post('/api/validador/corrigir-lote/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).json({ message: 'ID inválido.' });
     const dryRun = req.body && (req.body.dry_run === true || req.body.dry_run === 'true');
@@ -6767,7 +6801,7 @@ app.post('/api/validador/corrigir-lote/:id', authMiddleware, async (req, res) =>
 });
 
 // Desfaz um LOTE inteiro de correções (desativa todas as val_correcoes daquele lote_id).
-app.delete('/api/validador/corrigir-lote/:id/:loteId', authMiddleware, async (req, res) => {
+app.delete('/api/validador/corrigir-lote/:id/:loteId', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     const loteId = String(req.params.loteId || '').trim();
     if (isNaN(arquivoId) || !loteId) return res.status(400).json({ message: 'Parâmetros inválidos.' });
@@ -6782,7 +6816,7 @@ app.delete('/api/validador/corrigir-lote/:id/:loteId', authMiddleware, async (re
 });
 
 // Lista as correções ativas de um arquivo.
-app.get('/api/validador/correcoes/:id', authMiddleware, async (req, res) => {
+app.get('/api/validador/correcoes/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6811,7 +6845,7 @@ app.get('/api/validador/correcoes/:id', authMiddleware, async (req, res) => {
 });
 
 // Remove (desativa) uma correção.
-app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, async (req, res) => {
+app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const id = parseInt(req.params.idCorrecao);
     if (isNaN(id)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6829,7 +6863,7 @@ app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, async (req, r
 // Re-validação FIEL: valida o SPED EXPORTADO (mesmo motor do "Baixar SPED corrigido", com os
 // auto-ajustes + as correções de val_correcoes já aplicados). Assim os erros "auto no export"
 // (ex.: 0220) e o efeito das correções aparecem REALMENTE resolvidos — não no arquivo original.
-app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
+app.post('/api/validador/revalidar/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6883,7 +6917,7 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
 // Relatório "o que foi corrigido" — lê o changelog do ÚLTIMO export deste arquivo (gravado em
 // val_alteracoes pelo /api/exportar-sped). Read-only. Se ainda não houve export, total=0 (dica:
 // baixar/re-validar primeiro). O /revalidar já devolve `alteracoes` junto; este é o acesso direto.
-app.get('/api/validador/alteracoes/:id', authMiddleware, async (req, res) => {
+app.get('/api/validador/alteracoes/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6905,7 +6939,7 @@ app.get('/api/validador/alteracoes/:id', authMiddleware, async (req, res) => {
 // Fase B — liga/desliga uma correção (val_correcoes_skip). Só regras EXCLUÍVEIS (fiscais/injeções);
 // estruturais (totalizadores/dedup/coerência) são sempre aplicadas. chave='' = a regra toda;
 // chave preenchida = só aquele item (ex.: 0150 de uma credenciadora específica).
-app.post('/api/validador/skip', authMiddleware, async (req, res) => {
+app.post('/api/validador/skip', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.body.id_sped_arquivo);
     const regra = String(req.body.regra_id || '').trim();
     const chave = String(req.body.chave || '').trim();
@@ -6929,7 +6963,7 @@ app.post('/api/validador/skip', authMiddleware, async (req, res) => {
 // Relatório CONSOLIDADO de correções em PDF (para o contribuinte enviar à contabilidade / fiscal).
 // Re-exporta internamente (changelog fresco + situação residual), lê val_alteracoes + skips +
 // identificação, e gera o PDF. Read-only (não altera o arquivo).
-app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, res) => {
+app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -6988,7 +7022,7 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
 
 // Lista os produtos (registros 0200) do arquivo — alimenta a "lista suspensa" para vincular um
 // COD_ITEM órfão de C170 a um produto cadastrado (resolve DOC-C170-01 sem inventar produto/NCM).
-app.get('/api/validador/produtos-0200/:id', authMiddleware, async (req, res) => {
+app.get('/api/validador/produtos-0200/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.params.id);
     if (isNaN(idArq)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -7047,7 +7081,7 @@ app.get('/api/validador/cest-sugeridos', authMiddleware, async (req, res) => {
 });
 
 // Salva/remove o vínculo COD_ITEM órfão (C170) → produto 0200 (de-para por arquivo).
-app.post('/api/validador/cod-item-map', authMiddleware, async (req, res) => {
+app.post('/api/validador/cod-item-map', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const idArq = parseInt(req.body.id_sped_arquivo);
     const origem = String(req.body.cod_origem || '').trim();
     const destino = String(req.body.cod_destino || '').trim();
@@ -7069,7 +7103,7 @@ app.post('/api/validador/cod-item-map', authMiddleware, async (req, res) => {
 
 
 // --- ROTA DE RESUMO POR PARTICIPANTE (PRESENTE) ---
-app.get('/api/resumo/participante/:id_arquivo', authMiddleware, async (req, res) => {
+app.get('/api/resumo/participante/:id_arquivo', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de buscar resumo de participante com ID inválido: ${req.params.id_arquivo} `);
@@ -7125,7 +7159,7 @@ doc.cod_part,
 });
 
 // --- ROTA DE GERAÇÃO DE DOSSIÊ PDF (NOVA) ---
-app.get('/api/relatorio/dossie/:id', authMiddleware, async (req, res) => {
+app.get('/api/relatorio/dossie/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) return res.status(400).send({ message: "ID inválido." });
 
@@ -7218,7 +7252,7 @@ app.get('/api/relatorio/dossie/:id', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE EXPORTAÇÃO EXCEL (FASE 5) ---
-app.get('/api/relatorio/excel/:id', authMiddleware, async (req, res) => {
+app.get('/api/relatorio/excel/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -7282,7 +7316,7 @@ app.get('/api/relatorio/excel/:id', authMiddleware, async (req, res) => {
 
 
 // --- ROTA PARA CORREÇÃO DE ITEM (MÁQUINA DE CURA) ---
-app.post('/api/corrigir-item', authMiddleware, async (req, res) => {
+app.post('/api/corrigir-item', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { tipo, id_item, novos_valores } = req.body;
     // novos_valores: { cst_icms: '060', cfop: '5656' } etc.
 
@@ -7324,7 +7358,7 @@ app.post('/api/corrigir-item', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE CORREÇÃO EM MASSA (FASE 5) ---
-app.post('/api/corrigir-massa', authMiddleware, async (req, res) => {
+app.post('/api/corrigir-massa', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_arquivo, regra_id, novos_valores } = req.body;
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -7364,7 +7398,7 @@ app.post('/api/corrigir-massa', authMiddleware, async (req, res) => {
 });
 
 // --- AJUSTAR VENDA DE UM DIA COM CASCATA ---
-app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
+app.post('/api/lmc/ajustar-cascata', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_sped, cod_item, data_mov, vol_saidas_ajustado } = req.body;
     if (!id_sped || !cod_item || !data_mov || vol_saidas_ajustado === undefined) {
         return res.status(400).json({ error: 'Parâmetros inválidos.' });
@@ -7467,7 +7501,7 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, async (req, res) => {
 
 
 // --- SALVAR AJUSTE NO LMC ---
-app.post('/api/lmc/ajustar', authMiddleware, async (req, res) => {
+app.post('/api/lmc/ajustar', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_sped, cod_item, data_mov, vol_saidas_ajustado } = req.body;
 
     if (!id_sped || !cod_item || !data_mov) {
@@ -7499,7 +7533,7 @@ app.post('/api/lmc/ajustar', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA BULK RATEIO LMC ---
-app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
+app.post('/api/lmc/ajustar-lote', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { updates } = req.body;
 
     if (!updates || !Array.isArray(updates)) {
@@ -7538,7 +7572,7 @@ app.post('/api/lmc/ajustar-lote', authMiddleware, async (req, res) => {
 });
 
 // --- ROTAS DE OBSERVAÇÕES DO LMC ---
-app.get('/api/lmc/observacoes/:id_sped', authMiddleware, async (req, res) => {
+app.get('/api/lmc/observacoes/:id_sped', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
@@ -7551,7 +7585,7 @@ app.get('/api/lmc/observacoes/:id_sped', authMiddleware, async (req, res) => {
     finally { dbClient.release(); }
 });
 
-app.post('/api/lmc/observacoes', authMiddleware, async (req, res) => {
+app.post('/api/lmc/observacoes', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { id_sped_arquivo, cod_item, data_mov, observacao } = req.body;
     if (!id_sped_arquivo || !cod_item || !data_mov) return res.status(400).json({ error: 'Parâmetros obrigatórios' });
     const dbClient = await safeConnect(res);
@@ -7569,7 +7603,7 @@ app.post('/api/lmc/observacoes', authMiddleware, async (req, res) => {
 });
 
 // --- ROTA DE IMPRESSÃO DO LMC (PDF modelo AutoSystem) ---
-app.get('/api/lmc/imprimir/:id_sped', authMiddleware, demoPaywall, async (req, res) => {
+app.get('/api/lmc/imprimir/:id_sped', authMiddleware, demoPaywall, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_sped);
     if (isNaN(arquivoId)) return res.status(400).json({ error: 'ID inválido' });
 
@@ -7846,7 +7880,7 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, demoPaywall, async (req, r
 });
 
 // --- ROTA DE EXPORTAÇÃO RETIFICADA (FASE 10) ---
-app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, async (req, res) => {
+app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     await acquireHeavySlot();
     const dbClient = await safeConnect(res);
@@ -10340,7 +10374,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, async (req, res) 
 });
 
 // --- **ROTA DE EXCLUSÃO (OTIMIZADA ASSÍNCRONA)** ---
-app.delete('/api/arquivo/:id', authMiddleware, async (req, res) => {
+app.delete('/api/arquivo/:id', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id);
     if (isNaN(arquivoId)) {
         logger.warn(`Tentativa de exclusão com ID inválido: ${req.params.id} `);
@@ -10548,7 +10582,7 @@ function parseSpedFile(filePath, originalFilename) {
     });
 }
 // --- ENDPOINT OTIMIZAÇÃO DE LMC ---
-app.post('/api/lmc/optimize', authMiddleware, async (req, res) => {
+app.post('/api/lmc/optimize', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const { arquivoId, codItem, targetVolume } = req.body;
     
     if (!arquivoId || !codItem || !targetVolume) {
@@ -10697,7 +10731,7 @@ app.post('/api/regras-fiscais/simular', authMiddleware, async (req, res) => {
 // ENDPOINTS: DE-PARA XML
 // --------------------------------------------------------------------------
 
-app.get('/api/de-para', authMiddleware, async (req, res) => {
+app.get('/api/de-para', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const { cnpj, id_empresa } = req.query;
         let query = 'SELECT * FROM de_para_xml WHERE 1=1';
@@ -10723,7 +10757,7 @@ app.get('/api/de-para', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/de-para', authMiddleware, async (req, res) => {
+app.post('/api/de-para', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const { id_empresa, cnpj_emissor, cod_produto_xml, novo_cfop, novo_cst, descricao_produto, cod_interno,
                 aliq_icms, bc_icms_override, cst_pis, cst_cofins } = req.body;
@@ -10770,7 +10804,7 @@ app.post('/api/de-para', authMiddleware, async (req, res) => {
     }
 });
 
-app.delete('/api/de-para/:id', authMiddleware, async (req, res) => {
+app.delete('/api/de-para/:id', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const { id } = req.params;
         await pool.query('DELETE FROM de_para_xml WHERE id = $1', [id]);
@@ -10782,7 +10816,7 @@ app.delete('/api/de-para/:id', authMiddleware, async (req, res) => {
 });
 
 // --- FASE: CONFERÊNCIA SPED vs MD-E ---
-app.post('/api/mde/check-sped', authMiddleware, async (req, res) => {
+app.post('/api/mde/check-sped', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const { chaves, id_empresa } = req.body;
         if (!chaves || !Array.isArray(chaves)) return res.status(400).json({ error: 'Lista de chaves inválida' });
@@ -10810,7 +10844,7 @@ app.post('/api/mde/check-sped', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/mde/sync-missing', authMiddleware, async (req, res) => {
+app.post('/api/mde/sync-missing', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
     try {
         const { chaves, id_empresa } = req.body;
         if (!chaves || !Array.isArray(chaves)) return res.status(400).json({ error: 'Lista de chaves inválida' });
@@ -10883,7 +10917,7 @@ app.post('/api/cte-injector/analyze', authMiddleware, uploadXml.array('xmlFiles'
  * Injeta CT-es em um arquivo SPED existente (Bloco D: D100 + D190)
  * Body (multipart): xmlFiles[] + id_arquivo (ID do SPED base)
  */
-app.post('/api/cte-injector/inject', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 500), async (req, res) => {
+app.post('/api/cte-injector/inject', authMiddleware, demoPaywall, uploadXml.array('xmlFiles', 500), scopeRede(pool, 'sped'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ message: 'Nenhum arquivo XML enviado.' });
     }

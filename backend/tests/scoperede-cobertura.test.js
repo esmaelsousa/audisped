@@ -11,7 +11,7 @@
 const { chaves } = require('../routeInventory');
 const { PUBLICAS, ESCOPO } = require('../routeScopeRegistry');
 
-const VARIANTES = new Set(['empresa', 'sped', 'chave', 'cnpj', 'lista', 'global', 'self', 'write']);
+const VARIANTES = new Set(['empresa', 'sped', 'contrib', 'chave', 'cnpj', 'lista', 'global', 'self', 'write']);
 
 const rotas = chaves();
 const soApi = rotas.filter(r => r.split(' ')[1].startsWith('/api/'));

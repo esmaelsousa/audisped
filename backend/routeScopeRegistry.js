@@ -35,19 +35,15 @@ const PUBLICAS = new Set([
   'POST /api/auth/reset-password',  // consome token de uso único
   'POST /api/demo-lead',            // captura de lead do teste grátis (público, rate-limited)
   'GET /favicon.ico',               // 204, ícone do browser (fora de /api)
-  // ⚠️ GET /api/logs/stream — SSE SEM auth que reemite o feed GLOBAL do logger (inclui dados de
-  //    TODOS os tenants: CNPJs, nomes de arquivo, diagnósticos [DIAG]). A classificação 'pública'
-  //    é TECNICAMENTE honesta (o código não tem authMiddleware hoje), mas a rota NÃO deveria ser
-  //    pública. AÇÃO recomendada pelo master (MEDIA): exigir authMiddleware + papel interno
-  //    (super_admin/staff) OU tirar dados de tenant do feed público. Deixada pública AGORA porque
-  //    esta tarefa é só classificação (o parent proibiu alterar middleware de rota nesta onda);
-  //    endereçar na Task 5. Mantida na allowlist para o teste refletir o estado REAL do código.
-  'GET /api/logs/stream',
+  // GET /api/logs/stream SAIU da allowlist (Fase 1, Task 5): era SSE público que vazava o feed
+  //   GLOBAL do logger (CNPJs, nomes de arquivo, [DIAG]) cross-tenant. Agora exige papel interno
+  //   (gate no handler) → reclassificada como 'self' em ESCOPO.
 ]);
 
 // --- CLASSIFICAÇÃO DE CADA ROTA DE DADOS ---
 const ESCOPO = {
   // ===================== self (auto-guardadas por authz.js / identidade do ator) =====================
+  'GET /api/logs/stream': 'self',                          // SSE do feed de logs: gate de papel INTERNO no handler (super_admin/staff); enrich global popula req.ator
   'GET /api/auth/me': 'self',                              // usuarios WHERE id = req.user.id (próprio)
   'PUT /api/auth/profile': 'self',                         // UPDATE usuarios WHERE id = req.user.id (próprio)
   'POST /api/admin/usuarios': 'self',                      // resolverCamposNovoUsuario clampa rede do ator (§13.3)
@@ -178,8 +174,10 @@ const ESCOPO = {
   'POST /api/lmc/optimize': 'sped',                        // corpo: arquivoId
   'POST /api/cte-injector/inject': 'sped',                 // corpo: id_arquivo (lê sped_arquivos → gera saída)
   // ⚠️ Master CRÍTICO: exportarArquivo faz SELECT * FROM efd_contrib_arquivos WHERE id=$1 SEM
-  //    filtro de rede/empresa → IDOR cross-tenant REAL. efd_contrib_arquivos.id_empresa → empresa → rede.
-  'GET /api/contribuicoes/exportar/:id': 'sped',
+  //    filtro de rede/empresa → IDOR cross-tenant REAL. Variante 'contrib' (NÃO 'sped'): o :id é de
+  //    efd_contrib_arquivos (id-space próprio), resolvido por efd_contrib_arquivos.id_empresa → rede.
+  //    scopeRede aplicado DENTRO de routes/contribuicoesRouter.js (rota de sub-router).
+  'GET /api/contribuicoes/exportar/:id': 'contrib',
 
   // ===================== chave (resolve por chave de NF-e — Task 7) =====================
   'GET /api/mde/xml/:chave_nfe': 'chave',                  // mde_cache WHERE chave_nfe (sem filtro de empresa hoje)

@@ -8,6 +8,10 @@ const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
 const { parseContribuicoes, salvarArquivo, exportarArquivo } = require('../services/spedContribuicoesService');
+// Fase 1 (isolamento por rede): o export deste módulo era um IDOR cross-tenant real
+// (exportarArquivo faz SELECT ... WHERE id=$1 sem filtro de rede). scopeRede('sped') resolve
+// efd_contrib_arquivos.id → id_empresa → empresas.rede_id e barra ator de outra rede (403).
+const { scopeRede } = require('../scopeRede');
 
 module.exports = (pool, authMiddleware) => {
   const router = express.Router();
@@ -35,7 +39,7 @@ module.exports = (pool, authMiddleware) => {
   });
 
   // GET /api/contribuicoes/exportar/:id  — download byte-idêntico (Fase 1)
-  router.get('/exportar/:id', authMiddleware, async (req, res) => {
+  router.get('/exportar/:id', authMiddleware, scopeRede(pool, 'contrib'), async (req, res) => {
     try {
       const out = await exportarArquivo(pool, req.params.id);
       if (!out) return res.status(404).json({ message: 'Arquivo não encontrado.' });
