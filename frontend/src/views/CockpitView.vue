@@ -11,7 +11,6 @@ import { formatCnpj } from '@/utils/sped'
 import { podeAcessar } from '../config/modulos'
 import { useUploadSped } from '../composables/useUploadSped'
 import UiButton from '../components/ui/UiButton.vue'
-import UiSelo from '../components/ui/UiSelo.vue'
 import {
   Search, Building2, ChevronRight, Plus, Trash2, X, UploadCloud, Lock,
   BarChart2, ShieldCheck, FileText, HardDriveUpload, DatabaseZap, BookOpen,
@@ -54,6 +53,23 @@ async function carregarEmpresas() {
 function selecionarEmpresa(empresa) {
   setEmpresaSelecionada(empresa)
   router.replace({ query: { empresa: empresa.id } })
+}
+
+// Confirmação ao ativar/trocar de cliente — evita selecionar a empresa errada por engano.
+const showConfirmarEmpresaModal = ref(false)
+const empresaParaConfirmar = ref(null)
+function pedirConfirmacaoEmpresa(empresa) {
+  if (empresaSelecionada.value?.id === empresa.id) return // já é a ativa, não precisa confirmar
+  empresaParaConfirmar.value = empresa
+  showConfirmarEmpresaModal.value = true
+}
+function confirmarEmpresaAtiva() {
+  if (empresaParaConfirmar.value) selecionarEmpresa(empresaParaConfirmar.value)
+  cancelarConfirmacaoEmpresa()
+}
+function cancelarConfirmacaoEmpresa() {
+  showConfirmarEmpresaModal.value = false
+  empresaParaConfirmar.value = null
 }
 
 onMounted(async () => {
@@ -101,22 +117,23 @@ async function onArquivoEnviado({ id, fileInfo }) {
 }
 
 // ----------------------------- Módulos -----------------------------
+// Ordem = fluxo de trabalho: abrir o SPED → conferir → validar → corrigir → gerar o livro.
 const MODULOS = [
+  { chave: 'gestao_speds', nome: 'Gestão de SPEDs', selo: 'Repositório', icon: DatabaseZap,
+    desc: 'Abra o SPED do cliente para começar.',
+    to: () => (empresaSelecionada.value ? `/empresa/${empresaSelecionada.value.id}` : null) },
   { chave: 'analisador', nome: 'Analisador', selo: 'Análise', icon: BarChart2,
-    desc: 'Cruze entradas, saídas, CSTs e alíquotas para achar inconsistências antes de fechar.',
+    desc: 'Confere o arquivo e mostra onde tem erro.',
     to: () => '/analisador' },
   { chave: 'validador', nome: 'Validador SPED', selo: 'Validação', icon: ShieldCheck,
-    desc: 'Rode as regras do validador e corrija os apontamentos antes de passar pelo PVA.',
+    desc: 'Valida pelas regras, como o PVA faria.',
     to: () => '/validador' },
-  { chave: 'livro_lmc', nome: 'Livro LMC', selo: 'Obrigação', icon: FileText,
-    desc: 'Gere o Livro de Movimentação de Combustíveis a partir das leituras de bomba do SPED.',
-    requerSped: true, to: () => (arquivoInfo.value ? `/lmc/${arquivoInfo.value.id}` : null) },
   { chave: 'injetor_xml', nome: 'Injetor de XMLs', selo: 'Operacional', icon: HardDriveUpload,
-    desc: 'Adicione ou substitua notas fiscais direto no arquivo SPED retificado.',
+    desc: 'Coloca no SPED a nota que faltou.',
     to: () => '/injetor-xml' },
-  { chave: 'gestao_speds', nome: 'Gestão de SPEDs', selo: 'Repositório', icon: DatabaseZap,
-    desc: 'Histórico de arquivos processados, originais e relatórios gerados deste cliente.',
-    to: () => (empresaSelecionada.value ? `/empresa/${empresaSelecionada.value.id}` : null) },
+  { chave: 'livro_lmc', nome: 'Livro LMC', selo: 'Obrigação', icon: FileText,
+    desc: 'Monta o livro de combustível do posto.',
+    requerSped: true, to: () => (arquivoInfo.value ? `/lmc/${arquivoInfo.value.id}` : null) },
 ]
 
 const modulosView = computed(() => MODULOS.map(m => {
@@ -239,7 +256,7 @@ async function criarEmpresa() {
           <div
             v-for="empresa in empresasFiltradas"
             :key="empresa.id"
-            @click="selecionarEmpresa(empresa)"
+            @click="pedirConfirmacaoEmpresa(empresa)"
             :class="[
               'group flex items-center gap-3 px-3.5 py-3 cursor-pointer border-l-2 transition-colors',
               empresaSelecionada?.id === empresa.id
@@ -375,57 +392,39 @@ async function criarEmpresa() {
             </div>
           </div>
 
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             <button
               v-for="m in modulosView"
               :key="m.chave"
               type="button"
               @click="navegarModulo(m)"
+              :title="m.nome + ' — ' + m.desc"
               :disabled="!m.liberado || m.requerSpedPendente"
               :class="[
-                'text-left relative p-5 rounded-md border flex flex-col gap-4 transition-all duration-200',
+                'group text-left flex items-center gap-3 p-3 rounded-md border transition-all duration-200',
                 m.liberado
-                  ? 'bg-sheet border-line hover:border-bronze/40 hover:shadow-[0_1px_4px_0_rgba(18,24,32,0.07)] cursor-pointer group'
+                  ? 'bg-sheet border-line hover:border-bronze/40 hover:shadow-[0_1px_4px_0_rgba(18,24,32,0.07)] cursor-pointer'
                   : 'bg-paper border-line opacity-60 cursor-not-allowed'
               ]"
             >
-              <div class="flex items-start justify-between">
-                <div :class="[
-                  'p-2.5 rounded-md border transition-colors',
-                  m.liberado
-                    ? 'bg-paper border-line text-risco group-hover:text-bronze group-hover:border-bronze/30'
-                    : 'bg-sheet border-line text-risco'
-                ]">
-                  <component :is="m.icon" class="w-5 h-5" :stroke-width="1.6" />
-                </div>
-                <UiSelo v-if="m.liberado" :tipo="m.selo" />
-                <span v-else class="inline-flex items-center gap-1 font-mono text-[9px] tracking-[.05em] uppercase text-risco border border-line px-[6px] py-[2px] rounded-[3px]">
-                  <Lock class="w-3 h-3" :stroke-width="2" /> Não incluído
-                </span>
+              <div :class="[
+                'p-2 rounded-md border flex-shrink-0 transition-colors',
+                m.liberado
+                  ? 'bg-paper border-line text-risco group-hover:text-bronze group-hover:border-bronze/30'
+                  : 'bg-sheet border-line text-risco'
+              ]">
+                <component :is="m.icon" class="w-[18px] h-[18px]" :stroke-width="1.7" />
               </div>
 
-              <div class="flex flex-col gap-1">
-                <h3 class="font-display text-[16px] font-semibold text-ink">{{ m.nome }}</h3>
-                <p class="text-[13px] text-risco leading-relaxed">{{ m.desc }}</p>
+              <div class="min-w-0 flex-1">
+                <h3 class="font-display text-[13.5px] font-semibold text-ink truncate">{{ m.nome }}</h3>
+                <p class="text-[11.5px] text-risco truncate">{{ m.desc }}</p>
               </div>
 
-              <div class="mt-auto pt-3.5 flex items-center justify-between border-t border-line min-h-[18px]">
-                <!-- bloqueado por plano -->
-                <span v-if="!m.liberado" class="text-[12px] font-medium text-risco flex items-center gap-1.5">
-                  <Lock class="w-3.5 h-3.5" :stroke-width="1.8" />
-                  Não incluído no seu plano — fale com o suporte
-                </span>
-                <!-- liberado mas exige SPED -->
-                <span v-else-if="m.requerSpedPendente" class="text-[12px] font-medium text-variacao flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-variacao"></span>
-                  Requer SPED carregado
-                </span>
-                <!-- liberado -->
-                <span v-else class="text-[12px] font-medium text-bronze opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                  Abrir módulo
-                  <ChevronRight class="w-3.5 h-3.5" :stroke-width="1.8" />
-                </span>
-              </div>
+              <!-- estado à direita: cadeado (bloqueado) · ponto âmbar (requer SPED) · seta (hover) -->
+              <Lock v-if="!m.liberado" class="w-4 h-4 text-risco flex-shrink-0" :stroke-width="1.8" title="Não incluído no seu plano" />
+              <span v-else-if="m.requerSpedPendente" class="w-2 h-2 rounded-full bg-variacao flex-shrink-0" title="Requer SPED carregado"></span>
+              <ChevronRight v-else class="w-4 h-4 text-risco opacity-0 group-hover:opacity-100 group-hover:text-bronze transition-all flex-shrink-0" :stroke-width="1.8" />
             </button>
           </div>
         </template>
@@ -499,6 +498,35 @@ async function criarEmpresa() {
               {{ deletando ? 'Excluindo…' : 'Sim, excluir permanentemente' }}
             </button>
             <UiButton variant="ghost" @click="isDeleteModalOpen = false" :disabled="deletando">Cancelar</UiButton>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL CONFIRMAR CLIENTE ATIVO ===================== -->
+    <div v-if="showConfirmarEmpresaModal" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+      <div class="flex items-end sm:items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-ink/40" @click="cancelarConfirmacaoEmpresa"></div>
+        <div class="relative bg-sheet rounded-md border border-line w-full sm:max-w-md card-shadow">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-start gap-4">
+              <div class="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-md bg-bronze/10">
+                <Building2 class="h-5 w-5 text-bronze" :stroke-width="1.6" />
+              </div>
+              <div class="min-w-0">
+                <h3 class="font-display text-[16px] font-semibold text-ink">Confirmar cliente ativo</h3>
+                <p class="mt-2 text-[13px] text-risco leading-relaxed">
+                  Você vai trabalhar com
+                  <strong class="text-ink">{{ empresaParaConfirmar?.nome_fantasia || empresaParaConfirmar?.nome_empresa }}</strong>.
+                  <span class="block font-mono text-[12px] text-risco mt-1">{{ formatCnpj(empresaParaConfirmar?.cnpj) }}</span>
+                  <span v-if="empresaSelecionada" class="block mt-2">Isso troca o cliente ativo (atual: <strong class="text-ink">{{ empresaSelecionada.nome_fantasia || empresaSelecionada.nome_empresa }}</strong>).</span>
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="bg-paper px-6 py-3 flex flex-row-reverse gap-2 border-t border-line rounded-b-md">
+            <UiButton @click="confirmarEmpresaAtiva">Sim, trabalhar com este cliente</UiButton>
+            <UiButton variant="ghost" @click="cancelarConfirmacaoEmpresa">Cancelar</UiButton>
           </div>
         </div>
       </div>
