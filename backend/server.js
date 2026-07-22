@@ -154,6 +154,39 @@ const authz = require('./authz');
 const enrich = authz.enrich(pool); // popula req.ator re-buscando role/rede do banco por id
 const demoPaywall = require('./demoPaywall'); // 402 no download de deliverables quando DEMO_MODE=1
 
+// --- ENRICH GLOBAL (Fase 1, Task 3): popula req.ator em TODA rota /api de dados. ---
+// Roda ANTES dos handlers: autentica (authMiddleware) e re-busca role/rede do banco (enrich).
+// As rotas da allowlist PUBLICAS (registro) passam sem auth. A cobertura default-deny
+// (tests/scoperede-cobertura.test.js) garante que só rotas realmente públicas ficam de fora.
+//
+// TOKEN DE SERVIÇO — ponto crítico (achado da Onda 1): revalidar/relatorio emitem um JWT interno
+// com `svc:'validador'` e `id: req.user?.id || 0` (server.js ~6809/6911) e chamam o export por
+// HTTP. Se esse `id` for 0 (ou apontar p/ usuário inexistente), carregarAtor(0) devolve null e o
+// enrich responderia 403 "Usuário não encontrado" ANTES de o scopeRede aplicar o bypass de serviço
+// — quebrando revalidar/relatorio. Solução adotada: ISENTAR do enrich as requisições com o claim
+// de serviço (opção "isentar", não "enrich-tolerante"). É a mais segura porque:
+//   (a) não roda carregarAtor(0) → não há 403 forjado nem query de DB desperdiçada;
+//   (b) preserva o INVARIANTE do enrich ("se chamei next(), req.ator é um usuário real e ativo")
+//       — nenhum usuário humano ganha um caminho onde o enrich deixa req.ator undefined e segue;
+//   (c) o claim `svc` é ASSINADO com JWT_SECRET (inforjável sem o segredo) e já validado pelo
+//       authMiddleware acima, então confiar nele no portão é sólido;
+//   (d) fica co-localizado com a isenção das PUBLICAS: um único lugar auditável onde se decide
+//       "esta requisição não passa pelo enriquecimento de tenant".
+// req.ator fica undefined para o token de serviço; quem decide o acesso é o scopeRede via ehBypass
+// (Task 5), que reconhece o mesmo claim svc==='validador'.
+const { PUBLICAS } = require('./routeScopeRegistry');
+const { SVC_CLAIM } = require('./scopeRede');
+app.use('/api', (req, res, next) => {
+    // req.path vem SEM o prefixo do mount (/api) → reconstruímos a chave completa pela originalUrl.
+    const rota = `${req.method} ${req.originalUrl.split('?')[0]}`;
+    if (PUBLICAS.has(rota)) return next(); // rota pública: sem auth, sem enrich
+    // authMiddleware valida o token e popula req.user; em falha responde 401/403 e NÃO chama next.
+    authMiddleware(req, res, () => {
+        if (req.user && req.user.svc === SVC_CLAIM) return next(); // token de serviço: isento do enrich
+        return enrich(req, res, next); // popula req.ator (role/rede/ativo do banco)
+    });
+});
+
 // --- ROTAS DE AUTENTICAÇÃO ---
 // Cadastro público DESATIVADO (§13.3): provisionamento é só via POST /api/admin/usuarios (com clamp).
 app.post('/api/auth/register', (req, res) => {
