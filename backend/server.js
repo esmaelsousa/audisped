@@ -177,6 +177,8 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
 
 app.put('/api/auth/profile', authMiddleware, async (req, res) => {
     const { nome, email, senha } = req.body;
+    // Mesma trava da criação: impede que um usuário troque o próprio email p/ 'sys@local' ou não-endereço.
+    if (require('./scopeRede').emailReservado(email)) return res.status(400).json({ message: 'Email inválido ou reservado.' });
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
@@ -244,6 +246,8 @@ app.post('/api/admin/usuarios', authMiddleware, enrich, async (req, res) => {
     const { nome, email, senha } = req.body;
     if (!nome || !email || !senha) return res.status(400).json({ message: 'Preencha nome, email e senha.' });
     if (!authz.canManageUsers(req.ator)) return res.status(403).json({ message: 'Sem permissão para criar usuários.' });
+    // Fecha o vetor de forja do marcador de serviço: ninguém cria 'sys@local' nem um não-endereço.
+    if (require('./scopeRede').emailReservado(email)) return res.status(400).json({ message: 'Email inválido ou reservado.' });
 
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -6802,7 +6806,7 @@ app.post('/api/validador/revalidar/:id', authMiddleware, async (req, res) => {
         if (!r.rows.length) return res.status(404).json({ message: 'Arquivo não encontrado.' });
         // Exporta internamente e valida o RESULTADO (bytes que iriam ao download).
         const PORT_ = process.env.PORT || 15435;
-        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-revalidar', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
+        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-revalidar', email: 'sys@local', svc: 'validador' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
         // Accept: application/json → o export devolve o payload ESTRUTURADO (não a página HTML).
         const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}`, Accept: 'application/json' } });
         if (!exp.ok) {
@@ -6904,7 +6908,7 @@ app.get('/api/validador/relatorio-correcoes/:id', authMiddleware, async (req, re
         const cnpjNum = String(arq.cnpj_empresa || '').replace(/\D/g, '');
         // Export interno (gera changelog fresco + permite validar o resultado)
         const PORT_ = process.env.PORT || 15435;
-        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-relatorio', email: 'sys@local' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
+        const tokenInterno = jwt.sign({ id: req.user?.id || 0, nome: 'validador-relatorio', email: 'sys@local', svc: 'validador' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
         const exp = await fetch(`http://127.0.0.1:${PORT_}/api/exportar-sped/${idArq}`, { headers: { Authorization: `Bearer ${tokenInterno}` } });
         if (!exp.ok) { const motivo = (await exp.text().catch(() => '')).trim(); return res.status(exp.status === 422 ? 422 : 502).json({ message: motivo || `Falha ao gerar o SPED corrigido (HTTP ${exp.status}).` }); }
         const txt = Buffer.from(await exp.arrayBuffer()).toString('latin1');
