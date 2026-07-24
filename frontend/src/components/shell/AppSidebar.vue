@@ -18,9 +18,10 @@ import {
   LogOut,
   User,
   Users,
+  Network,
   Sparkles
 } from 'lucide-vue-next'
-import { empresaSelecionada, arquivoInfo, usuario, logout, podeGerenciarUsuarios } from '@/store'
+import { empresaSelecionada, arquivoInfo, usuario, logout, podeGerenciarUsuarios, isSuper } from '@/store'
 import { useRouter } from 'vue-router'
 import { formatCnpj } from '@/utils/sped'
 
@@ -141,6 +142,10 @@ const grupo = 'px-[18px] pb-[2px] pt-[10px] text-[10px] tracking-[.12em] upperca
         <RouterLink to="/usuarios" @click="nav" :class="linkBase" :active-class="linkActive">
           <Users :size="15" :stroke-width="1.6" />
           Usuários
+        </RouterLink>
+        <RouterLink v-if="isSuper" to="/admin/redes" @click="nav" :class="linkBase" :active-class="linkActive">
+          <Network :size="15" :stroke-width="1.6" />
+          Redes
         </RouterLink>
         <RouterLink to="/leads" @click="nav" :class="linkBase" :active-class="linkActive">
           <Sparkles :size="15" :stroke-width="1.6" />

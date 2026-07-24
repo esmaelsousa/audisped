@@ -421,16 +421,171 @@ app.patch('/api/admin/usuarios/:id/ativar', authMiddleware, enrich, async (req, 
     }
 });
 
-// Listar redes (read-only) — só super, p/ o dropdown de provisionamento. CRUD de redes = Fase 2.
+// ============================ CONSOLE DE REDES (Fase 2) ============================
+// Todos os endpoints abaixo são super_admin ONLY (staff NÃO gerencia redes). O guard é por
+// PAPEL do ator (não por rede) → classificados como 'self' no routeScopeRegistry.js.
+const soSuper = (req, res) => {
+    if (req.ator?.role !== 'super_admin') { res.status(403).json({ message: 'Apenas super_admin.' }); return false; }
+    return true;
+};
+
+// Listar redes — com contador de postos (empresas WHERE rede_id) e de usuários. Só super.
 app.get('/api/admin/redes', authMiddleware, enrich, async (req, res) => {
-    if (req.ator.role !== 'super_admin') return res.status(403).json({ message: 'Apenas super_admin.' });
+    if (!soSuper(req, res)) return;
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
-        const r = await dbClient.query('SELECT id, nome, status, modulos_contratados FROM redes ORDER BY nome');
+        const r = await dbClient.query(`
+            SELECT r.id, r.nome, r.documento, r.email_resp, r.status, r.modulos_contratados, r.criado_em,
+                   COALESCE(e.postos, 0)::int   AS postos,
+                   COALESCE(u.usuarios, 0)::int AS usuarios
+              FROM redes r
+              LEFT JOIN (SELECT rede_id, COUNT(*) postos    FROM empresas GROUP BY rede_id) e ON e.rede_id = r.id
+              LEFT JOIN (SELECT rede_id, COUNT(*) usuarios  FROM usuarios GROUP BY rede_id) u ON u.rede_id = r.id
+             ORDER BY r.nome`);
         res.json(r.rows);
     } catch (err) {
         res.status(500).json({ message: 'Erro ao listar redes.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Criar rede — nome obrigatório; status default 'ativa'. Só super.
+app.post('/api/admin/redes', authMiddleware, enrich, async (req, res) => {
+    if (!soSuper(req, res)) return;
+    const nome = String(req.body.nome || '').trim();
+    if (!nome) return res.status(400).json({ message: 'Informe o nome da rede.' });
+    const documento = req.body.documento != null ? String(req.body.documento).trim() || null : null;
+    const email_resp = req.body.email_resp != null ? String(req.body.email_resp).trim() || null : null;
+    const status = String(req.body.status || 'ativa').trim() || 'ativa';
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const r = await dbClient.query(
+            `INSERT INTO redes (nome, documento, email_resp, status)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, nome, documento, email_resp, status, modulos_contratados, criado_em`,
+            [nome, documento, email_resp, status]);
+        await registrarAuditoria(dbClient, req.ator, 'criar_rede', r.rows[0].id, { nome });
+        res.status(201).json(r.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao criar rede.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Editar rede — nome, documento, email_resp, status. Só super.
+app.put('/api/admin/redes/:id', authMiddleware, enrich, async (req, res) => {
+    if (!soSuper(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ message: 'Id inválido.' });
+    const nome = String(req.body.nome || '').trim();
+    if (!nome) return res.status(400).json({ message: 'Informe o nome da rede.' });
+    const documento = req.body.documento != null ? String(req.body.documento).trim() || null : null;
+    const email_resp = req.body.email_resp != null ? String(req.body.email_resp).trim() || null : null;
+    const status = String(req.body.status || 'ativa').trim() || 'ativa';
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        // Protege a rede seed 'default' (âncora das migrações WHERE nome='default' e do
+        // fallback "remover posto" da UI) — pode editar status/documento, mas NÃO renomear.
+        const atual = await dbClient.query('SELECT nome FROM redes WHERE id = $1', [id]);
+        if (!atual.rows[0]) return res.status(404).json({ message: 'Rede não encontrada.' });
+        if (atual.rows[0].nome === 'default' && nome !== 'default') {
+            return res.status(409).json({ message: 'A rede "default" não pode ser renomeada.' });
+        }
+        const r = await dbClient.query(
+            `UPDATE redes SET nome = $1, documento = $2, email_resp = $3, status = $4, atualizado_em = CURRENT_TIMESTAMP
+              WHERE id = $5
+             RETURNING id, nome, documento, email_resp, status, modulos_contratados, criado_em`,
+            [nome, documento, email_resp, status, id]);
+        if (!r.rows[0]) return res.status(404).json({ message: 'Rede não encontrada.' });
+        await registrarAuditoria(dbClient, req.ator, 'editar_rede', id, { nome });
+        res.json(r.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao editar rede.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Excluir rede — só se estiver VAZIA (sem postos nem usuários) → senão 409. Nunca a 'default'. Só super.
+app.delete('/api/admin/redes/:id', authMiddleware, enrich, async (req, res) => {
+    if (!soSuper(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ message: 'Id inválido.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const redeR = await dbClient.query('SELECT id, nome FROM redes WHERE id = $1', [id]);
+        const rede = redeR.rows[0];
+        if (!rede) return res.status(404).json({ message: 'Rede não encontrada.' });
+        if (rede.nome === 'default') return res.status(409).json({ message: 'A rede default não pode ser excluída.' });
+
+        const postos = (await dbClient.query('SELECT COUNT(*)::int n FROM empresas WHERE rede_id = $1', [id])).rows[0].n;
+        const usuarios = (await dbClient.query('SELECT COUNT(*)::int n FROM usuarios WHERE rede_id = $1', [id])).rows[0].n;
+        if (postos > 0 || usuarios > 0) {
+            return res.status(409).json({ message: 'Rede tem postos/usuários vinculados.', postos, usuarios });
+        }
+        await dbClient.query('DELETE FROM redes WHERE id = $1', [id]);
+        await registrarAuditoria(dbClient, req.ator, 'excluir_rede', id, { nome: rede.nome });
+        res.json({ id, excluida: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao excluir rede.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Associar 1 posto (empresa) a uma rede. Valida que a rede existe. Só super.
+app.patch('/api/admin/empresas/:id/rede', authMiddleware, enrich, async (req, res) => {
+    if (!soSuper(req, res)) return;
+    const id = parseInt(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ message: 'Id de empresa inválido.' });
+    const rede_id = parseInt(req.body.rede_id);
+    if (!Number.isInteger(rede_id)) return res.status(400).json({ message: 'Informe rede_id.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const rede = await dbClient.query('SELECT id FROM redes WHERE id = $1', [rede_id]);
+        if (!rede.rows[0]) return res.status(400).json({ message: 'Rede não encontrada.' });
+        const r = await dbClient.query(
+            'UPDATE empresas SET rede_id = $1 WHERE id = $2 RETURNING id, rede_id',
+            [rede_id, id]);
+        if (!r.rows[0]) return res.status(404).json({ message: 'Empresa não encontrada.' });
+        await registrarAuditoria(dbClient, req.ator, 'mover_empresa_rede', id, { rede_id });
+        res.json(r.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erro ao associar posto.', error: err.message });
+    } finally {
+        dbClient.release();
+    }
+});
+
+// Mover VÁRIOS postos p/ uma rede de uma vez (atômico). Valida rede existe. Só super.
+app.post('/api/admin/redes/:id/empresas', authMiddleware, enrich, async (req, res) => {
+    if (!soSuper(req, res)) return;
+    const rede_id = parseInt(req.params.id);
+    if (!Number.isInteger(rede_id)) return res.status(400).json({ message: 'Id de rede inválido.' });
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+    if (!ids.length) return res.status(400).json({ message: 'Informe ids[] das empresas.' });
+    const dbClient = await safeConnect(res);
+    if (!dbClient) return;
+    try {
+        const rede = await dbClient.query('SELECT id FROM redes WHERE id = $1', [rede_id]);
+        if (!rede.rows[0]) return res.status(400).json({ message: 'Rede não encontrada.' });
+        await dbClient.query('BEGIN');
+        const r = await dbClient.query(
+            'UPDATE empresas SET rede_id = $1 WHERE id = ANY($2::int[]) RETURNING id',
+            [rede_id, ids]);
+        await dbClient.query('COMMIT');
+        await registrarAuditoria(dbClient, req.ator, 'mover_empresas_lote', rede_id, { ids, movidas: r.rowCount });
+        res.json({ rede_id, movidas: r.rowCount, ids: r.rows.map(x => x.id) });
+    } catch (err) {
+        await safeRollback(dbClient);
+        res.status(500).json({ message: 'Erro ao mover postos.', error: err.message });
     } finally {
         dbClient.release();
     }

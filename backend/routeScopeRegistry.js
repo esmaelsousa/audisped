@@ -51,7 +51,12 @@ const ESCOPO = {
   'PATCH /api/admin/usuarios/:id/desativar': 'self',       // podeGerenciarAlvo checa rede do alvo (§13.7)
   'POST /api/admin/usuarios/:id/reset-senha': 'self',      // idem
   'PATCH /api/admin/usuarios/:id/ativar': 'self',          // idem
-  'GET /api/admin/redes': 'self',                          // só super_admin (dropdown de provisionamento)
+  'GET /api/admin/redes': 'self',                          // super_admin: lista redes + contador de postos/usuários (Console Fase 2)
+  'POST /api/admin/redes': 'self',                         // super_admin: cria rede (guard de papel no handler)
+  'PUT /api/admin/redes/:id': 'self',                      // super_admin: edita rede
+  'DELETE /api/admin/redes/:id': 'self',                   // super_admin: exclui rede só se vazia (409 senão); nunca a default
+  'PATCH /api/admin/empresas/:id/rede': 'self',            // super_admin: associa 1 posto a uma rede (valida rede existe)
+  'POST /api/admin/redes/:id/empresas': 'self',            // super_admin: move postos em lote (atômico)
   'GET /api/admin/demo-leads': 'self',                     // só admin/super (leads são do operador, não de uma rede-cliente)
   'PATCH /api/admin/demo-leads/:id': 'self',               // idem
   'DELETE /api/admin/demo-leads/:id': 'self',              // idem
