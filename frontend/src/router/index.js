@@ -138,7 +138,7 @@ const router = createRouter({
       path: '/leads',
       name: 'leads',
       component: () => import('../views/LeadsView.vue'),
-      meta: { requiresAuth: true, roles: ['super_admin', 'admin'] }
+      meta: { requiresAuth: true, roles: ['super_admin', 'staff'] } // leads = dado do OPERADOR, não de rede-cliente (admin de rede NÃO vê)
     },
     {
       path: '/admin/redes',

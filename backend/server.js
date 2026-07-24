@@ -733,7 +733,7 @@ app.post('/api/demo-lead', async (req, res) => {
 
 // Listar leads do teste grátis (só admin/super) — consumido pela tela "Leads"
 app.get('/api/admin/demo-leads', authMiddleware, enrich, async (req, res) => {
-    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
@@ -749,7 +749,7 @@ app.get('/api/admin/demo-leads', authMiddleware, enrich, async (req, res) => {
 
 // Atualizar as NOTAS de acompanhamento de um lead (só admin/super).
 app.patch('/api/admin/demo-leads/:id', authMiddleware, enrich, async (req, res) => {
-    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ message: 'ID inválido.' });
     const notas = req.body.notas == null ? null : String(req.body.notas).slice(0, 2000);
@@ -769,7 +769,7 @@ app.patch('/api/admin/demo-leads/:id', authMiddleware, enrich, async (req, res) 
 
 // Excluir um lead (só admin/super).
 app.delete('/api/admin/demo-leads/:id', authMiddleware, enrich, async (req, res) => {
-    if (!['super_admin', 'admin'].includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito.' });
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);

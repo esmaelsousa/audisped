@@ -147,7 +147,7 @@ const grupo = 'px-[18px] pb-[2px] pt-[10px] text-[10px] tracking-[.12em] upperca
           <Network :size="15" :stroke-width="1.6" />
           Redes
         </RouterLink>
-        <RouterLink to="/leads" @click="nav" :class="linkBase" :active-class="linkActive">
+        <RouterLink v-if="isSuper" to="/leads" @click="nav" :class="linkBase" :active-class="linkActive">
           <Sparkles :size="15" :stroke-width="1.6" />
           Leads
         </RouterLink>
