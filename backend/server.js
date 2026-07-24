@@ -3,6 +3,8 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
@@ -34,8 +36,22 @@ const uploadXml = multer({ dest: xmlUploadDir });
 const app = express();
 const PORT = process.env.PORT || 15435;
 
+// Atrás do Caddy (1 hop): confia no X-Forwarded-For para req.ip. SEM isso, o rate-limit de
+// auth contaria todos os usuários como o IP do proxy (limite global compartilhado) → 429 p/ logins legítimos.
+app.set('trust proxy', 1);
+
+app.use(helmet({ contentSecurityPolicy: false, referrerPolicy: { policy: 'no-referrer' } })); // V12: headers de segurança (CSP off — API não serve HTML)
 app.use(cors());
 app.use(express.json());
+
+// Rate-limit de autenticação (V9): freia brute-force/credential-stuffing e DoS de CPU no bcrypt (single-thread).
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Muitas tentativas. Tente novamente em alguns minutos.' },
+});
 
 // --- ENDPOINT DE STREAMING DE LOGS (SSE) ---
 // GET /api/logs/stream — SSE do feed de logs. MOVIDO para depois do enrich global (Fase 1):
@@ -208,7 +224,7 @@ app.get('/api/logs/stream', (req, res) => {
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 // Cadastro público DESATIVADO (§13.3): provisionamento é só via POST /api/admin/usuarios (com clamp).
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', authLimiter, (req, res) => {
     res.status(410).json({ message: 'Cadastro público desativado. Use POST /api/admin/usuarios (admin/super).' });
 });
 
@@ -256,7 +272,7 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, senha } = req.body;
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
@@ -11267,6 +11283,22 @@ app.post('/api/cte-injector/inject', authMiddleware, demoPaywall, uploadXml.arra
 
 // Módulo EFD-Contribuições (isolado) — ver PLANO_INJETOR_XML_CONTRIBUICOES.md
 app.use('/api/contribuicoes', require('./routes/contribuicoesRouter')(pool, authMiddleware));
+
+// --- ERROR-HANDLER GLOBAL (V13) ---
+// Captura erros fora de try/catch (ex.: MulterError disparado pelo middleware de upload antes do
+// handler) e normaliza a resposta, evitando vazar stack trace/caminhos internos ao cliente.
+// Stack só é logada; err.message cru NUNCA é exposto em 500 fora de produção.
+app.use((err, req, res, next) => {
+    logger.error(`[UNHANDLED ${req.method} ${req.path}] ${err && err.message}`, { stack: err && err.stack });
+    if (res.headersSent) return next(err);
+    if (err instanceof multer.MulterError) {
+        return res.status(413).json({ message: 'Arquivo muito grande ou upload inválido (excede o limite permitido).' });
+    }
+    const status = err && err.status ? err.status : 500;
+    const corpo = { message: status === 500 ? 'Erro interno. Contate o suporte.' : (err.message || 'Erro na requisição.') };
+    if (status === 500 && process.env.NODE_ENV !== 'production') corpo.error = err.message;
+    res.status(status).json(corpo);
+});
 
 // Inicia o servidor
 app.listen(PORT, '0.0.0.0', () => {
