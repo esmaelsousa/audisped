@@ -62,9 +62,10 @@ const ESCOPO = {
   'DELETE /api/admin/demo-leads/:id': 'self',              // idem
 
   // ===================== global (SEM dado de tenant) =====================
-  // cad_cfops é tabela de REFERÊNCIA compartilhada (sem coluna de tenant). Escrita por qualquer
-  // usuário autenticado é poder de config compartilhada (como regras_fiscais), NÃO um IDOR entre
-  // redes (o dado não pertence a nenhuma rede). Hardening dessa escrita é fora do escopo de isolamento.
+  // cad_cfops é tabela de REFERÊNCIA compartilhada (sem coluna de tenant) → NÃO é IDOR entre redes.
+  // Leitura fica aberta a qualquer autenticado; a ESCRITA (POST/PUT/DELETE) é gateada no handler
+  // para papel INTERNO (super_admin/staff) — catálogo compartilhado só o operador edita (Fase 2).
+  // Classificação segue 'global' (sem dado de tenant; o gate é de papel, não de scopeRede).
   'GET /api/cfops': 'global',
   'POST /api/cfops': 'global',
   'PUT /api/cfops/:id': 'global',
@@ -73,14 +74,18 @@ const ESCOPO = {
   'GET /api/validador/catalogo': 'global',
   // Sugestões de CEST a partir da tabela `cest` (referência fiscal nacional, sem tenant).
   'GET /api/validador/cest-sugeridos': 'global',
-  // Motor de regras fiscais: `regras_fiscais` é GLOBAL (id_empresa pode ser NULL) e ALIMENTA o
-  // export. O plano é explícito: NUNCA escopar por rede (Global Constraints). CRUD + simulador.
-  'GET /api/regras-fiscais': 'global',
-  'POST /api/regras-fiscais': 'global',
-  'PUT /api/regras-fiscais/:id': 'global',
-  'PATCH /api/regras-fiscais/:id/ativar': 'global',
-  'POST /api/regras-fiscais/:id/duplicar': 'global',
-  'DELETE /api/regras-fiscais/:id': 'global',
+  // Motor de regras fiscais: `regras_fiscais` mistura regras GLOBAIS (id_empresa NULL) com regras
+  // POR-EMPRESA (id_empresa/cnpj_emissor). O CRUD é auto-guardado no handler pela identidade do ator
+  // (Fase 2): LEITURA filtra global + regras da rede do ator (interno vê tudo); ESCRITA (POST/PUT/
+  // PATCH/duplicar/DELETE) exige papel INTERNO (super_admin/staff) — a config fiscal é do OPERADOR.
+  // Logo 'self' (guarda por lógica no handler), NÃO 'global' (scopeRede não se aplica).
+  'GET /api/regras-fiscais': 'self',
+  'POST /api/regras-fiscais': 'self',
+  'PUT /api/regras-fiscais/:id': 'self',
+  'PATCH /api/regras-fiscais/:id/ativar': 'self',
+  'POST /api/regras-fiscais/:id/duplicar': 'self',
+  'DELETE /api/regras-fiscais/:id': 'self',
+  // Simulador: aplica o motor a um item de exemplo, sem persistir e sem devolver dado de tenant.
   'POST /api/regras-fiscais/simular': 'global',
   // CT-e analyze: analyzeOnly — só parseia os XMLs ENVIADOS e devolve preview; cteInjectorService
   // só lê/grava o banco quando !analyzeOnly (audit do master). idEmpresa é ignorado no caminho de

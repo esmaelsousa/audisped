@@ -114,7 +114,11 @@ function releaseHeavySlot() {
     }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('[FATAL] JWT_SECRET não definido no ambiente. Configure JWT_SECRET no .env antes de iniciar o servidor.');
+    process.exit(1);
+}
 
 // --- MIDDLEWARE DE AUTENTICAÇÃO ---
 const authMiddleware = (req, res, next) => {
@@ -801,6 +805,8 @@ app.get('/api/cfops', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/cfops', authMiddleware, async (req, res) => {
+    // Catálogo CFOP é compartilhado (sem tenant): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     const { codigo, descricao, tipo = 'entrada' } = req.body;
     if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
 
@@ -819,6 +825,8 @@ app.post('/api/cfops', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/cfops/:id', authMiddleware, async (req, res) => {
+    // Catálogo CFOP é compartilhado (sem tenant): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     const { codigo, descricao, tipo } = req.body;
     if (!codigo) return res.status(400).json({ message: 'Código do CFOP é obrigatório.' });
     const dbClient = await safeConnect(res);
@@ -839,6 +847,8 @@ app.put('/api/cfops/:id', authMiddleware, async (req, res) => {
 });
 
 app.delete('/api/cfops/:id', authMiddleware, async (req, res) => {
+    // Catálogo CFOP é compartilhado (sem tenant): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
@@ -7526,28 +7536,48 @@ app.post('/api/corrigir-item', authMiddleware, scopeRede(pool, 'item'), async (r
 
     if (!tipo || !id_item || !novos_valores) return res.status(400).send({ message: "Dados incompletos." });
 
+    // --- WHITELIST DE COLUNAS (anti-SQLi por nome de coluna) ---
+    // Cada bloco só pode atualizar colunas reais e editáveis da respectiva tabela.
+    // Chaves de/PK/FK (id, id_sped_arquivo, id_documento_c100) ficam de fora de propósito.
+    const CORRIGIR_ITEM_WHITELIST = {
+        C170: {
+            tabela: 'documentos_itens_c170',
+            colunas: new Set(['cod_item', 'num_item', 'qtd', 'unid', 'vl_item', 'cst_icms', 'cfop', 'cst_pis', 'cst_cofins'])
+        },
+        C100: {
+            tabela: 'documentos_c100',
+            colunas: new Set(['num_doc', 'cod_mod', 'cod_sit', 'dt_doc', 'dt_e_s', 'vl_doc', 'cod_part', 'chv_nfe', 'ind_oper', 'vl_doc_ajustado'])
+        },
+        C190: {
+            tabela: 'documentos_c190',
+            colunas: new Set(['cst_icms', 'cfop', 'aliq_icms', 'vl_opr', 'vl_bc_icms', 'vl_icms', 'vl_opr_ajustado', 'vl_bc_icms_ajustado', 'vl_icms_ajustado'])
+        },
+        LMC: {
+            tabela: 'lmc_movimentacao',
+            colunas: new Set(['cod_item', 'num_tanque', 'data_mov', 'estq_abert', 'vol_entr', 'vol_saidas', 'estq_escr', 'fech_fisico', 'cap_tanque', 'vol_saidas_ajustado', 'fech_fisico_ajustado', 'val_perda', 'val_ganho', 'val_perda_ajustado', 'val_ganho_ajustado', 'estq_abert_ajustado', 'vol_escr_ajustado', 'vol_entr_ajustado'])
+        }
+    };
+
+    const alvo = CORRIGIR_ITEM_WHITELIST[tipo];
+    if (!alvo) return res.status(400).send({ message: `Tipo inválido: ${tipo}` });
+
+    const keys = Object.keys(novos_valores);
+    if (keys.length === 0) return res.status(400).send({ message: "Nenhum campo para atualizar." });
+
+    const invalidas = keys.filter(k => !alvo.colunas.has(k));
+    if (invalidas.length > 0) {
+        logger.warn(`[SECURITY] /api/corrigir-item rejeitou coluna(s) fora da whitelist (${tipo}): ${invalidas.join(', ')}`);
+        return res.status(400).send({ message: `Coluna(s) não permitida(s) para ${tipo}: ${invalidas.join(', ')}` });
+    }
+
     const dbClient = await safeConnect(res);
     if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
 
-        if (tipo === 'C170') {
-            const fields = Object.keys(novos_valores).map((key, i) => `${key} = $${i + 2}`).join(', ');
-            const values = Object.values(novos_valores);
-            await dbClient.query(`UPDATE documentos_itens_c170 SET ${fields} WHERE id = $1`, [id_item, ...values]);
-        } else if (tipo === 'C100') {
-            const fields = Object.keys(novos_valores).map((key, i) => `${key} = $${i + 2}`).join(', ');
-            const values = Object.values(novos_valores);
-            await dbClient.query(`UPDATE documentos_c100 SET ${fields} WHERE id = $1`, [id_item, ...values]);
-        } else if (tipo === 'C190') {
-            const fields = Object.keys(novos_valores).map((key, i) => `${key} = $${i + 2}`).join(', ');
-            const values = Object.values(novos_valores);
-            await dbClient.query(`UPDATE documentos_c190 SET ${fields} WHERE id = $1`, [id_item, ...values]);
-        } else if (tipo === 'LMC') {
-            const fields = Object.keys(novos_valores).map((key, i) => `${key} = $${i + 2}`).join(', ');
-            const values = Object.values(novos_valores);
-            await dbClient.query(`UPDATE lmc_movimentacao SET ${fields} WHERE id = $1`, [id_item, ...values]);
-        }
+        const fields = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
+        const values = keys.map(k => novos_valores[k]);
+        await dbClient.query(`UPDATE ${alvo.tabela} SET ${fields} WHERE id = $1`, [id_item, ...values]);
 
         await dbClient.query('COMMIT');
         logger.info(`Item ${id_item} (${tipo}) corrigido com sucesso.`);
@@ -10835,6 +10865,13 @@ app.get('/api/regras-fiscais', authMiddleware, async (req, res) => {
         const p = [];
         if (ativo === 'true' || ativo === 'false') { p.push(ativo === 'true'); q += ` AND ativo = $${p.length}`; }
         if (escopo) { p.push(escopo); q += ` AND escopo_aplicacao = $${p.length}`; }
+        // Isolamento por rede (Fase 2): time interno vê TODAS; demais veem só as GLOBAIS
+        // (id_empresa IS NULL) + as regras por-empresa cujas empresas pertencem à SUA rede.
+        // NÃO vaza regra por-empresa de outra rede.
+        if (!ROLES_INTERNOS.includes(req.ator?.role)) {
+            p.push(req.ator?.rede_id ?? null);
+            q += ` AND (id_empresa IS NULL OR id_empresa IN (SELECT id FROM empresas WHERE rede_id = $${p.length}))`;
+        }
         q += ' ORDER BY prioridade ASC, id ASC';
         const { rows } = await pool.query(q, p);
         res.status(200).json(rows);
@@ -10845,6 +10882,8 @@ app.get('/api/regras-fiscais', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/regras-fiscais', authMiddleware, async (req, res) => {
+    // Config fiscal é do OPERADOR (global): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     try {
         await regrasFiscais.ensureTabelasRegras(pool);
         if (!req.body.nome) return res.status(400).json({ message: 'Nome é obrigatório.' });
@@ -10860,6 +10899,8 @@ app.post('/api/regras-fiscais', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/regras-fiscais/:id', authMiddleware, async (req, res) => {
+    // Config fiscal é do OPERADOR (global): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     try {
         const { cols, vals } = montarRegra(req.body);
         if (!cols.length) return res.status(400).json({ message: 'Nada para atualizar.' });
@@ -10876,6 +10917,8 @@ app.put('/api/regras-fiscais/:id', authMiddleware, async (req, res) => {
 });
 
 app.patch('/api/regras-fiscais/:id/ativar', authMiddleware, async (req, res) => {
+    // Config fiscal é do OPERADOR (global): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     try {
         const { rows } = await pool.query('UPDATE regras_fiscais SET ativo = NOT ativo, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *', [req.params.id]);
         if (!rows.length) return res.status(404).json({ message: 'Regra não encontrada.' });
@@ -10887,6 +10930,8 @@ app.patch('/api/regras-fiscais/:id/ativar', authMiddleware, async (req, res) => 
 });
 
 app.post('/api/regras-fiscais/:id/duplicar', authMiddleware, async (req, res) => {
+    // Config fiscal é do OPERADOR (global): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     try {
         const orig = await pool.query('SELECT * FROM regras_fiscais WHERE id = $1', [req.params.id]);
         if (!orig.rows.length) return res.status(404).json({ message: 'Regra não encontrada.' });
@@ -10903,6 +10948,8 @@ app.post('/api/regras-fiscais/:id/duplicar', authMiddleware, async (req, res) =>
 });
 
 app.delete('/api/regras-fiscais/:id', authMiddleware, async (req, res) => {
+    // Config fiscal é do OPERADOR (global): só time interno escreve (Fase 2).
+    if (!ROLES_INTERNOS.includes(req.ator?.role)) return res.status(403).json({ message: 'Acesso restrito ao time interno.' });
     try {
         const { rowCount } = await pool.query('DELETE FROM regras_fiscais WHERE id = $1', [req.params.id]);
         if (!rowCount) return res.status(404).json({ message: 'Regra não encontrada.' });
