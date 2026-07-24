@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
-const SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) { console.error('[FATAL] JWT_SECRET não definido no ambiente.'); process.exit(1); }
 const TOKEN = jwt.sign({ id: 1, nome: 'admin', email: 'admin@audisped.com' }, SECRET, { expiresIn: '24h' });
 
 const IDS = [1326,1327,1328,1330,1331,1332,1333,1334,1520,1336,1337,1338,1340,1341,1343,1344,1345,1346,1347,1396,1397,1398,1399,1400,1401,1402,1403,1407,1408,1410,1411,1412,1413,1414,1415,1416,1417,1418,1419,1420,1421,1422,1423,1430,1431,1432,1433,1434,1435,1436,1437,1438,1439,1440,1441,1442,1443,1444,1445,1446];

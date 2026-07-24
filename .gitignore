@@ -78,3 +78,8 @@ docs/mysql/
 docs/sped_*.txt
 docs/*PISCOFINS*.txt
 speds/
+
+# backups locais (podem conter segredos)
+*.bkp
+*.bkp_*
+*.bak-*

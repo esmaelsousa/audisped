@@ -20,7 +20,8 @@
 const http = require('http');
 const jwt = require('jsonwebtoken');
 
-const SECRET = process.env.JWT_SECRET || 'audisped-safira-token-secret-2025';
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) { console.error('[FATAL] JWT_SECRET não definido no ambiente.'); process.exit(1); }
 const TOKEN = jwt.sign({ id: 1, nome: 'admin', email: 'admin@audisped.com' }, SECRET, { expiresIn: '24h' });
 const HOST = 'localhost';
 const PORT = process.env.PORT || 15435;
