@@ -222,6 +222,79 @@ t('emailReservado: sys@local e não-endereços são reservados; email normal é 
     assert.equal(rede, null);
   });
 
+  // ================= RESOLVERS INDIRETOS (Onda 3) =================
+  // depara: DELETE /api/de-para/:id — de_para_xml.id → id_empresa → rede.
+  await ta('redeDoRecurso depara: de_para_xml.id → rede da empresa dona', async () => {
+    const rede = await redeDoRecurso(poolMap({ '31': 6 }), 'depara', { params:{ id:'31' } });
+    assert.equal(rede, 6);
+  });
+  await ta('redeDoRecurso depara inexistente → null (fail-closed)', async () => {
+    const rede = await redeDoRecurso(poolMap({}), 'depara', { params:{ id:'999' } });
+    assert.equal(rede, null);
+  });
+  await ta('scopeRede depara: ator de outra rede → 403 (não 404 fantasma)', async () => {
+    const mw = scopeRede(poolMap({ '31':6 }), 'depara');
+    let code=null,called=false; const res={status(c){code=c;return this;},json(){return this;}};
+    await mw({ator:{role:'admin',rede_id:2}, user:{email:'a@b'}, params:{id:'31'}}, res, ()=>{called=true;});
+    assert.equal(code, 403); assert.equal(called, false);
+  });
+  await ta('scopeRede depara: ator dono → next()', async () => {
+    const mw = scopeRede(poolMap({ '31':6 }), 'depara');
+    let code=null,called=false; const res={status(c){code=c;return this;},json(){return this;}};
+    await mw({ator:{role:'admin',rede_id:6}, user:{email:'a@b'}, params:{id:'31'}}, res, ()=>{called=true;});
+    assert.equal(called, true); assert.equal(code, null);
+  });
+
+  // correcao: DELETE /api/validador/correcoes/:idCorrecao — val_correcoes.id → arquivo → empresa → rede.
+  await ta('redeDoRecurso correcao: val_correcoes.id → rede (via :idCorrecao)', async () => {
+    const rede = await redeDoRecurso(poolMap({ '88': 3 }), 'correcao', { params:{ idCorrecao:'88' } });
+    assert.equal(rede, 3);
+  });
+  await ta('redeDoRecurso correcao inexistente → null (fail-closed)', async () => {
+    const rede = await redeDoRecurso(poolMap({}), 'correcao', { params:{ idCorrecao:'999' } });
+    assert.equal(rede, null);
+  });
+  await ta('scopeRede correcao: ator de outra rede → 403', async () => {
+    const mw = scopeRede(poolMap({ '88':3 }), 'correcao');
+    let code=null,called=false; const res={status(c){code=c;return this;},json(){return this;}};
+    await mw({ator:{role:'admin',rede_id:9}, user:{email:'a@b'}, params:{idCorrecao:'88'}}, res, ()=>{called=true;});
+    assert.equal(code, 403); assert.equal(called, false);
+  });
+
+  // item: POST /api/corrigir-item — corpo { tipo, id_item }; tabela por tipo → rede.
+  await ta('redeDoRecurso item C170: id_item → rede (via documento → arquivo → empresa)', async () => {
+    const rede = await redeDoRecurso(poolMap({ '100': 5 }), 'item', { body:{ tipo:'C170', id_item:100 } });
+    assert.equal(rede, 5);
+  });
+  await ta('redeDoRecurso item LMC: id_item → rede', async () => {
+    const rede = await redeDoRecurso(poolMap({ '200': 8 }), 'item', { body:{ tipo:'LMC', id_item:200 } });
+    assert.equal(rede, 8);
+  });
+  await ta('redeDoRecurso item sem tipo → undefined (400 recurso não identificado)', async () => {
+    const rede = await redeDoRecurso(poolMap({ '100':5 }), 'item', { body:{ id_item:100 } });
+    assert.equal(rede, undefined);
+  });
+  await ta('redeDoRecurso item tipo desconhecido → null (fail-closed)', async () => {
+    const rede = await redeDoRecurso(poolMap({ '100':5 }), 'item', { body:{ tipo:'ZZZ', id_item:100 } });
+    assert.equal(rede, null);
+  });
+  await ta('redeDoRecurso item inexistente → null (fail-closed)', async () => {
+    const rede = await redeDoRecurso(poolMap({}), 'item', { body:{ tipo:'C100', id_item:999 } });
+    assert.equal(rede, null);
+  });
+  await ta('scopeRede item: ator de outra rede → 403', async () => {
+    const mw = scopeRede(poolMap({ '100':5 }), 'item');
+    let code=null,called=false; const res={status(c){code=c;return this;},json(){return this;}};
+    await mw({ator:{role:'admin',rede_id:1}, user:{email:'a@b'}, body:{tipo:'C170', id_item:100}, params:{}}, res, ()=>{called=true;});
+    assert.equal(code, 403); assert.equal(called, false);
+  });
+  await ta('scopeRede item: ator dono → next()', async () => {
+    const mw = scopeRede(poolMap({ '100':5 }), 'item');
+    let code=null,called=false; const res={status(c){code=c;return this;},json(){return this;}};
+    await mw({ator:{role:'admin',rede_id:5}, user:{email:'a@b'}, body:{tipo:'C170', id_item:100}, params:{}}, res, ()=>{called=true;});
+    assert.equal(called, true); assert.equal(code, null);
+  });
+
   console.log(`\nscoperede-unit: ${pass} passaram, ${fail} falharam`);
   if (fail) { fails.forEach(f=>console.log('  ✗ '+f)); process.exit(1); }
 })();

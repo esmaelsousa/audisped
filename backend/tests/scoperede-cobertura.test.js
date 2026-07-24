@@ -11,7 +11,14 @@
 const { chaves } = require('../routeInventory');
 const { PUBLICAS, ESCOPO } = require('../routeScopeRegistry');
 
-const VARIANTES = new Set(['empresa', 'sped', 'contrib', 'chave', 'cnpj', 'lista', 'global', 'self', 'write']);
+const VARIANTES = new Set([
+  'empresa', 'sped', 'contrib', 'chave', 'cnpj', 'lista', 'global', 'self', 'write',
+  // resolvers INDIRETOS (Onda 3): o :param/corpo é id de um registro-filho, resolvido subindo
+  // a cadeia real até empresas.rede_id (ver backend/scopeRede.js).
+  'depara',   // de_para_xml.id  → id_empresa → rede
+  'correcao', // val_correcoes.id → id_sped_arquivo → arquivo → empresa → rede
+  'item',     // corrigir-item { tipo, id_item } → documento/lmc → arquivo → empresa → rede
+]);
 
 const rotas = chaves();
 const soApi = rotas.filter(r => r.split(' ')[1].startsWith('/api/'));

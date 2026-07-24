@@ -106,7 +106,7 @@ const ESCOPO = {
   'POST /api/conciliacao/sefaz-live': 'empresa',           // corpo: id_empresa (lê mde_cache/c100 da empresa)
   'GET /api/de-para': 'empresa',                           // query: id_empresa/cnpj (Task 5 força o filtro)
   'POST /api/de-para': 'empresa',                          // corpo: id_empresa (upsert de_para_xml)
-  'DELETE /api/de-para/:id': 'empresa',                    // indireto: de_para_xml.id → id_empresa → rede
+  'DELETE /api/de-para/:id': 'depara',                     // INDIRETO: de_para_xml.id → id_empresa → empresas.rede_id
   'POST /api/mde/check-sped': 'empresa',                   // corpo: id_empresa
   'POST /api/mde/sync-missing': 'empresa',                 // corpo: id_empresa
 
@@ -149,7 +149,7 @@ const ESCOPO = {
   'POST /api/validador/corrigir-lote/:id': 'sped',
   'DELETE /api/validador/corrigir-lote/:id/:loteId': 'sped',
   'GET /api/validador/correcoes/:id': 'sped',
-  'DELETE /api/validador/correcoes/:idCorrecao': 'sped',   // indireto: val_correcoes.id → id_sped_arquivo
+  'DELETE /api/validador/correcoes/:idCorrecao': 'correcao', // INDIRETO: val_correcoes.id → id_sped_arquivo → arquivo → empresa → rede
   'POST /api/validador/revalidar/:id': 'sped',
   'GET /api/validador/alteracoes/:id': 'sped',
   'POST /api/validador/skip': 'sped',                      // corpo: id_sped_arquivo
@@ -159,9 +159,10 @@ const ESCOPO = {
   'GET /api/resumo/participante/:id_arquivo': 'sped',
   'GET /api/relatorio/dossie/:id': 'sped',
   'GET /api/relatorio/excel/:id': 'sped',
-  // ⚠️ corpo: id_item (id de linha C170/C100/C190/LMC) — indireto: documento → id_sped_arquivo → rede.
+  // ⚠️ corpo: { tipo, id_item } (id de linha C170/C100/C190/LMC) — INDIRETO: a tabela depende de
+  //    `tipo`; cada linha sobe documento → id_sped_arquivo → empresa → rede (resolver dedicado 'item').
   //    Master V14: além do IDOR, monta UPDATE com nomes de coluna vindos do corpo (risco de SQLi).
-  'POST /api/corrigir-item': 'sped',
+  'POST /api/corrigir-item': 'item',
   'POST /api/corrigir-massa': 'sped',                      // corpo: id_arquivo
   'POST /api/lmc/ajustar-cascata': 'sped',                 // corpo: id_sped
   'POST /api/lmc/ajustar': 'sped',                         // corpo: id_sped

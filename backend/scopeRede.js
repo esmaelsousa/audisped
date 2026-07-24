@@ -46,7 +46,46 @@ const CAMPOS_ID = {
   // contrib → arquivo EFD-Contribuições (tabela PRÓPRIA efd_contrib_arquivos, NÃO sped_arquivos).
   // Usado só por GET /api/contribuicoes/exportar/:id (o IDOR cross-tenant real do módulo).
   contrib: ['id'],
+  // --- resolvers INDIRETOS: o :param/corpo NÃO é uma empresa/arquivo direto; é o id de um
+  //     registro-filho que só chega à rede subindo a cadeia real (Fase 1, Onda 3). Tratá-los como
+  //     id DIRETO (empresa/sped) resolveria a rede errada e daria 404 fail-closed p/ dono legítimo.
+  //   depara   → de_para_xml.id           → id_empresa            → empresas.rede_id
+  //   correcao → val_correcoes.id          → id_sped_arquivo       → sped_arquivos → empresa → rede
+  depara:   ['id'],
+  correcao: ['idCorrecao', 'id'],
+  // item → corpo { tipo, id_item }: a TABELA depende de `tipo` (C170/C100/C190/LMC), então este
+  //   tipo é resolvido por caminho DEDICADO em redeDoRecurso (não pelo loop genérico de CAMPOS_ID).
+  item:     ['id_item'],
 };
+
+// SQL por 'tipo' de item de POST /api/corrigir-item. Cada linha-alvo sobe até empresas.rede_id.
+// C170/C190 dependem de documentos_c100 (id_documento_c100 → id_sped_arquivo). C100/LMC já têm
+// id_sped_arquivo direto. tipo desconhecido → sem SQL → fail-closed (null).
+const SQL_ITEM_REDE = {
+  C170: `SELECT e.rede_id FROM documentos_itens_c170 i
+           JOIN documentos_c100 c ON c.id = i.id_documento_c100
+           JOIN sped_arquivos s ON s.id = c.id_sped_arquivo
+           JOIN empresas e ON e.id = s.id_empresa WHERE i.id = $1`,
+  C100: `SELECT e.rede_id FROM documentos_c100 c
+           JOIN sped_arquivos s ON s.id = c.id_sped_arquivo
+           JOIN empresas e ON e.id = s.id_empresa WHERE c.id = $1`,
+  C190: `SELECT e.rede_id FROM documentos_c190 x
+           JOIN documentos_c100 c ON c.id = x.id_documento_c100
+           JOIN sped_arquivos s ON s.id = c.id_sped_arquivo
+           JOIN empresas e ON e.id = s.id_empresa WHERE x.id = $1`,
+  LMC:  `SELECT e.rede_id FROM lmc_movimentacao m
+           JOIN sped_arquivos s ON s.id = m.id_sped_arquivo
+           JOIN empresas e ON e.id = s.id_empresa WHERE m.id = $1`,
+};
+
+// Resolve a rede dona de UM item de corrigir-item, escolhendo a tabela por `tipoItem`.
+// Retorna número (rede), ou null quando não existe / tipo desconhecido → fail-closed.
+async function resolverItemRede(pool, tipoItem, rawId) {
+  const sql = SQL_ITEM_REDE[tipoItem];
+  if (!sql || rawId == null) return null;
+  const r = await pool.query(sql, [rawId]);
+  return r.rows.length ? r.rows[0].rede_id : null;
+}
 
 // SQL que liga uma chave de NF-e à(s) rede(s) dona(s). A chave só tem vínculo de tenant por
 // onde ela foi ESCRITURADA/CACHEADA: mde_cache.id_empresa, espiao_nfe_cache.id_empresa, ou
@@ -108,6 +147,18 @@ async function resolverUmId(pool, tipo, rawId) {
       `SELECT e.rede_id FROM sped_arquivos s JOIN empresas e ON e.id = s.id_empresa WHERE s.id = $1`, [rawId]);
     return r.rows.length ? r.rows[0].rede_id : null;
   }
+  if (tipo === 'depara') { // de_para_xml.id → empresa → rede (indireto)
+    const r = await pool.query(
+      `SELECT e.rede_id FROM de_para_xml d JOIN empresas e ON e.id = d.id_empresa WHERE d.id = $1`, [rawId]);
+    return r.rows.length ? r.rows[0].rede_id : null;
+  }
+  if (tipo === 'correcao') { // val_correcoes.id → id_sped_arquivo → arquivo → empresa → rede (indireto)
+    const r = await pool.query(
+      `SELECT e.rede_id FROM val_correcoes v
+         JOIN sped_arquivos s ON s.id = v.id_sped_arquivo
+         JOIN empresas e ON e.id = s.id_empresa WHERE v.id = $1`, [rawId]);
+    return r.rows.length ? r.rows[0].rede_id : null;
+  }
   if (tipo === 'contrib') { // arquivo EFD-Contribuições → empresa → rede
     // efd_contrib_arquivos é tabela distinta de sped_arquivos (id-space próprio) → resolver
     // dedicado. id_empresa PODE ser NULL (upload sem empresa): o JOIN não casa → null (404,
@@ -142,6 +193,13 @@ async function resolverUmId(pool, tipo, rawId) {
 // Multi-id: se QUALQUER id não existir → null; se os ids abrangerem redes diferentes → null.
 // Só devolve uma rede quando TODOS os ids concordam numa única rede.
 async function redeDoRecurso(pool, tipo, req) {
+  if (tipo === 'item') { // POST /api/corrigir-item: corpo { tipo, id_item } → tabela por tipo → rede
+    const body = req.body || {};
+    const tipoItem = body.tipo;
+    const idItem = body.id_item;
+    if (idItem == null || !tipoItem) return undefined; // sem id/tipo identificável → 400
+    return await resolverItemRede(pool, tipoItem, idItem); // número | null (fail-closed)
+  }
   const campos = CAMPOS_ID[tipo];
   if (!campos) throw new Error(`scopeRede: tipo desconhecido '${tipo}'`);
   const ids = coletarIds(req, campos);
@@ -172,6 +230,6 @@ function scopeRede(pool, tipo) {
 
 module.exports = {
   ehBypass, redeDoRecurso, scopeRede, emailReservado,
-  coletarIds, resolverUmId, CAMPOS_ID,
+  coletarIds, resolverUmId, resolverItemRede, CAMPOS_ID,
   SVC_CLAIM, EMAIL_SERVICO_LEGADO,
 };

@@ -11,7 +11,7 @@ const { parseContribuicoes, salvarArquivo, exportarArquivo } = require('../servi
 // Fase 1 (isolamento por rede): o export deste módulo era um IDOR cross-tenant real
 // (exportarArquivo faz SELECT ... WHERE id=$1 sem filtro de rede). scopeRede('sped') resolve
 // efd_contrib_arquivos.id → id_empresa → empresas.rede_id e barra ator de outra rede (403).
-const { scopeRede } = require('../scopeRede');
+const { scopeRede, ehBypass } = require('../scopeRede');
 
 module.exports = (pool, authMiddleware) => {
   const router = express.Router();
@@ -25,8 +25,35 @@ module.exports = (pool, authMiddleware) => {
       const txt = req.file.buffer.toString('latin1'); // preserva bytes (latin-1)
       const parsed = parseContribuicoes(txt);
       const sha = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+
+      // --- WRITE-PATH (Fase 1): o arquivo nasce amarrado à rede do ator via id_empresa ---
+      //   id_empresa informado → tem que ser da rede do ator (senão 403; sem isso, Rede B escreveria
+      //     sob a empresa da Rede A e depois exportaria o dado dela via /exportar/:id).
+      //   sem id_empresa → tenta casar a empresa da PRÓPRIA rede pelo CNPJ do arquivo (binding do export).
+      //   super_admin/staff (bypass) → operam livre (id_empresa como veio; pode ser null).
+      const bypass = ehBypass(req.ator, req.user);
+      const atorRede = (req.ator && req.ator.rede_id != null) ? req.ator.rede_id : null;
+      let idEmpresa = req.body.id_empresa || null;
+      if (!bypass) {
+        if (atorRede == null) return res.status(403).json({ message: 'Sessão sem rede definida.' });
+        if (idEmpresa != null) {
+          const r = await pool.query('SELECT rede_id FROM empresas WHERE id = $1', [idEmpresa]);
+          const redeDona = r.rows.length ? r.rows[0].rede_id : null;
+          if (redeDona == null || redeDona !== atorRede)
+            return res.status(403).json({ message: 'Empresa informada não pertence à sua rede.' });
+        } else {
+          const cnpj = parsed.meta && parsed.meta.cnpj ? String(parsed.meta.cnpj).replace(/\D/g, '') : null;
+          if (cnpj) {
+            const r = await pool.query(
+              "SELECT id FROM empresas WHERE regexp_replace(cnpj,'[^0-9]','','g') = $1 AND rede_id = $2",
+              [cnpj, atorRede]);
+            if (r.rows.length === 1) idEmpresa = r.rows[0].id;
+          }
+        }
+      }
+
       const id = await salvarArquivo(pool, {
-        id_empresa: req.body.id_empresa || null,
+        id_empresa: idEmpresa,
         nome_original: req.file.originalname,
         parsed,
         sha256: sha,

@@ -925,26 +925,55 @@ app.post('/api/upload', authMiddleware, upload.single('spedfile'), async (req, r
         logger.info(`Passo 2: Arquivo analisado. Iniciando transação...`);
         await dbClient.query('BEGIN');
 
-        // --- LÓGICA MULTI-EMPRESA ---
+        // --- LÓGICA MULTI-EMPRESA (WRITE-PATH Fase 1: empresa amarrada à rede do ator) ---
+        // empresas.cnpj é ÚNICO global → um CNPJ pertence a EXATAMENTE uma rede. Um admin/escritorio
+        // de outra rede NÃO pode subir SPED para um CNPJ de terceiros (senão a dedup abaixo apagaria a
+        // escrituração da rede dona). super_admin/staff (bypass) seguem operando em qualquer rede.
         logger.info(`Passo 2.1: Verificando/Criando empresa (CNPJ: ${fileInfo.cnpj_empresa})`);
-        const empresaQuery = `
-            INSERT INTO empresas (cnpj, nome_empresa, nome_fantasia, uf) 
-            VALUES ($1, $2, $3, $4) 
-            ON CONFLICT (cnpj) 
-            DO UPDATE SET 
-                nome_empresa = EXCLUDED.nome_empresa,
-                nome_fantasia = COALESCE(EXCLUDED.nome_fantasia, empresas.nome_fantasia)
-            RETURNING id;
-        `;
-        const empresaResult = await dbClient.query(empresaQuery, [fileInfo.cnpj_empresa, fileInfo.nome_empresa, fileInfo.nome_fantasia, fileInfo.uf]);
-        const id_empresa = empresaResult.rows[0].id;
+        const bypassUp = ehBypass(req.ator, req.user);
+        const atorRedeUp = (req.ator && req.ator.rede_id != null) ? req.ator.rede_id : null;
+        let id_empresa;
+        const existEmp = await dbClient.query('SELECT id, rede_id FROM empresas WHERE cnpj = $1', [fileInfo.cnpj_empresa]);
+        if (existEmp.rows.length > 0) {
+            id_empresa = existEmp.rows[0].id;
+            const redeDona = existEmp.rows[0].rede_id;
+            if (!bypassUp && redeDona !== atorRedeUp) {
+                await safeRollback(dbClient);
+                return res.status(403).send({ message: 'Este CNPJ pertence a outra rede.' });
+            }
+            await dbClient.query(
+                `UPDATE empresas SET nome_empresa = $2,
+                    nome_fantasia = COALESCE($3, nome_fantasia), uf = COALESCE($4, uf) WHERE id = $1`,
+                [id_empresa, fileInfo.nome_empresa, fileInfo.nome_fantasia, fileInfo.uf]);
+        } else {
+            let redeNova;
+            if (bypassUp) {
+                redeNova = atorRedeUp;
+                if (redeNova == null) {
+                    const dflt = await dbClient.query("SELECT id FROM redes WHERE nome='default' LIMIT 1");
+                    redeNova = dflt.rows.length ? dflt.rows[0].id : null;
+                }
+            } else {
+                if (atorRedeUp == null) {
+                    await safeRollback(dbClient);
+                    return res.status(403).send({ message: 'Sessão sem rede definida.' });
+                }
+                redeNova = atorRedeUp;
+            }
+            const insEmp = await dbClient.query(
+                `INSERT INTO empresas (cnpj, nome_empresa, nome_fantasia, uf, rede_id)
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+                [fileInfo.cnpj_empresa, fileInfo.nome_empresa, fileInfo.nome_fantasia, fileInfo.uf, redeNova]);
+            id_empresa = insEmp.rows[0].id;
+        }
         logger.info(`Passo 2.2: Empresa registrada com ID: ${id_empresa}.`);
         // --- FIM DA LÓGICA MULTI-EMPRESA ---
 
-        // --- LÓGICA DE DUPLICATAS E SUBSCRITA ---
+        // --- LÓGICA DE DUPLICATAS E SUBSCRITA (dedup por id_empresa, NÃO por cnpj_empresa: Rede B
+        //     não casa com o arquivo da Rede A mesmo com CNPJ/período iguais — write-path IDOR) ---
         const { overwrite } = req.query;
-        const checkQuery = 'SELECT id FROM sped_arquivos WHERE cnpj_empresa = $1 AND periodo_apuracao = $2';
-        const checkResult = await dbClient.query(checkQuery, [fileInfo.cnpj_empresa, fileInfo.periodo_apuracao]);
+        const checkQuery = 'SELECT id FROM sped_arquivos WHERE id_empresa = $1 AND periodo_apuracao = $2';
+        const checkResult = await dbClient.query(checkQuery, [id_empresa, fileInfo.periodo_apuracao]);
 
         if (checkResult.rows.length > 0) {
             const oldId = checkResult.rows[0].id;
@@ -5118,7 +5147,7 @@ app.get('/api/documentos/auditoria/saidas/:id_arquivo', authMiddleware, scopeRed
 // --- ROTA PARA CRIAR EMPRESA ---
 app.post('/api/empresas', authMiddleware, async (req, res) => {
     logger.info('Recebida requisição para CRIAR empresa.');
-    const { cnpj, nome_empresa, uf, nome_fantasia } = req.body;
+    const { cnpj, nome_empresa, uf, nome_fantasia, rede_id: redeBody } = req.body;
 
     if (!cnpj || !nome_empresa) {
         return res.status(400).json({ message: 'CNPJ e Nome da Empresa são obrigatórios.' });
@@ -5128,7 +5157,27 @@ app.post('/api/empresas', authMiddleware, async (req, res) => {
     if (!dbClient) return;
     try {
         await dbClient.query('BEGIN');
-        
+
+        // --- WRITE-PATH (Fase 1): a nova empresa nasce AMARRADA a uma rede ---
+        //   admin/escritorio → SEMPRE a própria rede do ator (rede_id do corpo é IGNORADO).
+        //   super_admin/staff (bypass) → podem escolher (rede_id do corpo); sem escolha, cai na 'default'.
+        const bypass = ehBypass(req.ator, req.user);
+        let redeNova;
+        if (bypass) {
+            redeNova = (redeBody != null) ? redeBody
+                     : (req.ator && req.ator.rede_id != null ? req.ator.rede_id : null);
+            if (redeNova == null) {
+                const dflt = await dbClient.query("SELECT id FROM redes WHERE nome='default' LIMIT 1");
+                redeNova = dflt.rows.length ? dflt.rows[0].id : null;
+            }
+        } else {
+            if (!req.ator || req.ator.rede_id == null) {
+                await safeRollback(dbClient);
+                return res.status(403).json({ message: 'Sessão sem rede definida.' });
+            }
+            redeNova = req.ator.rede_id;
+        }
+
         // Verificar se CNPJ já existe
         const verificaCnpj = await dbClient.query('SELECT id FROM empresas WHERE cnpj = $1', [cnpj]);
         if (verificaCnpj.rows.length > 0) {
@@ -5137,11 +5186,11 @@ app.post('/api/empresas', authMiddleware, async (req, res) => {
         }
 
         const query = `
-            INSERT INTO empresas (cnpj, nome_empresa, uf, nome_fantasia)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO empresas (cnpj, nome_empresa, uf, nome_fantasia, rede_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *;
         `;
-        const params = [cnpj, nome_empresa, uf || null, nome_fantasia || null];
+        const params = [cnpj, nome_empresa, uf || null, nome_fantasia || null, redeNova];
         const { rows } = await dbClient.query(query, params);
 
         await dbClient.query('COMMIT');
@@ -6845,7 +6894,7 @@ app.get('/api/validador/correcoes/:id', authMiddleware, scopeRede(pool, 'sped'),
 });
 
 // Remove (desativa) uma correção.
-app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
+app.delete('/api/validador/correcoes/:idCorrecao', authMiddleware, scopeRede(pool, 'correcao'), async (req, res) => {
     const id = parseInt(req.params.idCorrecao);
     if (isNaN(id)) return res.status(400).json({ message: 'ID inválido.' });
     const dbClient = await safeConnect(res);
@@ -7316,7 +7365,7 @@ app.get('/api/relatorio/excel/:id', authMiddleware, scopeRede(pool, 'sped'), asy
 
 
 // --- ROTA PARA CORREÇÃO DE ITEM (MÁQUINA DE CURA) ---
-app.post('/api/corrigir-item', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
+app.post('/api/corrigir-item', authMiddleware, scopeRede(pool, 'item'), async (req, res) => {
     const { tipo, id_item, novos_valores } = req.body;
     // novos_valores: { cst_icms: '060', cfop: '5656' } etc.
 
@@ -10804,7 +10853,7 @@ app.post('/api/de-para', authMiddleware, scopeRede(pool, 'empresa'), async (req,
     }
 });
 
-app.delete('/api/de-para/:id', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
+app.delete('/api/de-para/:id', authMiddleware, scopeRede(pool, 'depara'), async (req, res) => {
     try {
         const { id } = req.params;
         await pool.query('DELETE FROM de_para_xml WHERE id = $1', [id]);
