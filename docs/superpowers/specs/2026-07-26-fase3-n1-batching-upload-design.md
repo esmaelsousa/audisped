@@ -68,15 +68,19 @@ Tudo permanece **dentro da mesma transação** (COMMIT em 1253 intacto); rollbac
 
 Escrever o teste **antes** do refactor, capturar baseline no código atual, refatorar, exigir idêntico.
 
-1. **NOVO — `tests/import-snapshot.test.js`:** importa um fixture SPED via o caminho de upload, e faz snapshot de:
+1. **NOVO — `tests/import-snapshot.test.js`:** importa fixtures SPED via o caminho de upload, e faz snapshot de:
    - contagem de linhas por tabela (c100/c170/c190/1320/d100/participantes/produtos)
-   - sha256 de `SELECT … FROM documentos_c100 c JOIN c170 JOIN c190 WHERE id_sped_arquivo=X ORDER BY c100.id, c170.num_item, c190.…` (conteúdo + ordem)
+   - sha256 de `SELECT … FROM documentos_c100 c JOIN c170 JOIN c190 WHERE id_sped_arquivo=X ORDER BY c100.id, c170.num_item, c190.cst_icms, c190.cfop` (conteúdo + ordem)
    - saída das queries agregadas do Analisador (ex.: soma CFOP por c190)
-   Baseline (código atual) → refactor → `assert` idêntico.
-2. **`node tests/golden-export.js check`** — export byte-idêntico (deve ficar verde trivialmente; belt-and-suspenders).
+   - **contador de round-trips:** envolver `client.query` e contar chamadas `INSERT` durante o import.
+   Baseline (código atual) → refactor → `assert` idêntico nos snapshots **e** contagem de INSERTs caindo de milhares → dezenas.
+   **Fixtures:** **1326** (APACHE — bicos/1320/LMC, caso mais complexo) **+ 1898** (mais recente, forma diferente), cobrindo bordas da cascata (nota sem C170, C100 sem C190).
+2. **`node tests/golden-export.js check`** — export byte-idêntico sobre o **conjunto inteiro** do manifest (7 fixtures); deve ficar verde trivialmente (belt-and-suspenders).
 3. **`npm run test:validador`** — suíte 218/218 verde.
 
 Fixtures disponíveis em `tests/golden/` (1085, 1326=APACHE 01/2021, 1546, 1662, 1873, 1897, 1898).
+
+**Nota:** NÃO depender do `pg_stat_statements` no localhost (é config de prod, pode não estar instalado). A prova de round-trips vem do contador instrumentado no teste.
 
 ## Rollback e risco
 
@@ -89,5 +93,5 @@ Fixtures disponíveis em `tests/golden/` (1085, 1326=APACHE 01/2021, 1546, 1662,
 - [ ] `tests/import-snapshot.test.js` verde (idêntico antes/depois).
 - [ ] `node tests/golden-export.js check` verde.
 - [ ] `npm run test:validador` 218/218.
-- [ ] Round-trips do upload de um arquivo: de milhares → dezenas (medido no log/`pg_stat_statements` local).
+- [ ] Round-trips do upload de um arquivo: de milhares → dezenas (medido pelo contador de queries instrumentado no teste).
 - [ ] Comportamento do Analisador visualmente inalterado num upload de teste real.
