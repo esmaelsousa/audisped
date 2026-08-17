@@ -735,7 +735,7 @@ app.post('/api/demo-lead', async (req, res) => {
             to: notifyTo,
             subject: `Novo teste grátis — ${cnpjFmt}`,
             html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1a2129">
-                <h2 style="color:#1a2129">Novo lead do teste grátis 🎉</h2>
+                <h2 style="color:#1a2129">Novo lead do teste grátis </h2>
                 <p><b>CNPJ:</b> ${cnpjFmt}</p>
                 <p><b>E-mail:</b> <a href="mailto:${email}">${email}</a></p>
                 <p><b>Telefone/WhatsApp:</b> <a href="https://wa.me/55${telefone}">${telefone}</a></p>
@@ -4072,7 +4072,7 @@ app.get('/api/lmc/:id_sped', authMiddleware, scopeRede(pool, 'sped'), async (req
         // --- Devoluções de combustível (CFOP 166x): NF de ENTRADA sem C170 ---
         // O casamento padrão (notas_raw) só enxerga NF com item C170. A devolução de venda
         // de combustível é escriturada como C100+C190 SEM C170 → aparecia como "entrada sem nota"
-        // (⚠ NF: 0,00 L). Aqui casamos essa NF por DATA à entrada de combustível ÓRFÃ do dia
+        // (NF: 0,00 L). Aqui casamos essa NF por DATA à entrada de combustível ÓRFÃ do dia
         // (tem vol_entr no LMC mas o casamento por C170 não achou nota), exibindo o nº da NF.
         try {
             const devQ = await dbClient.query(`
@@ -4491,7 +4491,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
             const pSaida  = totalSaidaOrig  > 0 ? parseFloat(r.vol_saidas  || 0) / totalSaidaOrig  : 1 / rowsDoDia.length;
             const pFisico = totalFisicoOrig > 0 ? parseFloat(r.fech_fisico || 0) / totalFisicoOrig : 1 / rowsDoDia.length;
             const sAjustada = dayCalc.saidaCalc  * pSaida;
-            const fAjustado = dayCalc.fisicoCalc * pFisico;  // SUM(fAjustado) == fisicoCalc ✓
+            const fAjustado = dayCalc.fisicoCalc * pFisico;  // SUM(fAjustado) == fisicoCalc 
 
             let aAjustada = lastClosingByTank.get(r.num_tanque);
             if (aAjustada === undefined) {
@@ -4520,7 +4520,7 @@ async function calcularSincronizacaoPreview(dbClient, id_arquivo, cod_item, novo
     const fechamentoUltimoDia = calcs[calcs.length - 1].fisicoCalc;
 
     if (aberturaPrimeiroDia > 0 && fechamentoUltimoDia < 0.5) {
-        logger.warn(`[CASCATA INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDia.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
+        logger.warn(`[CASCATA INTEGRIDADE]  Fechamento final crítico: ${fechamentoUltimoDia.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
         ajustes.push(`Atenção crítica: Fechamento final muito baixo (${fechamentoUltimoDia.toFixed(3)}L). Verifique integridade das entradas e saídas.`);
     }
 
@@ -4968,7 +4968,7 @@ app.post('/api/lmc/otimizador-matematico', authMiddleware, scopeRede(pool, 'sped
         const fechamentoUltimoDiaOtim = calcs[calcs.length - 1].fisicoCalc;
 
         if (aberturaPrimeiroDiaOtim > 0 && fechamentoUltimoDiaOtim < 0.5) {
-            logger.warn(`[OTIMIZADOR INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDiaOtim.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
+            logger.warn(`[OTIMIZADOR INTEGRIDADE]  Fechamento final crítico: ${fechamentoUltimoDiaOtim.toFixed(3)}L (mínimo obrigatório=0.5L). Possível erro de entrada/saída no SPED. Revise os dados.`);
             infoTrava = `Atenção crítica: Fechamento final muito baixo (${fechamentoUltimoDiaOtim.toFixed(3)}L). Verifique integridade das entradas e saídas.`;
         }
 
@@ -6950,7 +6950,7 @@ app.post('/api/validador/corrigir', authMiddleware, scopeRede(pool, 'sped'), asy
 // Reproduz o que o catálogo de referência acha e, para o subconjunto SEGURO (BLOQ + corrigível + fiscal-
 // determinístico + com valor sugerido, passando o gate cross-empresa do painel POR REGRA), grava
 // val_correcoes num LOTE (lote_id) — o export já sai corrigido e o lote inteiro é reversível num
-// clique. dry_run=true → só PREVIEW (não grava nada). Regras ⚪ (alerta) e o recompute de VL_DOC
+// clique. dry_run=true → só PREVIEW (não grava nada). Regras (alerta) e o recompute de VL_DOC
 // de terceiros NÃO entram no auto — ficam para o clique manual, item a item.
 function _loteGateSeguro(e, c100PorChave) {
     if (!e.corrigivel || e.valorSugerido == null || e.valorSugerido === '') return false;
@@ -6973,7 +6973,7 @@ function _loteGateSeguro(e, c100PorChave) {
         case 'DOC-C190-REDBC-01':
             return true; // zerar ALIQ/VL_ICMS/VL_RED_BC quando não há base tributável — determinístico
         default:
-            return false; // 9900/QTD e regras ⚪ de alerta não entram no auto
+            return false; // 9900/QTD e regras de alerta não entram no auto
     }
 }
 
@@ -7772,7 +7772,7 @@ app.post('/api/lmc/ajustar-cascata', authMiddleware, scopeRede(pool, 'sped'), as
         const fechamentoUltimoDiaCascata = prevFisico;
 
         if (aberturaPrimeiroDiaCascata > 0 && fechamentoUltimoDiaCascata < 0.5) {
-            logger.warn(`[CASCATA MANUAL INTEGRIDADE] ⚠️  Fechamento final crítico: ${fechamentoUltimoDiaCascata.toFixed(3)}L (mínimo obrigatório=0.5L). A alteração resultou em estoque crítico. Revise a saída ajustada.`);
+            logger.warn(`[CASCATA MANUAL INTEGRIDADE]  Fechamento final crítico: ${fechamentoUltimoDiaCascata.toFixed(3)}L (mínimo obrigatório=0.5L). A alteração resultou em estoque crítico. Revise a saída ajustada.`);
         }
 
         await dbClient.query('COMMIT');
@@ -8478,7 +8478,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                     // alguns window.open do Safari mandam) cair em HTML; o app manda Accept application/json → JSON.
                     const _ehNavegacao = req.get('sec-fetch-mode') === 'navigate' || req.accepts(['html', 'json']) === 'html';
                     if (_ehNavegacao) {
-                        return res.status(422).type('html').send(`<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exportação bloqueada — capacidade dos tanques</title><style>body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#f5f3ee;color:#2b2a27;margin:0;padding:40px 16px;display:flex;justify-content:center}.c{background:#fff;border:1px solid #e5e0d6;border-radius:12px;max-width:560px;padding:28px;box-shadow:0 6px 24px rgba(0,0,0,.06)}h1{font-size:18px;margin:0 0 6px}p{font-size:14px;line-height:1.55;color:#4a463f}.b{background:#faf8f3;border:1px solid #e5e0d6;border-radius:8px;padding:14px;margin:16px 0;font-size:13px}.t{font-weight:600;color:#a8471f}.i{font-family:ui-monospace,Menlo,monospace}</style></head><body><div class="c"><h1>⚠️ Falta a capacidade dos tanques</h1><p>Falta a <b>capacidade</b> de <b>${aindaFaltam.length} tanque(s)</b>: <span class="i">${itensNomeados}</span> — exigência do leiaute de 2026 (registro 1310).</p><div class="b"><p class="t" style="margin:0 0 6px">Você está vendo a resposta técnica da API.</p><p style="margin:0">Volte ao <b>AudiSped</b> → abra o <b>Validador</b> → clique em <b>“Baixar SPED corrigido”</b>. O sistema vai abrir uma janela para você <b>informar as capacidades aqui mesmo</b> e exportar na hora (fica salvo para os próximos meses).</p></div><p style="font-size:12px;color:#8a857a"><b>Alternativa:</b> cadastre a capacidade dos tanques no seu ERP e emita o SPED no leiaute 020 — o campo já vem preenchido na origem.</p></div></body></html>`);
+                        return res.status(422).type('html').send(`<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exportação bloqueada — capacidade dos tanques</title><style>body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#f5f3ee;color:#2b2a27;margin:0;padding:40px 16px;display:flex;justify-content:center}.c{background:#fff;border:1px solid #e5e0d6;border-radius:12px;max-width:560px;padding:28px;box-shadow:0 6px 24px rgba(0,0,0,.06)}h1{font-size:18px;margin:0 0 6px}p{font-size:14px;line-height:1.55;color:#4a463f}.b{background:#faf8f3;border:1px solid #e5e0d6;border-radius:8px;padding:14px;margin:16px 0;font-size:13px}.t{font-weight:600;color:#a8471f}.i{font-family:ui-monospace,Menlo,monospace}</style></head><body><div class="c"><h1>Falta a capacidade dos tanques</h1><p>Falta a <b>capacidade</b> de <b>${aindaFaltam.length} tanque(s)</b>: <span class="i">${itensNomeados}</span> — exigência do leiaute de 2026 (registro 1310).</p><div class="b"><p class="t" style="margin:0 0 6px">Você está vendo a resposta técnica da API.</p><p style="margin:0">Volte ao <b>AudiSped</b> → abra o <b>Validador</b> → clique em <b>“Baixar SPED corrigido”</b>. O sistema vai abrir uma janela para você <b>informar as capacidades aqui mesmo</b> e exportar na hora (fica salvo para os próximos meses).</p></div><p style="font-size:12px;color:#8a857a"><b>Alternativa:</b> cadastre a capacidade dos tanques no seu ERP e emita o SPED no leiaute 020 — o campo já vem preenchido na origem.</p></div></body></html>`);
                     }
                     // Payload ESTRUTURADO (padrão do Validador: resumo + ação no sistema + instrução ERP):
                     // o frontend renderiza um resumo curto + a correção em 1 clique (informar as capacidades

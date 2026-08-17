@@ -43,7 +43,7 @@ async function resolverConteudo(arg) {
     console.log(`\n=== COBERTURA POR BLOCO ([X] = varrido) ===`);
     for (const b of r.resumo.blocosPresentes) {
         const pb = r.porBloco[b];
-        const flag = pb.erros ? (pb.bloqueantes ? '🔴' : '🟡') : '✅';
+        const flag = pb.erros ? (pb.bloqueantes ? '' : '') : '';
         console.log(`  [X] ${flag} ${NOME_BLOCO[b] || ('Bloco ' + b)}: ${pb.erros} ocorrência(s)${pb.bloqueantes ? ` (${pb.bloqueantes} bloqueante)` : ''}`);
     }
     console.log(`\n=== RESUMO: ${r.resumo.total} ocorrências — ${r.resumo.bloqueantes} BLOQUEANTES, ${r.resumo.advertencias} advertência(s) | ${r.resumo.regrasExecutadas} regras executadas ===`);

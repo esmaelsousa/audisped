@@ -68,7 +68,7 @@ async function handleSubmit() {
 
         <template v-else>
           <div class="space-y-2">
-            <p class="text-[13px] text-ink font-medium">Senha redefinida ✓</p>
+            <p class="text-[13px] text-ink font-medium">Senha redefinida </p>
             <p class="text-[12px] text-risco">Você já pode entrar com a nova senha. Redirecionando para o login…</p>
           </div>
         </template>

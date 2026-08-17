@@ -1,6 +1,6 @@
 // Catálogo de módulos do cockpit — fonte única do gating de plano no frontend.
 //
-// ⚠️ Classificação PROVISÓRIA (core vs vendável) — é uma decisão de NEGÓCIO ainda
+// Classificação PROVISÓRIA (core vs vendável) — é uma decisão de NEGÓCIO ainda
 // em aberto (ver docs/superpowers/specs/2026-07-15-cockpit-hub-design.md §5). Este
 // arquivo é o único ponto de verdade da UI: reclassificar um módulo aqui NÃO exige
 // mexer em nenhuma tela. Os valores abaixo espelham o catálogo do plano SaaS atual

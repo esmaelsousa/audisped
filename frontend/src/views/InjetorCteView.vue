@@ -121,7 +121,7 @@ async function _executarInjecao(fd) {
         }
         if (jsonData?.tipo === 'cnpj_invalido') {
             logs.value = [`[BLOQUEADO] ${jsonData.message}`];
-            jsonData.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → CT-e é de ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml}) | SPED selecionado: CNPJ ${b.cnpj_sped}`));
+            jsonData.bloqueados.forEach(b => logs.value.push(`  ${b.arquivo} → CT-e é de ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml}) | SPED selecionado: CNPJ ${b.cnpj_sped}`));
         } else if (jsonData?.tipo === 'periodo_divergente') {
             _pendingFdCte = fd;
             modalPeriodoData.value = { periodo_sped: jsonData.periodo_sped, avisos: jsonData.avisos };

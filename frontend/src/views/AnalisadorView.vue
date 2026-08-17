@@ -1082,7 +1082,9 @@ const afericaoGauge = computed(() => {
       leave-to-class="opacity-0"
     >
       <div v-if="showSuccessToast" class="fixed top-4 right-4 z-[100] w-full max-w-xs bg-sheet rounded-md card-shadow border border-line p-4 flex items-center gap-3">
-        <div class="w-8 h-8 bg-conforme/10 rounded-md flex items-center justify-center text-conforme shrink-0">✓</div>
+        <div class="w-8 h-8 bg-conforme/10 rounded-md flex items-center justify-center text-conforme shrink-0">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </div>
         <div>
           <h4 class="text-[11px] uppercase tracking-wide text-ink font-medium">Auditoria Concluída!</h4>
           <p class="text-[10px] text-risco">Cruzamentos processados com sucesso.</p>
@@ -1111,17 +1113,16 @@ const afericaoGauge = computed(() => {
       <div v-if="arquivoInfo" class="flex items-center gap-2">
         <div class="flex gap-1.5">
           <UiButton variant="ghost" @click="downloadDossie">
-            📥 Dossiê PDF
+            Dossiê PDF
           </UiButton>
           <UiButton variant="ghost" @click="downloadExcel">
-            📊 Excel
+            Excel
           </UiButton>
           <UiButton @click="downloadSpedRetificado">
-            🛠️ Exportar SPED
+            Exportar SPED
           </UiButton>
         </div>
         <div class="flex items-center gap-2 bg-sheet px-3 py-1.5 rounded-md border border-line">
-          <div class="w-7 h-7 rounded-md bg-bronze/10 flex items-center justify-center text-bronze text-sm shrink-0">📄</div>
           <div>
             <p class="text-[12px] font-medium text-ink leading-none">{{ arquivoInfo.periodo }}</p>
             <p class="text-[10px] text-risco font-mono mt-0.5 truncate max-w-[160px]">{{ arquivoInfo.nome }}</p>
@@ -1132,7 +1133,7 @@ const afericaoGauge = computed(() => {
 
     <!-- Banner persistente: sequência de meses quebrada -->
     <div v-if="sequenciaAlerta && sequenciaAlerta.faltantes.length" class="bg-variacao/10 border border-variacao/30 rounded-md px-4 py-3 flex items-start gap-3">
-      <span class="text-variacao text-lg leading-none mt-0.5">⚠</span>
+      <svg class="w-4 h-4 text-variacao shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
       <div class="flex-1">
         <p class="text-[11px] uppercase tracking-wide text-variacao font-medium">Sequência de períodos quebrada</p>
         <p class="text-[11px] text-ink mt-0.5">
@@ -1220,7 +1221,7 @@ const afericaoGauge = computed(() => {
             {{ concilLoading ? 'Conciliando…' : 'Conciliar' }}
           </UiButton>
           <UiButton @click="conciliarSefazLive" :disabled="concilLoading" :class="concilLoading ? 'opacity-50 cursor-not-allowed' : ''" title="Consulta a SEFAZ ao vivo (EspiãoNFe) e cruza com o SPED — sem precisar de CSV">
-            {{ concilLoading ? 'Conferindo…' : '⚡ Conferir com SEFAZ (ao vivo)' }}
+            {{ concilLoading ? 'Conferindo…' : 'Conferir com SEFAZ (ao vivo)' }}
           </UiButton>
           <label class="flex items-center gap-1.5 text-[12px] font-medium text-risco cursor-pointer select-none">
             <input type="checkbox" v-model="concilDesconsiderarCanceladas" @change="onToggleCanceladas" class="rounded border-line text-bronze focus:ring-bronze">
@@ -1237,7 +1238,7 @@ const afericaoGauge = computed(() => {
         <div v-if="concilResult.meses_sem_sped && concilResult.meses_sem_sped.length"
              class="rounded-md border p-4 flex items-start gap-3"
              :class="concilResult.sem_sped_total ? 'bg-variacao/15 border-variacao/40' : 'bg-variacao/10 border-variacao/30'">
-          <span class="text-xl leading-none">⚠️</span>
+          <svg class="w-5 h-5 text-variacao shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
           <div class="text-[13px]">
             <p class="font-medium text-variacao">
               {{ concilResult.sem_sped_total ? 'Não há SPED importado para o período deste CSV.' : 'Alguns meses do CSV não têm SPED importado.' }}
@@ -1275,20 +1276,20 @@ const afericaoGauge = computed(() => {
         </div>
 
         <div class="flex items-center gap-3 flex-wrap text-[11px] text-risco">
-          <span v-if="concilResult.periodo_escopo" class="text-bronze font-medium">📅 Conferindo só o período do SPED aberto: {{ concilResult.periodo_escopo }}<template v-if="concilResult.totais.fora_escopo"> · {{ concilResult.totais.fora_escopo }} nota(s) de outros meses do CSV ignorada(s)</template></span>
+          <span v-if="concilResult.periodo_escopo" class="text-bronze font-medium">Conferindo só o período do SPED aberto: {{ concilResult.periodo_escopo }}<template v-if="concilResult.totais.fora_escopo"> · {{ concilResult.totais.fora_escopo }} nota(s) de outros meses do CSV ignorada(s)</template></span>
           <button v-if="concilResult.totais.canceladas" @click="concilVerCanceladas = !concilVerCanceladas"
             class="underline decoration-dotted hover:text-ink">
-            ⚪ {{ concilResult.totais.canceladas }} cancelada(s) {{ concilResult.incluiu_canceladas ? 'incluída(s)' : 'desconsiderada(s)' }} ({{ concilVerCanceladas ? 'ocultar' : 'ver' }})
+            {{ concilResult.totais.canceladas }} cancelada(s) {{ concilResult.incluiu_canceladas ? 'incluída(s)' : 'desconsiderada(s)' }} ({{ concilVerCanceladas ? 'ocultar' : 'ver' }})
           </button>
-          <span v-if="concilResult.totais.uso_consumo" class="text-bronze font-medium">🔁 {{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
-          <span v-if="concilResult.sem_escrituracao" class="text-variacao font-medium">⚠️ Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
-          <UiButton @click="exportConcilCsv" class="ml-auto">📥 Exportar resultado (CSV)</UiButton>
+          <span v-if="concilResult.totais.uso_consumo" class="text-bronze font-medium">{{ concilResult.totais.uso_consumo }} de uso/consumo (emitidas pela própria empresa)</span>
+          <span v-if="concilResult.sem_escrituracao" class="text-variacao font-medium">Nenhuma escrituração encontrada para este CNPJ — confira se o SPED foi importado.</span>
+          <UiButton @click="exportConcilCsv" class="ml-auto">Exportar resultado (CSV)</UiButton>
         </div>
 
         <!-- Conferidas (SEFAZ e SPED batem) -->
         <div v-if="concilResult.conferidas && concilResult.conferidas.length" class="bg-sheet rounded-md border border-conforme/20 card-shadow overflow-hidden">
           <button @click="concilVerConferidas = !concilVerConferidas" class="w-full px-5 py-3 bg-conforme/10 border-b border-conforme/20 flex items-center justify-between gap-3 text-left">
-            <span class="font-medium text-conforme text-[13px]">✅ Conferidas — SEFAZ e SPED batem ({{ concilResult.conferidas.length }})</span>
+            <span class="font-medium text-conforme text-[13px]">Conferidas — SEFAZ e SPED batem ({{ concilResult.conferidas.length }})</span>
             <span class="text-[12px] text-conforme">{{ concilVerConferidas ? 'ocultar' : 'ver notas' }}</span>
           </button>
           <div v-if="concilVerConferidas" class="overflow-x-auto max-h-96">
@@ -1315,9 +1316,9 @@ const afericaoGauge = computed(() => {
         <!-- Faltantes -->
         <div v-if="concilResult.faltantes.length" class="bg-sheet rounded-md border border-lacre/20 card-shadow overflow-hidden">
           <div class="px-5 py-3 bg-lacre/10 border-b border-lacre/20 flex items-center justify-between gap-3">
-            <span class="font-medium text-lacre text-[13px]">🔴 Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }}) · Total {{ fmtBRL(concilResult.totais.faltantes_valor) }}</span>
+            <span class="font-medium text-lacre text-[13px]">Na SEFAZ, faltando na escrituração ({{ concilResult.faltantes.length }}) · Total {{ fmtBRL(concilResult.totais.faltantes_valor) }}</span>
             <UiButton v-if="acoesInjecaoHabilitadas" @click="aplicarFaltantes" :disabled="concilActionLoading || !idArquivoSped" :class="(concilActionLoading || !idArquivoSped) ? 'opacity-50 cursor-not-allowed' : ''" :title="idArquivoSped ? 'Baixa o XML de cada faltante e injeta no SPED aberto' : 'Abra o SPED (arquivo) para injetar'">
-              {{ concilActionLoading ? 'Injetando…' : '⬇️ Baixar + injetar faltantes' }}
+              {{ concilActionLoading ? 'Injetando…' : 'Baixar + injetar faltantes' }}
             </UiButton>
           </div>
           <div class="overflow-x-auto max-h-96">
@@ -1336,9 +1337,9 @@ const afericaoGauge = computed(() => {
         <!-- Divergência de valor -->
         <div v-if="concilResult.divergencia_valor.length" class="bg-sheet rounded-md border border-variacao/20 card-shadow overflow-hidden">
           <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 flex items-center justify-between gap-3">
-            <span class="font-medium text-variacao text-[13px]">💰 Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</span>
+            <span class="font-medium text-variacao text-[13px]">Divergência de valor (mesma chave, valores diferentes) ({{ concilResult.divergencia_valor.length }})</span>
             <UiButton v-if="acoesInjecaoHabilitadas" @click="corrigirDivergentes" :disabled="concilActionLoading || !idArquivoSped" :class="(concilActionLoading || !idArquivoSped) ? 'opacity-50 cursor-not-allowed' : ''" :title="idArquivoSped ? 'Baixa o XML real e re-injeta corrigindo o valor (substitui a nota)' : 'Abra o SPED (arquivo) para corrigir'">
-              {{ concilActionLoading ? 'Corrigindo…' : '🔧 Corrigir do XML real' }}
+              {{ concilActionLoading ? 'Corrigindo…' : 'Corrigir do XML real' }}
             </UiButton>
           </div>
           <div class="overflow-x-auto max-h-96">
@@ -1360,7 +1361,7 @@ const afericaoGauge = computed(() => {
         <!-- Lançada em outro mês (sem omissão) -->
         <div v-if="concilResult.divergencia_competencia.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
           <div class="px-5 py-3 bg-paper border-b border-line text-ink text-[13px]">
-            <span class="font-medium">📅 Lançadas em outro mês — sem omissão ({{ concilResult.divergencia_competencia.length }})</span>
+            <span class="font-medium">Lançadas em outro mês — sem omissão ({{ concilResult.divergencia_competencia.length }})</span>
             <span class="block text-[11px] text-risco font-normal mt-0.5">A NF está na SEFAZ no mês emitido, mas foi escriturada em outra competência do seu SPED. <b>Não é omissão</b> — apenas lançamento em data diferente (atenção a crédito extemporâneo).</span>
           </div>
           <div class="overflow-x-auto max-h-96">
@@ -1381,7 +1382,7 @@ const afericaoGauge = computed(() => {
 
         <!-- Extras -->
         <div v-if="concilResult.extras.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
-          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">🟡 No SPED, sem correspondência na SEFAZ ({{ concilResult.extras.length }})</div>
+          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">No SPED, sem correspondência na SEFAZ ({{ concilResult.extras.length }})</div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="w-6 p-2"></th><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
@@ -1400,7 +1401,7 @@ const afericaoGauge = computed(() => {
 
         <!-- Notas em meses sem SPED importado (não conferidas) -->
         <div v-if="concilResult.sem_sped && concilResult.sem_sped.length" class="bg-sheet rounded-md border border-variacao/20 card-shadow overflow-hidden">
-          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 font-medium text-variacao text-[13px]">⚠️ Notas em meses sem SPED importado — não conferidas ({{ concilResult.sem_sped.length }})</div>
+          <div class="px-5 py-3 bg-variacao/10 border-b border-variacao/20 font-medium text-variacao text-[13px]">Notas em meses sem SPED importado — não conferidas ({{ concilResult.sem_sped.length }})</div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
@@ -1415,7 +1416,7 @@ const afericaoGauge = computed(() => {
 
         <!-- Canceladas (visível via o link "ver") -->
         <div v-if="concilVerCanceladas && concilResult.canceladas && concilResult.canceladas.length" class="bg-sheet rounded-md border border-line card-shadow overflow-hidden">
-          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">⚪ Notas canceladas/denegadas no CSV ({{ concilResult.canceladas.length }}) — {{ concilResult.incluiu_canceladas ? 'incluídas na conciliação' : 'desconsideradas' }}</div>
+          <div class="px-5 py-3 bg-paper border-b border-line font-medium text-risco text-[13px]">Notas canceladas/denegadas no CSV ({{ concilResult.canceladas.length }}) — {{ concilResult.incluiu_canceladas ? 'incluídas na conciliação' : 'desconsideradas' }}</div>
           <div class="overflow-x-auto max-h-96">
             <table class="w-full text-[12px]">
               <thead class="bg-paper text-risco uppercase text-[10px] tracking-wide sticky top-0"><tr><th class="text-left p-2">Nº NF</th><th class="text-left p-2">Chave</th><th class="text-left p-2">Comp.</th><th class="text-right p-2">Valor</th><th class="text-left p-2">Emissão</th><th class="text-left p-2">Fornecedor</th></tr></thead>
@@ -1430,7 +1431,7 @@ const afericaoGauge = computed(() => {
 
         <div v-if="!concilResult.sem_sped_total && !concilResult.faltantes.length && !concilResult.divergencia_valor.length && !concilResult.divergencia_competencia.length && !concilResult.extras.length"
              class="bg-conforme/10 border border-conforme/20 rounded-md p-6 text-center text-conforme font-medium">
-          ✅ Tudo conciliado — nenhuma divergência no período.
+          Tudo conciliado — nenhuma divergência no período.
         </div>
       </div>
     </div>
@@ -1440,28 +1441,28 @@ const afericaoGauge = computed(() => {
       <!-- Resumo Geral -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-lacre/10 rounded-md flex items-center justify-center text-lacre">📉</div>
+          <div class="w-12 h-12 bg-lacre/10 rounded-md flex items-center justify-center text-lacre shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Divergência NFe</p>
             <p class="text-xl font-mono text-ink">{{ infractions.c100_valores_divergentes.length }}</p>
           </div>
         </div>
         <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-variacao/10 rounded-md flex items-center justify-center text-variacao">❓</div>
+          <div class="w-12 h-12 bg-variacao/10 rounded-md flex items-center justify-center text-variacao shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Omissão (Saltos)</p>
             <p class="text-xl font-mono text-ink">{{ infractions.c100_saltos_enumeracao.length }}</p>
           </div>
         </div>
         <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">📦</div>
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-risco uppercase tracking-wide">Erros Cadastro</p>
             <p class="text-xl font-mono text-ink">{{ infractions.cfop_suspeitos.length }}</p>
           </div>
         </div>
         <div class="bg-sheet p-6 rounded-md border border-line card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-conforme/10 rounded-md flex items-center justify-center text-conforme">⛽</div>
+          <div class="w-12 h-12 bg-conforme/10 rounded-md flex items-center justify-center text-conforme shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v-4M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-risco uppercase tracking-wide">LMC x Inventário</p>
             <p class="text-xl font-mono text-ink">{{ infractions.h010_divergente_1300.length }}</p>
@@ -1470,14 +1471,14 @@ const afericaoGauge = computed(() => {
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4" v-if="(infractions.chv_nfe_cnpj_divergente?.length || 0) + (infractions.bicos_duplicados_1320?.length || 0) > 0">
         <div v-if="infractions.chv_nfe_cnpj_divergente?.length" class="bg-sheet p-6 rounded-md border border-bronze/30 card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">🔑</div>
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">CNPJ Chave Divergente</p>
             <p class="text-xl font-mono text-ink">{{ infractions.chv_nfe_cnpj_divergente.length }}</p>
           </div>
         </div>
         <div v-if="infractions.bicos_duplicados_1320?.length" class="bg-sheet p-6 rounded-md border border-bronze/30 card-shadow flex items-center gap-4">
-          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze">⛽</div>
+          <div class="w-12 h-12 bg-bronze/10 rounded-md flex items-center justify-center text-bronze shrink-0"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
           <div>
             <p class="text-[10px] font-medium text-bronze uppercase tracking-wide">Bicos Duplicados</p>
             <p class="text-xl font-mono text-ink">{{ infractions.bicos_duplicados_1320.length }}</p>
@@ -1502,7 +1503,7 @@ const afericaoGauge = computed(() => {
         <div v-else class="divide-y divide-line">
            <!-- Divergência C100 -->
            <div v-if="infractions.c100_valores_divergentes.length" class="p-6 bg-lacre/5">
-              <h4 class="text-[11px] font-medium text-lacre uppercase tracking-wide mb-4 flex items-center gap-2">🚨 Divergência: Capa vs Itens (C190)</h4>
+              <h4 class="text-[11px] font-medium text-lacre uppercase tracking-wide mb-4 flex items-center gap-2">Divergência: Capa vs Itens (C190)</h4>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                  <div v-for="err in infractions.c100_valores_divergentes" :key="err.linha" class="p-3 bg-sheet border border-lacre/20 rounded-md text-[11px] flex justify-between items-center">
                     <div>
@@ -1516,7 +1517,7 @@ const afericaoGauge = computed(() => {
 
            <!-- Saltos de Numeração -->
            <div v-if="infractions.c100_saltos_enumeracao.length" class="p-6 bg-variacao/5">
-              <h4 class="text-[11px] font-medium text-variacao uppercase tracking-wide mb-4 flex items-center gap-2">❓ Omissão de Notas (Saltos no Sequencial)</h4>
+              <h4 class="text-[11px] font-medium text-variacao uppercase tracking-wide mb-4 flex items-center gap-2">Omissão de Notas (Saltos no Sequencial)</h4>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                  <div v-for="err in infractions.c100_saltos_enumeracao" :key="err.linha" class="p-3 bg-sheet border border-variacao/20 rounded-md text-[11px]">
                     Detectado salto na linha {{ err.linha }}. Anterior: {{ err.num_anterior }} | Próxima: {{ err.num_atual }}.
@@ -1527,7 +1528,7 @@ const afericaoGauge = computed(() => {
 
            <!-- Cadastro de Produtos -->
            <div v-if="infractions.cfop_suspeitos.length" class="p-6">
-              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">📦 Vícios de Cadastro de Produtos (NCM/CEST/CFOP)</h4>
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">Vícios de Cadastro de Produtos (NCM/CEST/CFOP)</h4>
               <div class="space-y-2">
                  <div v-for="err in infractions.cfop_suspeitos" :key="err.linha" class="p-3 bg-paper rounded-md text-[11px] border border-line">
                     <span class="font-medium font-mono">Linha {{ err.linha }}:</span> {{ err.alerta }}
@@ -1537,7 +1538,7 @@ const afericaoGauge = computed(() => {
 
            <!-- Bloco H vs 1300 -->
            <div v-if="infractions.h010_divergente_1300.length" class="p-6 bg-conforme/5">
-              <h4 class="text-[11px] font-medium text-conforme uppercase tracking-wide mb-4 flex items-center gap-2">⛽ Descasamento Físico: LMC x Inventário</h4>
+              <h4 class="text-[11px] font-medium text-conforme uppercase tracking-wide mb-4 flex items-center gap-2">Descasamento Físico: LMC x Inventário</h4>
               <div v-for="err in infractions.h010_divergente_1300" :key="err.alerta" class="p-4 bg-sheet border border-conforme/20 rounded-md text-[13px]">
                  {{ err.alerta }}
                  <div class="mt-2 flex gap-4 text-[10px]">
@@ -1550,7 +1551,7 @@ const afericaoGauge = computed(() => {
 
            <!-- CNPJ Divergente na Chave NF-e/NFC-e -->
            <div v-if="infractions.chv_nfe_cnpj_divergente && infractions.chv_nfe_cnpj_divergente.length" class="p-6 bg-bronze/5">
-              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">🔑 CNPJ Divergente na Chave NF-e/NFC-e</h4>
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">CNPJ Divergente na Chave NF-e/NFC-e</h4>
               <div class="p-4 bg-sheet border border-bronze/20 rounded-md text-[13px] mb-3">
                 <p class="font-medium text-bronze mb-2">
                   {{ infractions.chv_nfe_cnpj_divergente.length }} documentos de emissao propria com CNPJ diferente do informante na chave de acesso.
@@ -1567,7 +1568,7 @@ const afericaoGauge = computed(() => {
 
            <!-- Bicos Duplicados entre Tanques -->
            <div v-if="infractions.bicos_duplicados_1320 && infractions.bicos_duplicados_1320.length" class="p-6 bg-bronze/5">
-              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">⛽ Bico Duplicado entre Tanques (1320)</h4>
+              <h4 class="text-[11px] font-medium text-bronze uppercase tracking-wide mb-4 flex items-center gap-2">Bico Duplicado entre Tanques (1320)</h4>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                  <div v-for="err in infractions.bicos_duplicados_1320.slice(0, 10)" :key="err.data + err.bico" class="p-3 bg-sheet border border-bronze/20 rounded-md text-[11px]">
                     <span class="font-mono text-ink">{{ err.data }}</span> — {{ err.produto }} — Bico <span class="font-mono text-ink">{{ err.bico }}</span>
@@ -1582,7 +1583,7 @@ const afericaoGauge = computed(() => {
 
            <!-- Sem erros -->
            <div v-if="totalInfractions === 0" class="py-20 text-center flex flex-col items-center gap-3">
-              <div class="text-4xl">💎</div>
+              <div class="text-4xl"></div>
               <p class="font-display text-[16px] font-semibold text-conforme uppercase tracking-wide">Nenhuma Infração Estrutural Detectada</p>
               <p class="text-[13px] text-risco">O arquivo parece íntegro nos cruzamentos de Bloco C e H.</p>
            </div>
@@ -1716,7 +1717,7 @@ const afericaoGauge = computed(() => {
                                               <!-- ICMSTot em destaque -->
                                               <template v-for="g in nfeCompletaCache[nf.id].nfe.grupos" :key="g.grupo">
                                                   <div v-if="g.grupo.includes('ICMSTot')" class="bg-sheet border border-conforme/30 rounded-md p-4 mb-4 max-w-5xl">
-                                                      <h4 class="text-[11px] font-medium uppercase tracking-wide text-conforme mb-3">💰 {{ g.grupo }}</h4>
+                                                      <h4 class="text-[11px] font-medium uppercase tracking-wide text-conforme mb-3">{{ g.grupo }}</h4>
                                                       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-2">
                                                           <div v-for="(c, ci) in g.campos" :key="ci" class="flex flex-col border-b border-line py-1">
                                                               <span class="text-[9px] uppercase tracking-wide text-risco">{{ c.label_pt }} <span class="font-mono normal-case text-risco/70">{{ c.tag }}</span></span>
@@ -1774,8 +1775,8 @@ const afericaoGauge = computed(() => {
           </div>
           <div class="flex items-center gap-3">
             <div class="flex gap-1 p-1 bg-paper border border-line rounded-md">
-              <button @click="activeSaidasSubTab = '65'" :class="activeSaidasSubTab === '65' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">🛒 Resumo p/ CFOP (Consumidor)</button>
-              <button @click="activeSaidasSubTab = '55'" :class="activeSaidasSubTab === '55' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">📄 NF-e (Modelo 55)</button>
+              <button @click="activeSaidasSubTab = '65'" :class="activeSaidasSubTab === '65' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">Resumo p/ CFOP (Consumidor)</button>
+              <button @click="activeSaidasSubTab = '55'" :class="activeSaidasSubTab === '55' ? 'bg-bronze text-white' : 'text-risco'" class="px-4 py-1.5 rounded-md text-[12px] font-medium transition-all">NF-e (Modelo 55)</button>
             </div>
             <input v-if="activeSaidasSubTab === '55'" v-model="buscaSaidas" type="text" placeholder="Buscar NF ou Cliente..." class="px-4 py-2 bg-sheet border border-line rounded-md text-[13px] text-ink focus:outline-none focus:border-bronze w-56" />
           </div>
@@ -1959,8 +1960,9 @@ const afericaoGauge = computed(() => {
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div class="lg:col-span-2 flex justify-center">
       <div class="bg-sheet rounded-md p-8 border-2 border-dashed border-line hover:border-bronze/50 transition-all group text-center space-y-5 max-w-lg w-full card-shadow">
-        <div class="w-14 h-14 bg-paper rounded-md flex items-center justify-center mx-auto text-2xl group-hover:scale-110 transition-transform">
-          {{ isUploading ? '⚙️' : '📥' }}
+        <div class="w-14 h-14 bg-paper rounded-md flex items-center justify-center mx-auto text-bronze group-hover:scale-110 transition-transform">
+          <svg v-if="isUploading" class="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.2"/><path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+          <svg v-else class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0-4 4m4-4 4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
         </div>
         <div class="space-y-1.5">
           <h3 class="font-display text-[18px] font-semibold text-ink tracking-[-0.01em]">
@@ -2057,10 +2059,10 @@ const afericaoGauge = computed(() => {
               <button v-for="t in sequenciaTimeline" :key="t.mes" @click="t.id && abrirArquivo(t.id)"
                 :class="t.carregado ? (t.ativo ? 'bg-bronze text-white' : 'bg-conforme/10 text-conforme hover:bg-conforme/20') : 'bg-lacre/5 text-lacre border border-dashed border-lacre/30 cursor-default'"
                 class="px-2 py-1 rounded-md text-[10px] font-mono transition-colors">
-                {{ fmtMes(t.mes) }}<span v-if="!t.carregado"> ⚠</span>
+                {{ fmtMes(t.mes) }}<span v-if="!t.carregado"> </span>
               </button>
             </div>
-            <p class="text-[9px] text-risco mt-3 leading-relaxed">🟢 carregado · 🟣 ativo · 🔴 mês faltante (quebra de sequência)</p>
+            <p class="text-[9px] text-risco mt-3 leading-relaxed">carregado · ativo · mês faltante (quebra de sequência)</p>
           </div>
         </aside>
       </div>
@@ -2087,7 +2089,7 @@ const afericaoGauge = computed(() => {
           <div class="text-right">
             <p class="text-[9px] uppercase font-medium text-risco tracking-wide">Variação ANP</p>
             <p class="text-[13px] font-medium" :class="statusAnpGeral === 'CRITICAL' ? 'text-lacre' : statusAnpGeral === 'WARNING' ? 'text-variacao' : 'text-conforme'">
-              {{ statusAnpGeral === 'CRITICAL' ? '🔴 Crítico' : statusAnpGeral === 'WARNING' ? '⚠ Atenção' : statusAnpGeral === 'OK' ? '✓ OK' : '—' }}
+              {{ statusAnpGeral === 'CRITICAL' ? 'Crítico' : statusAnpGeral === 'WARNING' ? 'Atenção' : statusAnpGeral === 'OK' ? 'OK' : '—' }}
             </p>
           </div>
           <div class="text-right">
@@ -2103,33 +2105,25 @@ const afericaoGauge = computed(() => {
               <div class="flex flex-col">
                   <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Faturamento</span>
                   <span class="text-xl font-mono text-ink">{{ formatCurrency(auditResumoGerencial?.total_saidas) }}</span>
-              </div>
-              <div class="w-8 h-8 rounded-md bg-conforme/10 flex items-center justify-center text-conforme scale-90 group-hover:scale-105 transition-transform">📈</div>
-          </div>
+              </div>          </div>
           <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
                   <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Compras</span>
                   <span class="text-xl font-mono text-ink">{{ formatCurrency(auditResumoGerencial?.total_entradas) }}</span>
-              </div>
-              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">📦</div>
-          </div>
+              </div>          </div>
 
           <!-- Total Litros: Compras e Vendas -->
           <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
                   <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Total Compras (L)</span>
                   <span class="text-xl font-mono text-ink">{{ formatNumber(totalVolumeCompra) }} L</span>
-              </div>
-              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">🚛</div>
-          </div>
+              </div>          </div>
 
           <div class="bg-sheet p-4 rounded-md border border-line card-shadow flex items-center justify-between group">
               <div class="flex flex-col">
                   <span class="text-[9px] font-medium uppercase text-risco tracking-wide">Total Vendas (L)</span>
                   <span class="text-xl font-mono text-ink">{{ formatNumber(totalVolumeVenda) }} L</span>
-              </div>
-              <div class="w-8 h-8 rounded-md bg-bronze/10 flex items-center justify-center text-bronze scale-90 group-hover:scale-105 transition-transform">⛽</div>
-          </div>
+              </div>          </div>
 
           <!-- Cards Dinâmicos de Combustíveis (Compactos) -->
           <template v-for="comb in auditResumoGerencial?.resumoCombustiveis" :key="comb.tipo">
@@ -2138,9 +2132,7 @@ const afericaoGauge = computed(() => {
                       <div class="flex flex-col">
                           <span class="text-[8px] font-medium uppercase text-muted tracking-wide">{{ comb.tipo }}</span>
                           <span class="text-base font-mono text-white leading-tight">{{ formatNumber(comb.total_litros) }} L</span>
-                      </div>
-                      <span class="text-lg opacity-30 group-hover:scale-110 transition-transform">⛽</span>
-                  </div>
+                      </div>                  </div>
                   <div class="mt-2 pt-2 border-t border-white/[.06] flex justify-between items-end z-10">
                       <div class="flex flex-col">
                           <span class="text-[8px] font-medium text-conforme uppercase">Custo</span>
@@ -2176,7 +2168,7 @@ const afericaoGauge = computed(() => {
                      </div>
                  </div>
              </div>
-             <div class="absolute -right-6 -bottom-6 text-7xl opacity-5 rotate-12">📊</div>
+             <div class="absolute -right-6 -bottom-6 text-7xl opacity-5 rotate-12"></div>
           </div>
 
           <!-- Card de Economia (Slim) -->
@@ -2187,7 +2179,7 @@ const afericaoGauge = computed(() => {
                   <p class="text-white/80 text-[10px] mt-1 leading-relaxed">Economia estimada em ICMS-ST em duplicidade.</p>
               </div>
               <button class="z-10 mt-4 px-4 py-2 bg-white text-bronze rounded-md text-[9px] font-medium hover:opacity-90 transition-all w-full">DETALHAR CRÉDITOS</button>
-              <div class="absolute -right-4 -bottom-4 text-7xl opacity-10 rotate-12 group-hover:scale-110 transition-transform">💰</div>
+              <div class="absolute -right-4 -bottom-4 text-7xl opacity-10 rotate-12 group-hover:scale-110 transition-transform"></div>
           </div>
       </div>
     </div>
@@ -2249,7 +2241,7 @@ const afericaoGauge = computed(() => {
             :class="activeErrorSubTab === 'TODOS' ? 'bg-graphite text-white' : 'bg-sheet text-risco hover:bg-paper border-line'"
             class="px-4 py-2 rounded-md text-[10px] font-medium uppercase tracking-wide border transition-all flex items-center gap-2"
           >
-            📋 TODOS <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ auditErros.length }}</span>
+            TODOS <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ auditErros.length }}</span>
           </button>
 
           <button
@@ -2259,12 +2251,12 @@ const afericaoGauge = computed(() => {
             :class="activeErrorSubTab === group.name ? 'bg-bronze text-white border-bronze' : 'bg-sheet text-risco hover:bg-paper border-line'"
             class="px-4 py-2 rounded-md text-[10px] font-medium uppercase tracking-wide border transition-all flex items-center gap-2"
           >
-            📦 REG. {{ group.name }} <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ group.count }}</span>
+            REG. {{ group.name }} <span class="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{{ group.count }}</span>
           </button>
        </div>
 
        <div v-if="auditErros.length === 0" class="text-center py-20 bg-sheet rounded-md border border-line space-y-4 card-shadow">
-          <div class="text-5xl">🎉</div>
+          <div class="text-5xl"></div>
           <h3 class="font-display text-[22px] font-semibold text-ink">Nenhum erro encontrado!</h3>
           <p class="text-risco">Seu arquivo SPED está 100% em conformidade com as regras atuais.</p>
        </div>
@@ -2291,7 +2283,7 @@ const afericaoGauge = computed(() => {
 
                <div class="mt-4 flex items-center justify-between">
                   <div class="text-[12px] bg-paper text-risco px-3 py-1.5 rounded-md border border-line">
-                     💡 <strong class="text-ink">Sugestão:</strong> {{ erro.sugestao_correcao }}
+                     <strong class="text-ink">Sugestão:</strong> {{ erro.sugestao_correcao }}
                   </div>
                   <div class="flex gap-2">
                     <button v-if="erro.regra_id === 'RTAX-C170-01'"
@@ -2315,7 +2307,7 @@ const afericaoGauge = computed(() => {
     <div v-if="showCorrectionModal" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-50 p-4">
        <div class="bg-sheet rounded-md border border-line p-8 max-w-md w-full card-shadow space-y-6">
           <h3 class="font-display text-[18px] font-semibold flex items-center gap-2 text-bronze">
-            🔮 Máquina de Cura: Retificação
+            Máquina de Cura: Retificação
           </h3>
           <p class="text-[13px] text-risco">Insira o novo código de **CST ICMS** para retificar este item no SPED automaticamente.</p>
 
@@ -2339,7 +2331,7 @@ const afericaoGauge = computed(() => {
                    <h3 class="font-display text-[18px] font-semibold text-ink">Ajustar Valor NF #{{ nfToEdit?.num_doc }}</h3>
                    <p class="text-[12px] text-risco font-mono">Chave: {{ nfToEdit?.chv_nfe || 'N/A' }}</p>
                 </div>
-                <button @click="showNfEditModal = false" class="text-risco hover:text-ink">✕</button>
+                <button @click="showNfEditModal = false" class="text-risco hover:text-ink"></button>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -2373,7 +2365,7 @@ const afericaoGauge = computed(() => {
         <div class="bg-sheet rounded-md border border-line p-8 max-w-2xl w-full card-shadow space-y-5 max-h-[85vh] overflow-y-auto">
             <div class="flex justify-between items-start gap-4">
                 <div class="flex items-start gap-3">
-                    <div class="text-2xl">⚠️</div>
+                    <div class="text-2xl"></div>
                     <div>
                         <h3 class="font-display text-[18px] font-semibold text-variacao">LMC Incompleto Detectado</h3>
                         <p class="text-[12px] text-risco mt-1">
@@ -2382,7 +2374,7 @@ const afericaoGauge = computed(() => {
                         </p>
                     </div>
                 </div>
-                <button @click="showLmcLacunaModal = false" class="w-9 h-9 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco">✕</button>
+                <button @click="showLmcLacunaModal = false" class="w-9 h-9 bg-paper hover:bg-line/50 rounded-full flex items-center justify-center text-risco"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
             </div>
 
             <div class="bg-variacao/10 border border-variacao/20 rounded-md p-4 text-[12px] text-ink leading-relaxed">
@@ -2429,7 +2421,7 @@ const afericaoGauge = computed(() => {
     <div v-if="showSequenciaModal && sequenciaInfo" class="fixed inset-0 bg-ink/40 flex items-center justify-center z-[80] p-4">
         <div class="bg-sheet rounded-md border border-line p-8 max-w-lg w-full card-shadow space-y-5">
             <div class="flex items-start gap-3">
-                <div class="w-12 h-12 bg-variacao/15 rounded-md flex items-center justify-center text-2xl shrink-0">⚠️</div>
+                <div class="w-12 h-12 bg-variacao/15 rounded-md flex items-center justify-center text-variacao shrink-0"><svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></div>
                 <div>
                     <h3 class="font-display text-[16px] font-semibold text-variacao">Período Fora de Sequência</h3>
                     <p class="text-[12px] text-risco mt-1">{{ sequenciaInfo.empresa }}</p>

@@ -434,7 +434,7 @@ async function rodarOtimizador() {
         });
 
         if (response.data.success) {
-            otimizadorMsg.value = response.data.message + (response.data.estouro_tanque ? " ⚠️ O teto do tanque foi atingido em alguns dias." : "");
+            otimizadorMsg.value = response.data.message + (response.data.estouro_tanque ? " O teto do tanque foi atingido em alguns dias." : "");
             showOptimizerModal.value = false;
             viewMode.value = 'lab';
             await loadData(arquivoId);
@@ -849,10 +849,11 @@ async function exportarSped() {
                     Compras · {{ combustiveis.find(c => c.cod_item === selectedFuel)?.nome || '—' }}
                 </p>
                 <p class="font-mono text-[20px] font-semibold text-white mt-1 break-all">{{ fNum(totais.comprasTotal) }} <span class="text-[10px] text-muted">L</span></p>
-                <p v-if="Math.abs(totais.comprasTotal - totais.nfsTotal) > 0.01" class="text-[10px] font-medium text-variacao mt-0.5">
-                    ⚠ NF-e: {{ fNum(totais.nfsTotal) }} L
+                <p v-if="Math.abs(totais.comprasTotal - totais.nfsTotal) > 0.01" class="text-[10px] font-medium text-variacao mt-0.5 inline-flex items-center gap-1">
+                    <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+                    NF-e: {{ fNum(totais.nfsTotal) }} L
                 </p>
-                <p v-else class="text-[10px] text-conforme mt-0.5">✓ NF-e conferida</p>
+                <p v-else class="text-[10px] text-conforme mt-0.5 inline-flex items-center gap-1"><svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> NF-e conferida</p>
             </div>
             <!-- Card variação líquida (perdas - ganhos) -->
             <div class="bg-sheet px-4 py-3 rounded-md border transition-colors card-shadow"
@@ -1030,7 +1031,7 @@ async function exportarSped() {
                         <tr class="bg-graphite text-[10px] font-medium uppercase text-muted tracking-wide">
                             <th class="py-2 px-2 sticky left-0 bg-graphite z-10 border-b border-graphite-4 text-white">Data</th>
                             <th class="py-2 px-2 border-b border-graphite-4 text-right text-line" title="Estoque de abertura do dia">Est. Inicial</th>
-                            <th class="py-2 px-2 border-b border-graphite-4 text-right text-conforme border-r border-graphite-4" title="Entradas LMC · badge ⚠ quando NF-e difere">Entradas <span class="text-variacao">⚠NF</span></th>
+                            <th class="py-2 px-2 border-b border-graphite-4 text-right text-conforme border-r border-graphite-4" title="Entradas LMC · badge quando NF-e difere">Entradas <span class="text-variacao">NF</span></th>
                             <th class="py-2 px-2 border-b border-graphite-4 text-right text-line border-r border-graphite-4" title="Est. Inicial + Entradas">Estq. Disponível</th>
                             <th class="py-2 px-2 border-b border-graphite-4 border-r border-graphite-4 text-center text-line">Saídas</th>
                             <th class="py-2 px-2 border-b border-graphite-4 text-right bg-graphite-2 border-r border-graphite-4 text-line">Escritural</th>
@@ -1064,16 +1065,18 @@ async function exportarSped() {
                                 <td class="py-1.5 px-2 text-right font-mono text-conforme border-r border-line">
                                     <div class="flex flex-col items-end gap-0.5">
                                         <span>{{ fNum(row[viewMode].vol_entr) }}</span>
-                                        <!-- Badge ⚠ quando NF-e difere do LMC -->
+                                        <!-- Badge quando NF-e difere do LMC -->
                                         <span v-if="parseFloat(row.vol_entr_lmc) !== parseFloat(row.volume_nota)"
-                                              class="text-[8px] font-medium text-variacao bg-variacao/10 border border-variacao/25 rounded px-1 leading-tight"
+                                              class="inline-flex items-center gap-0.5 text-[8px] font-medium text-variacao bg-variacao/10 border border-variacao/25 rounded px-1 leading-tight"
                                               :title="`NF-e: ${fNum(row.volume_nota)} L — LMC: ${fNum(row.vol_entr_lmc)} L`">
-                                            ⚠ NF: {{ fNum(row.volume_nota) }} L
+                                            <svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+                                            NF: {{ fNum(row.volume_nota) }} L
                                         </span>
                                         <button v-if="row.nfs_detalhadas && row.nfs_detalhadas.length > 0"
                                                 @click="toggleDay(row.data_movimento)"
-                                                class="px-2 py-0.5 rounded bg-bronze/10 text-bronze hover:bg-bronze/15 transition-colors text-[9px] font-medium self-center mt-0.5">
-                                            {{ expandedDays.has(row.data_movimento) ? '⬆ NFs' : '⬇ NFs' }}
+                                                class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-bronze/10 text-bronze hover:bg-bronze/15 transition-colors text-[9px] font-medium self-center mt-0.5">
+                                            <svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="expandedDays.has(row.data_movimento) ? 'm18 15-6-6-6 6' : 'm6 9 6 6 6-6'"/></svg>
+                                            NFs
                                         </button>
                                     </div>
                                 </td>
@@ -1102,7 +1105,8 @@ async function exportarSped() {
                                                 :disabled="savingDate === row.data_movimento"
                                                 class="bg-bronze/10 hover:bg-bronze/15 text-bronze px-2 py-1 text-[10px] font-medium h-full border-l border-line transition-colors disabled:opacity-50"
                                                 title="Salvar venda e atualizar cascata dos dias seguintes">
-                                                {{ savingDate === row.data_movimento ? '...' : '✔' }}
+                                                <span v-if="savingDate === row.data_movimento">...</span>
+                                                <svg v-else class="w-3.5 h-3.5 inline-block align-middle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                                             </button>
                                         </div>
                                         <template v-if="row.lab.is_saida_edited">
@@ -1141,7 +1145,8 @@ async function exportarSped() {
                                             <!-- Botão individual salvar -->
                                             <button @click="salvarAjuste(row)" :disabled="savingDate === row.data_movimento"
                                                 class="bg-paper hover:bg-line/60 text-risco px-2 py-1 text-[10px] font-medium h-full border-l border-line transition-colors disabled:opacity-50">
-                                                {{ savingDate === row.data_movimento ? '...' : '✔' }}
+                                                <span v-if="savingDate === row.data_movimento">...</span>
+                                                <svg v-else class="w-3.5 h-3.5 inline-block align-middle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                                             </button>
                                         </div>
                                         <span v-if="row.lab.is_fisico_edited" class="text-[9px] text-risco block leading-none">
@@ -1173,7 +1178,8 @@ async function exportarSped() {
                                         :class="row[viewMode].ultrapassou_limite
                                             ? 'bg-lacre/10 text-lacre border border-lacre/25'
                                             : 'bg-conforme/10 text-conforme border border-conforme/25'">
-                                        <span class="text-[11px] leading-none">{{ row[viewMode].ultrapassou_limite ? '✗' : '✓' }}</span>
+                                        <svg v-if="row[viewMode].ultrapassou_limite" class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                                        <svg v-else class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                                         {{ fNum(row[viewMode].percentual) }}%
                                     </span>
                                 </td>

@@ -106,7 +106,7 @@ const formatNumber = (val, decimals = 2) => new Intl.NumberFormat('pt-BR', { min
         </UiButton>
         <UiButton variant="ghost" @click="loadRentabilidade">
           <Loader2 v-if="loading" class="w-4 h-4 animate-spin text-bronze" :stroke-width="1.8" />
-          <span v-else>🔄</span>
+          <span v-else></span>
         </UiButton>
       </div>
     </header>

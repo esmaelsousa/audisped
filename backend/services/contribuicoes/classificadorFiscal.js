@@ -10,7 +10,7 @@
 //   - INDEFINIDO NÃO crava CST: o consumidor decide (validador ALERTA, injetor BLOQUEIA).
 //   - Entrada nunca credita por default; saída nunca "inventa" débito por default.
 //
-// ⚠️ O de-para NC->bucket abaixo é SEED PROVISÓRIO, só com o INCONTESTÁVEL (as duas
+// O de-para NC->bucket abaixo é SEED PROVISÓRIO, só com o INCONTESTÁVEL (as duas
 //    lentes do painel concordam). O DISPUTADO (bebidas frias 2201-2203, pós Lei
 //    13.097/2015: monofásico CST 04 x tributado CST 01) fica INDEFINIDO até o
 //    CONTADOR confirmar. A verdade final do de-para é do contador, por empresa.

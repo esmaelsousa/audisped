@@ -7,7 +7,7 @@
 //   • terceiros (f[3]=='1') → sugere recompor VL_DOC (campo 12).
 // Ignora cancelados/denegados (COD_SIT 02/03/04/05).
 //
-// ⚠️ GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.1 — ver docs/superpowers/plans/REVISAO-CROSS-EMPRESA-2026-07-08.md):
+// GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.1 — ver docs/superpowers/plans/REVISAO-CROSS-EMPRESA-2026-07-08.md):
 //   DETECÇÃO roda em toda a base (reproduz o catálogo de referência). A AUTO-CORREÇÃO (quando ligada no localhost)
 //   NÃO pode aplicar cegamente — o C100 não tem campo p/ FCP-ST / ICMS desonerado / importação, então a
 //   identidade legitimamente não fecha em distribuidoras/ST/desoneração. Guards obrigatórios no coletor:
@@ -52,7 +52,7 @@ module.exports = {
             const propria = String(f[3] || '').trim() === '0';
             const base = { linha: l.n, valorAtual: f[12], detalhe: `VL_DOC declarado ${f[12]} ≠ apurado ${fromCents(calc)} (dif ${fromCents(Math.abs(calc - decl))}) na NF ${f[8] || '?'}.` };
             if (!propria) {
-                // ⚠️ FALSO POSITIVO conhecido (validado contra 4 vNF reais da SEFAZ): quando o ERP grava o
+                // FALSO POSITIVO conhecido (validado contra 4 vNF reais da SEFAZ): quando o ERP grava o
                 // TOTAL da nota em VL_MERC (que já inclui frete/despesas) e AINDA preenche VL_FRT à parte, o
                 // frete é contado 2× e recompor o VL_DOC o INFLA — sendo que o VL_DOC declarado já é o vNF.
                 // Nesse padrão o campo errado é o VL_MERC (deveria ser o vProd), não o VL_DOC.

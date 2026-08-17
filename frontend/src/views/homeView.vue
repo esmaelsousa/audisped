@@ -328,8 +328,8 @@ async function criarEmpresa() {
           toast.type === 'success' ? 'bg-conforme' : 'bg-lacre'
         ]"
       >
-        <span v-if="toast.type === 'success'" class="text-base">✓</span>
-        <span v-else class="text-base">✕</span>
+        <svg v-if="toast.type === 'success'" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        <svg v-else class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         {{ toast.message }}
         <button @click="toast.show = false" class="ml-2 text-white/70 hover:text-white font-bold">×</button>
       </div>

@@ -81,10 +81,10 @@ const filteredData = computed(() => {
             <td class="p-6 text-right font-mono text-sm font-bold">{{ item.estoque_final }} L</td>
             <td class="p-6 text-center">
               <span v-if="item.hasAnomaly" class="px-3 py-1 rounded-full bg-red-100 text-red-600 text-[10px] font-black uppercase">
-                ⚠️ {{ item.anomalyType }}
+                {{ item.anomalyType }}
               </span>
               <span v-else class="px-3 py-1 rounded-full bg-emerald-600/10 text-emerald-600 text-[10px] font-black uppercase text-[9px]">
-                ✅ CONSISTENTE
+                CONSISTENTE
               </span>
             </td>
           </tr>

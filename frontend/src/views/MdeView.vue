@@ -910,16 +910,16 @@ async function saveCertificado() {
           <div v-if="certValidando" class="text-[12px] text-risco">Lendo certificado…</div>
           <div v-else-if="certPreview" class="p-3 rounded-md border text-[12px] space-y-1"
                :class="(certPreview.erro || !podeSalvarCert()) ? 'bg-lacre/[0.06] border-lacre/30' : 'bg-conforme/[0.06] border-conforme/25'">
-            <p v-if="certPreview.erro" class="font-medium text-lacre">⚠️ {{ certPreview.erro }}</p>
+            <p v-if="certPreview.erro" class="font-medium text-lacre inline-flex items-start gap-1"><svg class="w-3.5 h-3.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>{{ certPreview.erro }}</p>
             <template v-else>
               <p class="text-ink"><b>Titular:</b> {{ certPreview.titular || '—' }}</p>
               <p :class="certPreview.confere ? 'text-conforme font-medium' : 'text-lacre font-medium'">
-                {{ certPreview.confere ? '✅' : '❌' }} CNPJ do certificado: {{ fmtCnpj(certPreview.cnpjCert) }}
+<svg v-if="certPreview.confere" class="w-3.5 h-3.5 inline-block align-middle mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><svg v-else class="w-3.5 h-3.5 inline-block align-middle mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>CNPJ do certificado: {{ fmtCnpj(certPreview.cnpjCert) }}
                 <span v-if="certPreview.semCnpj"> (sem CNPJ — é um e-CPF?)</span>
                 <span v-else-if="!certPreview.confere"> — empresa selecionada: {{ fmtCnpj(certPreview.cnpjEmpresa) }}</span>
               </p>
               <p :class="certPreview.vencido ? 'text-lacre font-medium' : (certPreview.perto ? 'text-variacao font-medium' : 'text-ink')">
-                {{ certPreview.vencido ? '⛔ VENCIDO em' : '📅 Válido até' }} {{ formatDate(certPreview.validadeFim) }}
+                {{ certPreview.vencido ? 'VENCIDO em' : 'Válido até' }} {{ formatDate(certPreview.validadeFim) }}
                 <span v-if="!certPreview.vencido">({{ certPreview.diasParaVencer }} dia(s))<span v-if="certPreview.perto"> — vence em breve!</span></span>
               </p>
               <p v-if="!podeSalvarCert()" class="text-lacre text-[11px]">

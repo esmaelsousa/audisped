@@ -30,7 +30,7 @@ module.exports = {
             const espRecol = Math.max(0, deb - cred - c(f[12]));
             const espTransp = Math.max(0, cred - deb);
             if (c(f[13]) !== espRecol) {
-                // ⚠️ FALSO POSITIVO conhecido: alguns ERPs espelham a VL_RETENCAO_ST (f8) dentro do
+                // FALSO POSITIVO conhecido: alguns ERPs espelham a VL_RETENCAO_ST (f8) dentro do
                 // VL_SLD_DEV_ANT_ST (f11) → a retenção entra 2× nos débitos e a regra sugeriria DOBRAR o
                 // ICMS-ST a recolher. Se, removido o f11, o f13 declarado já fecha, o total está CORRETO e o
                 // campo espúrio é o f11 — apontar o f11 (ADV), NUNCA sugerir aumentar o imposto.

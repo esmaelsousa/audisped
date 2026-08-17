@@ -154,7 +154,7 @@ async function ejetarTodosGrupos() {
                 sem_arquivos: 'Pulado — nenhum arquivo recebido',
             };
             logs.value.push(`${icon} Grupo ${g.grupo}: ${statusLabel[g.status] || g.status}`);
-            if (g.dica) logs.value.push(`   💡 ${g.dica}`);
+            if (g.dica) logs.value.push(`   ${g.dica}`);
             const grupoUI = gruposAtivos[g.grupo - 1];
             if (grupoUI) {
                 grupoUI.status = g.status === 'ok' ? 'ok' : 'erro';
@@ -169,7 +169,7 @@ async function ejetarTodosGrupos() {
 
         if (data?.tipo === 'cnpj_invalido') {
             logs.value.push(`[BLOQUEADO] ${data.message}`);
-            data.bloqueados.forEach(b => logs.value.push(`  ✗ ${b.arquivo} → XML é de ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml}) | SPED selecionado: CNPJ ${b.cnpj_sped}`));
+            data.bloqueados.forEach(b => logs.value.push(`  ${b.arquivo} → XML é de ${b.nome_xml || '(nome indisponível)'} (CNPJ ${b.cnpj_xml}) | SPED selecionado: CNPJ ${b.cnpj_sped}`));
             gruposAtivos.forEach(g => { g.status = 'erro'; });
         } else if (data?.tipo === 'periodo_divergente') {
             _pendingFdNfe = fd;
@@ -188,7 +188,7 @@ async function ejetarTodosGrupos() {
                 };
                 data.grupos.forEach(g => {
                     logs.value.push(`  → Grupo ${g.grupo}: ${statusLabel[g.status] || g.status}`);
-                    if (g.erros?.length) g.erros.forEach(err => logs.value.push(`     ⚠ ${err}`));
+                    if (g.erros?.length) g.erros.forEach(err => logs.value.push(`     ${err}`));
                 });
             }
             gruposAtivos.forEach(g => { if (g.status === 'processando') g.status = 'erro'; });

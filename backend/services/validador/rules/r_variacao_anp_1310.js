@@ -10,7 +10,7 @@
 //
 // Verificado no par casado arq 2028 (S CRUZ / AUTO POSTO DA CHAPADA 09069475000109, 01/2026):
 // painel de auditoria 2033 = 146 ocorrências (109 com físico=0 → 100%; o restante variação real de 0,7%–403%).
-// ⚠️ Cross-empresa: ERPs que não medem o físico deixam FECH_FISICO=0 → 100% em todos os tanques;
+// Cross-empresa: ERPs que não medem o físico deixam FECH_FISICO=0 → 100% em todos os tanques;
 // é o próprio indício que o painel de auditoria aponta. Como é ADV, nunca bloqueia — só orienta.
 const num = (v) => { let s = String(v == null ? '' : v).trim(); if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); return parseFloat(s) || 0; };
 

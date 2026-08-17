@@ -587,7 +587,7 @@ async function vincularCodItem(e) {
   salvandoVinc.value = keyErro(e);
   try {
     await axios.post(`${API_BASE_URL}/api/validador/cod-item-map`, { id_sped_arquivo: resultadoId.value, cod_origem: e.valorAtual, cod_destino: dest }, { headers: authHeader() });
-    await analisar(); // re-analisa → o erro do item passa a aparecer como "✓ corrigido por você"
+    await analisar(); // re-analisa → o erro do item passa a aparecer como "corrigido por você"
   } catch (err) { erro.value = err.response?.data?.message || ('Erro ao vincular: ' + err.message); }
   finally { salvandoVinc.value = null; }
 }
@@ -724,7 +724,7 @@ onMounted(async () => {
           <input v-model="buscaEmpresa" type="text" placeholder="CNPJ, razão social ou nome fantasia…"
             class="w-full bg-sheet border border-line rounded-md text-[13px] text-ink px-3 py-2 pr-8 outline-none focus:border-bronze transition-colors" />
           <button v-if="buscaEmpresa" @click="buscaEmpresa = ''" type="button"
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-risco hover:text-ink transition-colors">✕</button>
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-risco hover:text-ink transition-colors"></button>
         </div>
         <p v-if="buscaEmpresa" class="text-[11px] text-risco mt-1">{{ empresasFiltradas.length }} de {{ empresas.length }} empresa(s)</p>
       </div>
@@ -767,7 +767,7 @@ onMounted(async () => {
       <div class="bg-sheet rounded-md border border-line card-shadow p-5">
         <div class="flex items-center justify-between gap-3 flex-wrap mb-2">
           <h2 class="font-display text-[16px] font-semibold text-ink">{{ empresaNome || resultado.arquivo?.cnpj || 'Empresa' }}</h2>
-          <span v-if="resultado.validadoSobre === 'exportado'" class="text-[10px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-1 rounded-md">✓ validado sobre o SPED corrigido</span>
+          <span v-if="resultado.validadoSobre === 'exportado'" class="text-[10px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-1 rounded-md">validado sobre o SPED corrigido</span>
         </div>
         <div class="flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
           <span class="text-risco">CNPJ: <b class="font-mono text-ink">{{ resultado.arquivo?.cnpj || '—' }}</b></span>
@@ -954,7 +954,7 @@ onMounted(async () => {
           <span class="text-[11px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-2 py-0.5 rounded-md">{{ alteracoes.total }} alteração(ões)</span>
           <span v-for="(n, k) in (alteracoes.totais?.porOrigem || {})" :key="k" class="text-[10px] font-medium text-risco bg-paper border border-line px-2 py-0.5 rounded-md">{{ k }}: {{ n }}</span>
           <button @click="baixarRelatorioPdf" :disabled="baixandoPdf" class="ml-auto px-3 py-1 rounded-md text-[11px] font-medium text-white bg-bronze hover:opacity-85 disabled:opacity-50 transition-opacity" title="Relatório consolidado em PDF para enviar à contabilidade / setor fiscal">{{ baixandoPdf ? 'Gerando…' : 'Relatório (PDF)' }}</button>
-          <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar ✕</button>
+          <button @click="alteracoes = null" class="text-[11px] text-risco hover:text-ink font-medium">fechar </button>
         </div>
         <!-- Correções DESLIGADAS pelo usuário (Fase B) -->
         <div v-if="alteracoes.skips && alteracoes.skips.length" class="px-5 py-3 bg-variacao/[0.06] border-b border-variacao/25">
@@ -1085,13 +1085,13 @@ onMounted(async () => {
                         <button @click="toggleOcc(e)" class="w-full text-left px-6 py-2 hover:bg-sheet flex items-center gap-3 text-[11px] transition-colors">
                           <span class="font-mono text-risco shrink-0">L{{ e.linha ?? '-' }}</span>
                           <span class="min-w-0 flex-1 truncate text-ink">{{ e.detalhe }}</span>
-                          <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-medium text-white bg-conforme px-1.5 py-0.5 rounded-md shrink-0">✓ corrigido</span>
+                          <span v-if="e.corrigidoPeloUsuario" class="text-[9px] font-medium text-white bg-conforme px-1.5 py-0.5 rounded-md shrink-0">corrigido</span>
                           <span v-else-if="e.jaCorrigidoNoExport" class="text-[9px] font-medium text-conforme bg-conforme/10 border border-conforme/25 px-1.5 py-0.5 rounded-md shrink-0">auto no download</span>
                           <component :is="occAberta === keyErro(e) ? ChevronUp : ChevronDown" class="w-3.5 h-3.5 text-risco shrink-0" :stroke-width="1.7" />
                         </button>
                         <div v-if="occAberta === keyErro(e)" class="px-6 pb-4 pt-1 bg-sheet text-[12px] space-y-2">
                           <div v-if="e.corrigidoPeloUsuario" class="bg-conforme/[0.06] border border-conforme/25 rounded-md p-3 text-conforme">
-                            <b>✓ Você já corrigiu este item.</b> Ele ainda aparece porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Validar corrigido"</b> ou baixe o SPED corrigido para confirmar.
+                            <b>Você já corrigiu este item.</b> Ele ainda aparece porque esta tela analisa o arquivo <b>ORIGINAL</b>. Clique em <b>"Validar corrigido"</b> ou baixe o SPED corrigido para confirmar.
                           </div>
                           <p class="text-ink">{{ e.detalhe }}</p>
                           <div class="grid sm:grid-cols-2 gap-2">

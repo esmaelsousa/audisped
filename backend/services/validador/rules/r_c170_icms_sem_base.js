@@ -1,7 +1,7 @@
 // DOC-C170-ICMSSEMBASE-01 (catálogo de referência 2075) — C170 com ALIQ_ICMS > 0 mas VL_BC_ICMS ou VL_ICMS = 0.
 // Caso típico: item de uso/consumo (CFOP 1556/1407…) que herdou a alíquota mas não tem crédito.
 //
-// ⚠️ GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.2 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
+// GATE DE AUTO-CORREÇÃO (painel cross-empresa 2026-07-08 §2.2 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
 //   DETECÇÃO reproduz o catálogo de referência (dispara com OR: BC==0 OU VL_ICMS==0). Mas a AUTO-CORREÇÃO
 //   (zerar ALIQ) só é segura no SUBCONJUNTO genuinamente não-creditante — senão destrói crédito real
 //   de distribuidora (CST 00/20 com ALIQ>0 e BC zerada por glitch → o certo é PREENCHER a base, não zerar).

@@ -1,6 +1,6 @@
 // DOC-C190-VLICMS-01 (catálogo de referência 2481) — VL_ICMS do C190 inconsistente.
 //
-// ⚠️ FÓRMULA CORRIGIDA PELO PAINEL (cross-empresa 2026-07-08 §3 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
+// FÓRMULA CORRIGIDA PELO PAINEL (cross-empresa 2026-07-08 §3 — REVISAO-CROSS-EMPRESA-2026-07-08.md):
 //   O catálogo de referência compara VL_ICMS(C190) com round(BC×ALIQ) — mas isso é FISCALMENTE ERRADO: o C190 é
 //   analítico e o valor correto é VL_ICMS(C190) = Σ VL_ICMS(C170) do mesmo CST|CFOP|ALIQ. A comparação
 //   com BC×ALIQ gera falso-positivo em massa em NF multi-item (arredondamento agregado legítimo),
