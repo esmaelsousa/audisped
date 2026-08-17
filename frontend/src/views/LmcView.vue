@@ -1188,13 +1188,16 @@ async function exportarSped() {
                                             <div v-for="nf in row.nfs_detalhadas" :key="nf.num_doc" class="bg-sheet border text-left border-line rounded-md p-3 transition-colors hover:border-bronze/40">
                                                 <div class="flex justify-between items-start mb-2">
                                                     <span class="text-[11px] font-medium text-risco">NF-e Número</span>
-                                                    <span class="px-2 py-0.5 bg-bronze/10 text-bronze rounded text-xs font-medium font-mono">#{{ nf.num_doc }}</span>
+                                                    <span class="flex items-center gap-1">
+                                                        <span v-if="nf.devolucao" class="px-1.5 py-0.5 bg-variacao/10 text-variacao rounded text-[10px] font-medium" :title="`Devolução de venda (CFOP ${nf.cfop})`">Devolução</span>
+                                                        <span class="px-2 py-0.5 bg-bronze/10 text-bronze rounded text-xs font-medium font-mono">#{{ nf.num_doc }}</span>
+                                                    </span>
                                                 </div>
                                                 <p class="text-[13px] font-medium text-ink truncate" :title="nf.fornecedor">{{ nf.fornecedor }}</p>
                                                 <div class="flex justify-between items-end mt-2 pt-2 border-t border-line">
                                                     <div>
-                                                        <p class="text-[9px] text-risco uppercase font-medium">Volume / Quantidade</p>
-                                                        <p class="text-xs font-mono text-bronze">{{ fNum(nf.qtd) }} L</p>
+                                                        <p class="text-[9px] text-risco uppercase font-medium">{{ nf.devolucao ? `Devolução · CFOP ${nf.cfop}` : 'Volume / Quantidade' }}</p>
+                                                        <p class="text-xs font-mono text-bronze">{{ nf.devolucao ? `R$ ${fNum(nf.vl_doc)}` : `${fNum(nf.qtd)} L` }}</p>
                                                     </div>
                                                     <p class="text-[10px] text-risco font-mono">{{ fDate(nf.dt_doc) }}</p>
                                                 </div>

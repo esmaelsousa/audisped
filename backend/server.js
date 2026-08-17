@@ -4069,6 +4069,45 @@ app.get('/api/lmc/:id_sped', authMiddleware, scopeRede(pool, 'sped'), async (req
         `;
         const { rows } = await dbClient.query(query, [arquivoId]);
 
+        // --- Devoluções de combustível (CFOP 166x): NF de ENTRADA sem C170 ---
+        // O casamento padrão (notas_raw) só enxerga NF com item C170. A devolução de venda
+        // de combustível é escriturada como C100+C190 SEM C170 → aparecia como "entrada sem nota"
+        // (⚠ NF: 0,00 L). Aqui casamos essa NF por DATA à entrada de combustível ÓRFÃ do dia
+        // (tem vol_entr no LMC mas o casamento por C170 não achou nota), exibindo o nº da NF.
+        try {
+            const devQ = await dbClient.query(`
+                SELECT c.num_doc,
+                       to_char(COALESCE(c.dt_e_s, c.dt_doc), 'YYYY-MM-DD') AS data_entrada,
+                       c.vl_doc,
+                       COALESCE(part.nome, 'Devolução de venda') AS fornecedor,
+                       MIN(v.cfop) AS cfop
+                FROM documentos_c100 c
+                JOIN documentos_c190 v ON v.id_documento_c100 = c.id
+                LEFT JOIN sped_participantes part ON part.cod_part = c.cod_part AND part.id_sped_arquivo = c.id_sped_arquivo
+                WHERE c.id_sped_arquivo = $1 AND c.ind_oper = '0' AND v.cfop LIKE '166%'
+                  AND NOT EXISTS (SELECT 1 FROM documentos_itens_c170 i WHERE i.id_documento_c100 = c.id)
+                GROUP BY c.id, c.num_doc, COALESCE(c.dt_e_s, c.dt_doc), c.vl_doc, part.nome
+            `, [arquivoId]);
+            if (devQ.rows.length) {
+                const devByDate = {};
+                for (const d of devQ.rows) (devByDate[d.data_entrada] = devByDate[d.data_entrada] || []).push(d);
+                for (const row of rows) {
+                    const ds = new Date(row.data_movimento).toISOString().slice(0, 10);
+                    const devs = devByDate[ds];
+                    if (devs && Number(row.vol_entr_lmc) > 0.001 && (Number(row.volume_nota) || 0) < 0.001) {
+                        const nfs = Array.isArray(row.nfs_detalhadas) ? row.nfs_detalhadas.slice() : [];
+                        for (const d of devs) {
+                            nfs.push({ num_doc: d.num_doc, dt_doc: ds, qtd: null, fornecedor: d.fornecedor, devolucao: true, cfop: d.cfop, vl_doc: d.vl_doc });
+                        }
+                        row.nfs_detalhadas = nfs;
+                        row.volume_nota = Number(row.vol_entr_lmc); // lastreado pela devolução (volume = a própria entrada)
+                    }
+                }
+            }
+        } catch (e) {
+            logger.warn(`[LMC devolucao 166x] falha ao casar: ${e.message}`);
+        }
+
         // Agrupar por combustível para calcular cascata
         const porCombustivel = {};
         rows.forEach(row => {
@@ -8014,6 +8053,30 @@ app.get('/api/lmc/imprimir/:id_sped', authMiddleware, demoPaywall, scopeRede(poo
                 }
             }
         } catch(e) { logger.warn('Erro ao buscar NF-e entrada para LMC PDF:', e.message); }
+
+        // 6.1 Devoluções de combustível (CFOP 166x sem C170) — casar por data à entrada órfã,
+        // pra a NF de devolução aparecer no livro impresso (senão vira "entrada sem nota").
+        try {
+            const devRes = await dbClient.query(`
+                SELECT c.num_doc, to_char(COALESCE(c.dt_e_s, c.dt_doc), 'YYYY-MM-DD') AS dt, c.vl_doc, MIN(v.cfop) AS cfop
+                FROM documentos_c100 c
+                JOIN documentos_c190 v ON v.id_documento_c100 = c.id
+                WHERE c.id_sped_arquivo = $1 AND c.ind_oper = '0' AND v.cfop LIKE '166%'
+                  AND NOT EXISTS (SELECT 1 FROM documentos_itens_c170 i WHERE i.id_documento_c100 = c.id)
+                GROUP BY c.id, c.num_doc, COALESCE(c.dt_e_s, c.dt_doc), c.vl_doc
+            `, [arquivoId]);
+            if (devRes.rows.length) {
+                const devByDate = {};
+                for (const d of devRes.rows) (devByDate[d.dt] = devByDate[d.dt] || []).push(d);
+                for (const [key, dp] of diasProdutos) {
+                    if (!dp.total || !(dp.total.entradas > 0.001)) continue;
+                    if (entradasMap[key] && entradasMap[key].length) continue; // já tem NF de compra
+                    const devs = devByDate[dp.dt];
+                    if (!devs) continue;
+                    entradasMap[key] = devs.map(d => ({ num_doc: d.num_doc, volume: dp.total.entradas, devolucao: true }));
+                }
+            }
+        } catch(e) { logger.warn('Erro devolucao LMC PDF:', e.message); }
 
         // 6.4 Valor de vendas por dia (NFC-e totais + distribuição proporcional por volume LMC)
         const nfceTotalDia = {};

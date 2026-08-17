@@ -101,7 +101,7 @@ function gerarPaginaLMC(doc, dados, pageNum) {
     let ey = y + 14;
     entradas.forEach(ent => {
         if (ey < y + hReceb - 10) {
-            t(`NF ${ent.num_doc} — ${formatNum(ent.volume)} L`, m + 6, ey, { size: 7 });
+            t(`NF ${ent.num_doc}${ent.devolucao ? ' (dev.)' : ''} — ${formatNum(ent.volume)} L`, m + 6, ey, { size: 7 });
             ey += 11;
         }
     });
