@@ -9382,7 +9382,15 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                     if (!bicosProcessadosNesteFlush.has(bicoNum) && ultimoEncOrigPorBico.has(bicoNum)) {
                         const encOrigAnterior = ultimoEncOrigPorBico.get(bicoNum);
                         logger.info(`[MULTIPRODUTO CHECK] bico=${bicoNum} encAbertOrig=${encAbertOrig} encOrigAnterior=${encOrigAnterior} diff=${Math.abs(encAbertOrig - encOrigAnterior).toFixed(3)}`);
-                        if (Math.abs(encAbertOrig - encOrigAnterior) < 0.01) {
+                        // GUARD anti falso-positivo: só é multiproduto (encerrante já avançou no outro
+                        // produto → zerar vendas) quando ESTE registro do bico NÃO tem venda própria.
+                        // Se o bico vendeu de fato neste registro (VOL_VENDAS>0 ou enc_final avançou
+                        // além da aferição), a igualdade de enc_inic vem apenas de o dia ANTERIOR ter
+                        // sido sem vendas (bomba parada) — NÃO é troca de produto. Zerar aqui apagaria
+                        // uma saída declarada real (bug: saída 240,294 → 0 + perda 0,55%).
+                        const esteRegistroTeveVenda = (volVendasOrig > 0.01) ||
+                            ((encFechaOrig - encAbertOrig - volAferiOrig) > 0.01);
+                        if (Math.abs(encAbertOrig - encOrigAnterior) < 0.01 && !esteRegistroTeveVenda) {
                             // Multiproduto: mesmo bico, mesmo enc_inic → troca de produto
                             // Emitir com enc_inic=enc_final=acumulado e vendas=0
                             // (PVA exige pelo menos um 1320 por 1310)
