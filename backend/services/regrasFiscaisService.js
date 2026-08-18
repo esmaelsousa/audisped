@@ -243,6 +243,14 @@ const SEED = [
     cond_extra: { cst_origem_list: ['60', '61'] },
     acao_cst_pis: '04', acao_cst_cofins: '04', flag_para_no_match: false,
   }),
+  regra({
+    nome: 'Coerção combustível/lubrificante: CST ICMS 60/61 ENTRADA ⇒ PIS/COFINS 73',
+    descricao: 'Aquisição de combustível/lubrificante monofásico/ST (CST ICMS 60/61) é operação a alíquota zero na ENTRADA → PIS/COFINS CST 73 (aquisição a alíquota zero). Nunca 04 (que é código de SAÍDA/revenda) nem 50 (crédito vedado no monofásico). Espelha a coerção de saída (⇒04). Escopo export p/ não colidir com as regras de injeção.',
+    fundamento: 'Lei 9.718/98; Lei 10.485/02; LC 192/2022; IN RFB 2.121/22 (Tab. 4.3.3, CST 73)',
+    prioridade: 10, escopo: 'export', ind_oper: '0', dt_ini: '2000-01-01',
+    cond_extra: { cst_origem_list: ['60', '61'] },
+    acao_cst_pis: '73', acao_cst_cofins: '73', flag_para_no_match: false,
+  }),
   // ---- DERIVAÇÃO (injeção; aplicadas na Fase 2 quando o motor entrar na injeção) ----
   regra({
     nome: 'Gasolina/Diesel/Biodiesel monofásico — entrada (CST 61)',
