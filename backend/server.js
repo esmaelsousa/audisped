@@ -8439,8 +8439,15 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         //  • 0220: EXATAMENTE 3 campos (REG|UNID_CONV|FAT_CONV) — em TODAS as versões do leiaute.
         //  • CST 61→60 em C170/C190 quando a competência é anterior ao regime monofásico (Conv. 199/2022).
         //  • C170: aplica as Regras Fiscais (ex.: CST ICMS 60/61 ⇒ PIS/COFINS 04) via motor global.
+        // Rastreia o IND_OPER (0=entrada, 1=saída) do C100 pai da vez, para o motor de
+        // regras poder distinguir ENTRADA de SAÍDA no C170. Sem isso a coerção monofásica
+        // "CST 60/61 ⇒ PIS/COFINS 04" (que só vale na SAÍDA/revenda) atropelava o CST 73/70
+        // legítimo das ENTRADAS de combustível (aquisição a alíquota zero). C100 sempre
+        // precede seus C170 no arquivo, então basta capturar o último visto.
+        let _c100IndOperExport = null;
         const normalizarLinha = (l) => {
             if (typeof l !== 'string') return l;
+            if (l.startsWith('|C100|')) { _c100IndOperExport = l.split('|')[2]; return l; }
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
                 // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute
@@ -8475,7 +8482,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const f = l.split('|'); // [10]=CST_ICMS, [11]=CFOP, [25]=CST_PIS, [31]=CST_COFINS
                 if (f.length < 32) return l; // C170 truncado/atípico: não fabricar índices
                 const item = { num_item: f[2], cst_icms: f[10], cfop: f[11], cst_pis: f[25], cst_cofins: f[31] };
-                regrasFiscais.aplicarRegrasFiscaisComLista(item, regrasExport, { origem: 'EXPORT' });
+                regrasFiscais.aplicarRegrasFiscaisComLista(item, regrasExport, { origem: 'EXPORT', ind_oper: _c100IndOperExport });
                 if (item.cst_icms !== f[10] || item.cfop !== f[11] || item.cst_pis !== f[25] || item.cst_cofins !== f[31]) {
                     f[10] = item.cst_icms; f[11] = item.cfop; f[25] = item.cst_pis; f[31] = item.cst_cofins;
                     return f.join('|');
