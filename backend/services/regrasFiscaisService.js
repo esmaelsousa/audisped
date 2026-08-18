@@ -239,7 +239,7 @@ const SEED = [
     nome: 'Coerção combustível/lubrificante: CST ICMS 60/61 ⇒ PIS/COFINS 04',
     descricao: 'Combustível/lubrificante com ICMS cobrado anteriormente (ST) ou monofásico exige PIS/COFINS CST 04 (revenda a alíquota zero), nunca 07/vazio. Rede de segurança que substitui os 3 hacks.',
     fundamento: 'Lei 9.718/98; Lei 10.485/02; IN RFB 2.121/22 (Tab. 4.3.3)',
-    prioridade: 10, escopo: 'ambos', ind_oper: null, dt_ini: '2000-01-01',
+    prioridade: 10, escopo: 'ambos', ind_oper: '1', dt_ini: '2000-01-01', // FIX: so SAIDA (revenda). Entrada monofasica preserva cst_pis 73/70 (04 e codigo de saida)
     cond_extra: { cst_origem_list: ['60', '61'] },
     acao_cst_pis: '04', acao_cst_cofins: '04', flag_para_no_match: false,
   }),
