@@ -24,6 +24,7 @@ const { runOptimization } = require('./test_optimize');
 const { parseNfeCompleta, ensureNfeCompletaTable, salvarNfeCompleta, buscarNfeCompleta } = require('./nfe-completa');
 const regrasFiscais = require('./services/regrasFiscaisService');
 const { criarColetorTrilha } = require('./services/export/trilhaRegras');
+const { apurarE210 } = require('./services/export/e210Apuracao');
 const conciliacaoService = require('./services/conciliacaoService');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
@@ -10235,17 +10236,20 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             // VL_TOTAL_CRED_ST = f[3]+f[4]+f[5]+f[6]+f[7] — calculado mas não ocupa campo próprio.
             // E110 não é recalculado aqui — arquivo já correto pós-injeção.
             if (fields.length >= 2 && fields[1] === 'E210') {
-                const f = fields;
-                f[8]  = fmtSp(somaRetST); // VL_RETENCAO_ST = soma C190/C590/etc CFOP 5xx/6xx VL_ICMS_ST
-                // Apuração ST (layout PVA): créditos = f3..f7; débitos = f8..f11; f12 = deduções.
-                //   f13 VL_ICMS_RECOL_ST            = max(0, débitos − créditos − deduções)
-                //   f14 VL_SLD_CRED_ST_TRANSPORTAR  = max(0, créditos − débitos)  ← era somado errado (PVA: saldo credor ST a transportar)
-                //   f15 DEB_ESP_ST                  = preservado (débito especial informado, não derivado)
-                const credST = parseSp(f[3]) + parseSp(f[4]) + parseSp(f[5]) + parseSp(f[6]) + parseSp(f[7]);
-                const debST  = parseSp(f[8]) + parseSp(f[9]) + parseSp(f[10]) + parseSp(f[11]);
-                f[2]  = (credST > 0 || debST > 0) ? '1' : '0'; // IND_MOV_ST: 1 se houve QUALQUER movimento ST (crédito ou débito)
-                f[13] = fmtSp(Math.max(0, debST - credST - parseSp(f[12])));
-                f[14] = fmtSp(Math.max(0, credST - debST));
+                // Aritmética em services/export/e210Apuracao.js (testada em e210-apuracao.test.js
+                // e e210-corpus.test.js). Aqui só entram o VL_RETENCAO_ST acumulado do bloco C e o
+                // changelog — a conta em si saiu desta closure justamente por nunca ter tido teste.
+                const antesE210 = fields.join('|');
+                const f = apurarE210(fields, { somaRetST });
+                if (f.join('|') !== antesE210) {
+                    changelog.add({
+                        registro: 'E210', regraId: 'APUR-E210-ST',
+                        motivo: 'apuração do ICMS-ST recalculada (retenção do bloco C + saldo devedor e valor a recolher derivados)',
+                        escopo: 'linha', campo: 'VL_ICMS_RECOL_ST',
+                        antes: antesE210.split('|')[13] || '', depois: f[13] || '',
+                        origem: 'fiscal', classe: 'fiscal-deterministico',
+                    });
+                }
                 pushLine(f.join('|'));
                 continue;
             }

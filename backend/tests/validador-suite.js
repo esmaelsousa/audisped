@@ -586,12 +586,25 @@ t('VLDOC terceiros: padrão ambíguo (VL_MERC==VL_DOC) → ADV com as 2 hipótes
 });
 
 // [ALTA] APUR-E210-SALDO-01: f11 (SLD_DEV_ANT_ST) espelha f8 (RETENCAO_ST) → não dobrar o ICMS-ST.
-t('E210: f11 espelha a retenção (f8) → ADV no f11, não dobra o ICMS-ST a recolher', () => {
+t('E210: f11 espelha a retenção (f8) → f13 declarado está CERTO, nunca sugerir dobrar', () => {
     const r = require('../services/validador/rules/r_e210_saldo');
     const f = '|E210|1|0,00|0,00|0,00|0,00|0,00|956,31|0,00|0,00|956,31|0,00|956,31|0,00|0,00|'.split('|');
     const e = r.detectar({ linhas: [{ reg: 'E210', n: 1, f }] });
-    assert.ok(e.some(x => x.campo === 'VL_SLD_DEV_ANT_ST' && x.severidade === 'ADV'), 'aponta o f11 como ADV (ambíguo)');
-    assert.ok(!e.some(x => x.campoIdx === 13 && x.valorSugerido === '1912,62'), 'não sugere dobrar o f13 sem confirmar');
+    // f11 = 956,31 = max(0, 956,31 − 0) → é o subtotal correto, nada a apontar nele.
+    assert.ok(!e.some(x => x.campoIdx === 11), 'f11 igual ao subtotal não pode gerar apontamento');
+    // E o f13 declarado (956,31) fecha com a apuração → nenhum BLOQ.
+    assert.ok(!e.some(x => x.campoIdx === 13), 'f13 declarado está correto — não pode virar BLOQ');
+    assert.ok(!e.some(x => x.valorSugerido === '1912,62'), 'NUNCA sugerir dobrar o ICMS-ST');
+    assert.equal(e.length, 0, 'linha coerente não gera apontamento nenhum');
+});
+
+// [ALTA] APUR-E210-SALDO-01: o f11 é DERIVADO. Zerado com débito real → ADV, e o f13 segue certo.
+t('E210: f11 zerado com débito real → ADV no f11, sem BLOQ no f13', () => {
+    const r = require('../services/validador/rules/r_e210_saldo');
+    const f = '|E210|1|0,00|0,00|0,00|0,00|0,00|500,00|0,00|0,00|0,00|0,00|500,00|0,00|0,00|'.split('|');
+    const e = r.detectar({ linhas: [{ reg: 'E210', n: 1, f }] });
+    assert.ok(e.some(x => x.campoIdx === 11 && x.severidade === 'ADV' && x.valorSugerido === '500,00'), 'aponta o f11 derivado');
+    assert.ok(!e.some(x => x.campoIdx === 13), 'o valor a recolher declarado está correto');
 });
 
 // [MEDIA] CAD-0200-03: NCM placeholder 00000000/99999999 (8 dígitos porém inválido) deve disparar.
