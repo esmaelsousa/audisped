@@ -12,6 +12,11 @@ import { ref } from 'vue'
 import axios from 'axios'
 import { API_BASE_URL } from '../api'
 
+// Timeout específico do upload (5 min). O default global do axios é 30s (main.js), curto
+// demais para o parse+gravação de SPEDs grandes no servidor (~30-60s) → o cliente abortava
+// com "timeout of 30000ms exceeded" mesmo com o servidor concluindo a importação.
+const UPLOAD_TIMEOUT_MS = 300000
+
 // Lê a primeira linha (registro 0000) do .txt para extrair CNPJ e data inicial.
 function parseSpedHeader(file) {
   return new Promise((resolve) => {
@@ -131,6 +136,10 @@ export function useUploadSped() {
       let response
       try {
         response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
+          // Parse+gravação do SPED no servidor pode levar ~30-60s (arquivos grandes).
+          // Sem isto o axios usa o default global de 30s e aborta no cliente mesmo com o
+          // servidor ainda processando (e concluindo). 5 min cobre com folga.
+          timeout: UPLOAD_TIMEOUT_MS,
           onUploadProgress: (evt) => {
             const pct = Math.round((evt.loaded * 100) / (evt.total || 1))
             uploadProgress.value = pct
@@ -146,7 +155,7 @@ export function useUploadSped() {
             response = { data: { id_sped_arquivo: repairedId, fileInfo: null } }
           } else if (confirm('Este período já foi processado. Deseja SOBRESCREVER os dados antigos? (Isso apagará seus ajustes de LMC)')) {
             uploadMessage.value = 'Sobrescrevendo dados anteriores…'
-            response = await axios.post(`${API_BASE_URL}/api/upload?overwrite=true`, formData)
+            response = await axios.post(`${API_BASE_URL}/api/upload?overwrite=true`, formData, { timeout: UPLOAD_TIMEOUT_MS })
           } else {
             return // cancelado pelo usuário
           }
