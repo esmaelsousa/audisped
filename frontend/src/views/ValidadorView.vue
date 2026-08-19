@@ -178,7 +178,7 @@ async function importarSped(ev) {
   try {
     const fd = new FormData();
     fd.append('spedfile', file); // campo EXATO esperado pelo backend
-    const res = await axios.post(`${API_BASE_URL}/api/upload`, fd, { headers: authHeader() });
+    const res = await axios.post(`${API_BASE_URL}/api/upload`, fd, { headers: authHeader(), timeout: 300000 }); // 5 min: parse SPED grande passa dos 30s default
     const { id_sped_arquivo, fileInfo } = res.data;
     // store (ponte p/ outras telas) + seleção da empresa (pode ser NOVA, criada agora)
     setArquivoInfo({ id: id_sped_arquivo, nome: file.name, cnpj: fileInfo?.cnpj_empresa, periodo: fileInfo?.periodo_apuracao });

@@ -747,6 +747,9 @@ async function executarUpload(file) {
         let response;
         try {
             response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
+                // Parse+gravação do SPED no servidor pode passar de 30s (default global do axios),
+                // abortando o cliente mesmo com o servidor concluindo. 5 min cobre com folga.
+                timeout: 300000,
                 onUploadProgress: (progressEvent) => {
                     const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
                     uploadProgress.value = percentCompleted;
@@ -774,7 +777,7 @@ async function executarUpload(file) {
 
                 if (confirm("Este período já foi processado. Deseja SOBRESCREVER os dados antigos? (Isso apagará seus ajustes de LMC)")) {
                     status.value = "Sobrescrevendo dados anteriores...";
-                    response = await axios.post(`${API_BASE_URL}/api/upload?overwrite=true`, formData);
+                    response = await axios.post(`${API_BASE_URL}/api/upload?overwrite=true`, formData, { timeout: 300000 });
                 } else {
                     status.value = "Upload cancelado pelo usuário.";
                     return;
