@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../api'
 import { useRoute } from 'vue-router'
 import { Loader2, TrendingUp, Package, DollarSign, Percent, FileDown } from 'lucide-vue-next'
 import UiButton from '../components/ui/UiButton.vue'
+import { empresaSelecionada, arquivoInfo } from '@/store'
 
 const route = useRoute();
 const loading = ref(true);
@@ -40,7 +41,12 @@ async function exportPDF() {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `posicao_estoque_${grupoAtivo.value.toLowerCase()}_${id}.pdf`);
+        // Nome do arquivo: "Posicao do Estoque_<cnpj>_<AAAA-MM>.pdf".
+        // Montado no frontend (CNPJ + período do store) p/ não depender de rebuild do backend.
+        const cnpj = String(arquivoInfo.value?.cnpj || empresaSelecionada.value?.cnpj || '').replace(/\D/g, '');
+        const periodo = String(arquivoInfo.value?.periodo || '').split(' a ')[0].substring(0, 7); // AAAA-MM
+        const sufixo = [cnpj, periodo].filter(Boolean).join('_') || String(id);
+        link.setAttribute('download', `Posicao do Estoque_${sufixo}.pdf`);
         document.body.appendChild(link);
         link.click();
         link.remove();

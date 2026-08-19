@@ -5545,7 +5545,10 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (r
         // 3. Gerar o PDF
         const doc = new PDFDocument({ margin: 30, size: 'A4' });
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=Posicao_Estoque_${info.cnpj}.pdf`);
+        // Nome canônico do PDF: "Posicao do Estoque_<cnpj>_<AAAA-MM>.pdf" (período no padrão dos demais relatórios).
+        // filename com espaços → precisa de aspas. O frontend lê este header para nomear o download.
+        const _periodoPdf = String(info.periodo_apuracao || '').substring(0, 7);
+        res.setHeader('Content-Disposition', `attachment; filename="Posicao do Estoque_${info.cnpj}_${_periodoPdf}.pdf"`);
         doc.pipe(res);
 
         // Cabeçalho
