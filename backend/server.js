@@ -21,6 +21,7 @@ const espiaoNfeService = require('./services/espiaoNfeService');
 const { runOptimization } = require('./test_optimize');
 const { parseNfeCompleta, ensureNfeCompletaTable, salvarNfeCompleta, buscarNfeCompleta } = require('./nfe-completa');
 const regrasFiscais = require('./services/regrasFiscaisService');
+const { criarColetorTrilha } = require('./services/export/trilhaRegras');
 const conciliacaoService = require('./services/conciliacaoService');
 
 const uploadDir = path.resolve(__dirname, 'uploads');
@@ -8445,9 +8446,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
         // legítimo das ENTRADAS de combustível (aquisição a alíquota zero). C100 sempre
         // precede seus C170 no arquivo, então basta capturar o último visto.
         let _c100IndOperExport = null;
+        // Identificação do C100 pai, só para a TRILHA (qual NF sofreu a reescrita). C100:
+        // [2]=IND_OPER, [8]=NUM_DOC, [9]=CHV_NFE.
+        let _c100ChvExport = null, _c100NumDocExport = null;
+        // Coletor da trilha do motor de regras: agrupa por (regra, campo, antes→depois) e é
+        // despejado no changelog no fim do export. Sem ele, toda coerção de CST é silenciosa.
+        const _trilhaMotor = criarColetorTrilha();
         const normalizarLinha = (l) => {
             if (typeof l !== 'string') return l;
-            if (l.startsWith('|C100|')) { _c100IndOperExport = l.split('|')[2]; return l; }
+            if (l.startsWith('|C100|')) {
+                const c = l.split('|');
+                _c100IndOperExport = c[2];
+                _c100NumDocExport = c[8] || null;
+                _c100ChvExport = c[9] || null;
+                return l;
+            }
             if (l.startsWith('|0220|')) {
                 const f = l.split('|');
                 // Registro 0220 (FATORES DE CONVERSÃO DE UNIDADES). O nº de campos DEPENDE do leiaute
@@ -8482,7 +8495,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
                 const f = l.split('|'); // [10]=CST_ICMS, [11]=CFOP, [25]=CST_PIS, [31]=CST_COFINS
                 if (f.length < 32) return l; // C170 truncado/atípico: não fabricar índices
                 const item = { num_item: f[2], cst_icms: f[10], cfop: f[11], cst_pis: f[25], cst_cofins: f[31] };
-                regrasFiscais.aplicarRegrasFiscaisComLista(item, regrasExport, { origem: 'EXPORT', ind_oper: _c100IndOperExport });
+                // A trilha é coletada SEMPRE: uma reescrita de CST que não aparece no relatório
+                // "o que foi corrigido" é uma correção que o contador não tem como revisar nem
+                // recusar. Custo: 2 snapshots por C170 que CASA regra (não por C170 lido).
+                const _trilhaItem = [];
+                regrasFiscais.aplicarRegrasFiscaisComLista(item, regrasExport, { origem: 'EXPORT', ind_oper: _c100IndOperExport, trilha: _trilhaItem });
+                _trilhaMotor.registrar(_trilhaItem, { chv_nfe: _c100ChvExport, num_doc: _c100NumDocExport, num_item: f[2] });
                 if (item.cst_icms !== f[10] || item.cfop !== f[11] || item.cst_pis !== f[25] || item.cst_cofins !== f[31]) {
                     f[10] = item.cst_icms; f[11] = item.cfop; f[25] = item.cst_pis; f[31] = item.cst_cofins;
                     return f.join('|');
@@ -10228,6 +10246,14 @@ app.get('/api/exportar-sped/:id', authMiddleware, async (req, res) => {
             }
         }
         // ──────────────────────────────────────────────────────────────────────
+
+        // Trilha do motor de regras fiscais → changelog. Vai ANTES da rede de segurança abaixo para
+        // que as reescritas de C170 já estejam registradas quando a completude for conferida.
+        // Falhar aqui não pode derrubar o download (a resposta já foi transmitida).
+        try {
+            const _grupos = _trilhaMotor.flush(changelog);
+            if (_grupos) logger.info(`[Export] Motor de regras fiscais: ${_grupos} grupo(s) de reescrita registrados na trilha.`);
+        } catch (eTr) { logger.warn('[Export] trilha do motor de regras não registrada: ' + eTr.message); }
 
         // Rede de segurança (completude): qualquer registro cuja CONTAGEM mudou (original → final)
         // e que NÃO tem entrada no changelog vira um item "ajuste de contagem (detalhe não rastreado)".

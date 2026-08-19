@@ -190,9 +190,12 @@ async function carregarRegras(dbClient, competencia, escopo = 'ambos') {
 
 // Aplica uma LISTA já carregada (caminho síncrono p/ o loop do export com cache quente).
 function aplicarRegrasFiscaisComLista(item, regras, ctx = {}) {
-  const antes = snapshot(item);
   for (const regra of regras) {
     if (!casa(regra, item, ctx)) continue;
+    // `antes` é capturado POR REGRA, não uma vez antes do laço: quando 2+ regras casam no mesmo
+    // item, cada entrada da trilha tem que mostrar o que AQUELA regra mudou. Com o snapshot único
+    // a 2ª regra aparecia mudando algo que a 1ª já tinha mudado — atribuição falsa no relatório.
+    const antes = snapshot(item);
     aplicarAcoes(regra, item);
     if (ctx.trilha) ctx.trilha.push({
       id_regra: regra.id, nome: regra.nome, fundamento: regra.fundamento_legal,
