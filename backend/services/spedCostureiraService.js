@@ -872,6 +872,15 @@ function normalizarUsoConsumoCst90(linhas, log) {
 // C800/C850/C860) — sem ela o 5929 pode ser débito real. OPT-IN: o export só chama quando o cliente aciona
 // "Corrigir SPED" (ação explícita + trilha). Campos C190: f2=CST f3=CFOP f4=ALIQ f5=VL_OPR f6=VL_BC f7=VL_ICMS.
 function corrigir5929Bitributacao(linhas, uf, log) {
+    // DESLIGADA (decisão fiscal do Esmael, 2026-08-21): o sistema NÃO pode zerar a base de
+    // cálculo / ICMS que veio no SPED ORIGINAL. Se a NF (ex.: 5.929 CST 000) trouxe base no
+    // original, deve ser PRESERVADA no export ("se houve no original, mantém"). Esta correção de
+    // "bitributação ECF" zerava a base (CST x00→x90) — o que viola essa regra e gerava falso-
+    // positivo (o gate era por arquivo, não por nota). Neutralizada: retorna as linhas inalteradas.
+    // Efeito: nenhum export zera a base da 5.929, mesmo com o marcador DOC-C100-5929-01 ativo.
+    // Código abaixo preservado como histórico (inalcançável).
+    return linhas;
+    /* eslint-disable no-unreachable */
     const CFOP = new Set(['5929', '6929']);
     if (['MG', 'RN', 'SC'].includes(String(uf || '').toUpperCase())) return linhas; // exceção legal por UF
     const num = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;

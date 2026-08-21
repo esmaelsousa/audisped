@@ -30,7 +30,10 @@ module.exports = {
         const flush = () => {
             if (!cur) return;
             const e = cur.forte, w = cur.fraco;
-            if (e) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${e.cfop} ICMS ${e.icms}`, severidade: ufExcecao ? 'ADV' : 'BLOQ', detalhe: `NF nº ${cur.num}: CFOP ${e.cfop} com ICMS ${e.icms} / alíq ${e.aliq}${ufExcecao ? ` — em ${String(model.uf).toUpperCase()} o 5929/6929 pode carregar ICMS legitimamente; confira.` : ' — indício de bitributação (deveriam ser 0).'}` });
+            // FORTE agora é ADV (não BLOQ) por decisão fiscal do Esmael (2026-08-21): o sistema preserva a
+            // base/ICMS que veio no SPED original (não zera 5.929) — ver corrigir5929Bitributacao desligada.
+            // O alerta permanece como AVISO informativo (indício de bitributação a conferir), sem bloquear.
+            if (e) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${e.cfop} ICMS ${e.icms}`, severidade: 'ADV', detalhe: `NF nº ${cur.num}: CFOP ${e.cfop} com ICMS ${e.icms} / alíq ${e.aliq}${ufExcecao ? ` — em ${String(model.uf).toUpperCase()} o 5929/6929 pode carregar ICMS legitimamente; confira.` : ' — indício de bitributação; confira se é espelho de cupom/ECF.'}` });
             else if (w) erros.push({ linha: cur.linha, campo: 'CFOP 5929/6929', valorAtual: `${w.cfop} VL_OPR ${w.vlopr}`, severidade: 'ADV', detalhe: `NF nº ${cur.num}: CFOP ${w.cfop} com VL_OPR ${w.vlopr} (ICMS/alíq zerados) — provável monofásico/injeção 5929 legítimo; verificar.` });
         };
         for (const l of model.linhas) {

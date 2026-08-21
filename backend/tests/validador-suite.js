@@ -480,11 +480,11 @@ t('1003 M4: NF com split 060/061 (2 C190 5929) = 1 achado por documento', () => 
     const b = `|C190|061|5929|0,00|150,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
     assert.equal(run(H([C100(CHAVE()), a, b])).erros.filter(e => e.regra_id === 'DOC-C100-5929-01').length, 1);
 });
-t('1003 M4: se qualquer C190 é FORTE (ICMS≠0), o documento é BLOQ', () => {
+t('1003 M4: FORTE (ICMS≠0) agora é ADV (preserva base do original; alerta informativo, não bloqueia)', () => {
     const fraco = `|C190|060|5929|0,00|100,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
     const forte = `|C190|061|5929|20,50|9574,80|160,00|32,80|0,00|0,00|0,00|0,00||`;
     const e = run(H([C100(CHAVE()), fraco, forte])).erros.find(x => x.regra_id === 'DOC-C100-5929-01');
-    assert.equal(e.severidade, 'BLOQ');
+    assert.equal(e.severidade, 'ADV');
 });
 
 // ---------- COMB-1300-1320-01 (ref. 2023: VOL_SAIDAS 1300 ≠ Σ VOL_VENDAS 1320) ----------
