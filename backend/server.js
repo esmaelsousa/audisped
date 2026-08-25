@@ -65,7 +65,10 @@ const pool = new Pool({
     database: process.env.DB_DATABASE,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
-    max: 120,                      // aumentado para suportar exportações em lote sem esgotamento
+    max: 90,                       // ABAIXO do max_connections do Postgres (100) — se o pool passar
+                                   // do teto do PG, pool.connect() FALHA ("Pool esgotado" → 503/502).
+                                   // Com 90 < 100 o pool ENFILEIRA e espera conexão livre (graceful),
+                                   // deixando folga p/ reservadas/superuser. (era 120 = maior que o PG.)
     connectionTimeoutMillis: 30000, // 30s de espera por conexão (antes 20s)
     idleTimeoutMillis: 15000,      // libera conexões ociosas mais rápido (antes 30s)
 });
