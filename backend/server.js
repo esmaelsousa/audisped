@@ -5228,7 +5228,7 @@ app.get('/api/resumo/:id_arquivo', authMiddleware, async (req, res) => {
                 GROUP BY cod_item
             ),
             initial_stock AS (
-                SELECT l.cod_item, SUM(l.estq_abert) as estq_abert
+                SELECT l.cod_item, SUM(COALESCE(l.estq_abert_ajustado, l.estq_abert)) as estq_abert
                 FROM lmc_movimentacao l
                 JOIN product_bounds pb ON l.cod_item = pb.cod_item AND l.data_mov = pb.first_date
                 WHERE l.id_sped_arquivo = $1
@@ -5415,7 +5415,7 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, async (req, 
             estoque_lmc AS (
                 SELECT 
                     lmc.cod_item,
-                    (SELECT SUM(e1.estq_abert::float8) FROM lmc_movimentacao e1 
+                    (SELECT SUM(COALESCE(e1.estq_abert_ajustado, e1.estq_abert)::float8) FROM lmc_movimentacao e1 
                      WHERE e1.id_sped_arquivo = $1 AND e1.cod_item = lmc.cod_item 
                      AND e1.data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as estoque_inicial_lmc,
                     (SELECT SUM(COALESCE(e2.fech_fisico_ajustado, e2.fech_fisico)::float8) FROM lmc_movimentacao e2 
@@ -5519,7 +5519,7 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (r
             ),
             estoque_lmc AS (
                 SELECT lmc.cod_item,
-                    (SELECT SUM(e1.estq_abert::float8) FROM lmc_movimentacao e1 WHERE e1.id_sped_arquivo = $1 AND e1.cod_item = lmc.cod_item AND e1.data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as inicial,
+                    (SELECT SUM(COALESCE(e1.estq_abert_ajustado, e1.estq_abert)::float8) FROM lmc_movimentacao e1 WHERE e1.id_sped_arquivo = $1 AND e1.cod_item = lmc.cod_item AND e1.data_mov = (SELECT MIN(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as inicial,
                     (SELECT SUM(COALESCE(e2.fech_fisico_ajustado, e2.fech_fisico)::float8) FROM lmc_movimentacao e2 WHERE e2.id_sped_arquivo = $1 AND e2.cod_item = lmc.cod_item AND e2.data_mov = (SELECT MAX(data_mov) FROM lmc_movimentacao WHERE id_sped_arquivo = $1 AND cod_item = lmc.cod_item)) as final,
                     SUM(COALESCE(vol_saidas_ajustado, vol_saidas)::float8) as saidas_lmc
                 FROM lmc_movimentacao lmc
