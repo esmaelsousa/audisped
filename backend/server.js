@@ -5540,6 +5540,35 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, async (r
         `;
         const { rows } = await dbClient.query(dataQuery, [arquivoId]);
 
+        // PDF de Posição do Estoque tem que ESPELHAR o SPED exportado (missão: PDF == SPED).
+        // O estoque do SPED = fech_fisico do 1300, que o export grava em `encerrantes_exportados`
+        // (final = encerrante desta competência; abertura = encerrante do mês anterior). O lmc_movimentacao
+        // pode divergir (encerrante 1320 × 1300 ajustado). Aqui SOBREPOMOS o inicial/final do PDF pelos
+        // valores do encerrante exportado (com fallback no lmc quando o mês ainda não foi exportado).
+        try {
+            const comp = String(info.periodo_apuracao || '').substring(0, 7); // AAAA-MM
+            const [ay, am] = comp.split('-').map(Number);
+            const prev = (am === 1) ? `${ay - 1}-12` : `${ay}-${String(am - 1).padStart(2, '0')}`;
+            const cnpjNum = String(info.cnpj || '').replace(/\D/g, '');
+            const encQ = await dbClient.query(
+                `SELECT competencia, TRIM(cod_item) AS cod_item, fech_fisico_exportado
+                   FROM encerrantes_exportados
+                  WHERE regexp_replace(cnpj_empresa,'\\D','','g') = $1 AND competencia = ANY($2)`,
+                [cnpjNum, [comp, prev]]);
+            const finalMap = new Map(), inicMap = new Map();
+            for (const e of encQ.rows) {
+                const v = parseFloat(e.fech_fisico_exportado);
+                if (e.competencia === comp) finalMap.set(e.cod_item, v);
+                if (e.competencia === prev) inicMap.set(e.cod_item, v);
+            }
+            for (const r of rows) {
+                const cod = String(r.cod_item).trim();
+                if (finalMap.has(cod)) r.final = finalMap.get(cod);
+                if (inicMap.has(cod)) r.inicial = inicMap.get(cod);
+            }
+        } catch (e) { logger.warn('[PosicaoEstoque] falha ao espelhar encerrantes_exportados: ' + e.message); }
+
+
         // Aplicar filtro de grupo e limpar itens sem movimentação/estoque
         let data = rows.filter(r => r.inicial > 0 || r.entradas > 0 || r.saídas > 0 || r.final > 0);
         if (grupo && grupo !== 'TODOS') {
