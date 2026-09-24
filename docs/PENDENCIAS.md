@@ -78,7 +78,40 @@ Itens abertos ficam no topo. Ao fechar um, marque o `[x]` e preencha a data de s
 
 ---
 
+## 🔴 Abertos — bloqueiam entrega ou risco fiscal
+
+- [ ] **Deploy das tabelas CFOP/CEST e das 2 regras novas**
+  `encontrado: 24/09/2026` · `sanado: —`
+  Migração + `DOC-C170-CFOP-01` (existência/grupo) + `DOC-0200-CEST-02` (vigência) estão **só no
+  localhost**. Produção segue com `cad_cfops` de 8 linhas e sem vigência de CEST.
+  Exige rodar migração em banco de produção → precisa do seu OK.
+
+- [ ] **Regra de DIREÇÃO do CFOP (saída em documento de entrada)**
+  `encontrado: 24/09/2026` · `sanado: —`
+  A tabela agora traz o tipo E/S. A medição achou **8 ocorrências** (`1102` num documento de
+  saída, NF 14705). Eu quis olhar caso a caso antes de escrever a regra — é a mais larga das três
+  e a de maior risco de falso-positivo.
+
+- [ ] **Estoque de abertura NEGATIVO no LMC (−1,2 milhão de litros)**
+  `encontrado: 24/09/2026` · `sanado: —`
+  POSTO ÓRION (23079512000190) jul/2026: `|1300|1|01072026|-1277063,559|…`. Não é volume de
+  tanque — parece contador acumulado escriturado com sinal trocado. **Anterior à migração de
+  sistema**, então a cadeia já estava quebrada. Invalida o fechamento de julho como âncora.
+  **Ação:** auditar os 10 meses (dez/2025 a ago/2026) dos dois postos e achar onde começou.
+
 ## ⏸️ Bloqueado por insumo de terceiro
+
+- [ ] **Reconstruir o bloco 1 de ago/2026 — PIRAÍ e ÓRION (migração de sistema)**
+  `encontrado: 24/09/2026` · `sanado: —`
+  Os postos migraram de ERP; o sistema novo não exporta 1300/1310/1320. Sete meses anteriores
+  tinham LMC completo. Diagnóstico: **o LMC nunca veio do bloco C** — era gerado dos
+  **encerrantes das bombas**. Em julho o C190 já era consolidado (4 C170) e mesmo assim o 1300
+  existia. Logo, não há como derivar das notas.
+  Agosto entrega só: chave, data e valor (Piraí R$ 56.132 / Órion R$ 398.437 em CFOP 5405 único).
+  **Falta:** litros por produto por dia. Qualquer uma destas resolve —
+  (a) XMLs das NFC-e de agosto (8.030 chaves disponíveis nos arquivos; zero XMLs no nosso banco),
+  (b) leitura dos encerrantes de agosto, (c) relatório de vendas por produto do sistema novo.
+  Existe `PLANO_RECONSTRUCAO_LMC.md` pronto (Fonte A) — só falta o insumo.
 
 - [ ] **Injeção dos XMLs de saída do POSTO PEDRO GÁS (03/2025)**
   `encontrado: 17/09/2026` · `sanado: —`
