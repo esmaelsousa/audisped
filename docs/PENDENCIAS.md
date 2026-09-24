@@ -10,19 +10,13 @@ Itens abertos ficam no topo. Ao fechar um, marque o `[x]` e preencha a data de s
 
 ## 🔴 Abertos — bloqueiam entrega ou risco fiscal
 
-- [ ] **Tabela CEST desatualizada**
+- [ ] **PVA rejeita o CEST `0300100` (água mineral) — causa ainda desconhecida**
   `encontrado: 15/09/2026` · `sanado: —`
-  Nossa tabela (1.370 registros) considera o CEST `0300100` válido para NCM `22011000`; o PVA
-  rejeita. A regra `DOC-0200-CEST-01` não acusa porque valida contra a nossa tabela.
-  **Trava:** preciso da tabela CEST vigente (o PVA exporta, ou o Confaz publica). Não reconstruo de
-  memória — errar um código gera erro em massa na frota.
+  Eu havia levantado a hipótese de **revogação**. A tabela oficial importada em 24/09 **desmente**:
+  `03.001.00` está vigente desde 2018, sem data fim. Então a rejeição do PVA tem outra causa —
+  provavelmente o par CEST×NCM ou CEST×descrição (água em garrafa de vidro ≠ embalagem de 20 L são
+  CESTs diferentes dentro do segmento 03). A planilha não traz NCM, então essa carta não resolve.
   *Caso: POSTO PREÇO BOM, produto 3154599 AGUA MINERAL 20 L.*
-
-- [ ] **CFOP inexistente passa na validação**
-  `encontrado: 15/09/2026` · `sanado: —`
-  `DOC-C170-CFOP-01` valida só o FORMATO (`/^[123567]\d{3}$/`). O CFOP `1929` tem 4 dígitos e
-  começa com 1, então passa — mas não existe na tabela.
-  **Trava:** preciso da tabela CFOP oficial. Mesmo motivo do item acima.
 
 - [ ] **`sincronizarNotasInjetadas` grava dado inválido (a FONTE do lixo)**
   `encontrado: 15/09/2026` · `sanado: —`
@@ -101,6 +95,28 @@ Itens abertos ficam no topo. Ao fechar um, marque o `[x]` e preencha a data de s
 ---
 
 ## ✅ Sanados
+
+- [x] **Tabelas oficiais de CFOP e CEST ausentes do banco**
+  `encontrado: 15/09/2026` · `sanado: 24/09/2026` · `commit: 9dbd52d`
+  `cad_cfops` tinha **8 linhas** feitas à mão, uma delas errada (`5405` marcado como entrada,
+  sendo saída) → **686** oficiais com tipo E/S. `cest` ganhou vigência mantendo o `ncm_prefix`
+  (mescla, não substituição) → 1.054 códigos.
+  Achado de quebra: o CEST `1708704`, citado no comentário da nossa regra como exemplo de "não
+  localizado", **é oficial** — só faltava na nossa tabela. Vínhamos gerando ADV indevida nele.
+
+- [x] **CFOP inexistente passava na validação**
+  `encontrado: 15/09/2026` · `sanado: 24/09/2026` · `commit: d412fdd`
+  `DOC-C170-CFOP-01` só validava FORMATO, e o `1929` (4 dígitos, começa em 1) passava. Agora checa
+  existência e cabeçalho de grupo, com mensagens separadas. Sem tabela carregada, degrada para só
+  o formato.
+
+- [x] **CEST revogado usado em competência posterior era invisível**
+  `encontrado: 24/09/2026` · `sanado: 24/09/2026` · `commit: d412fdd`
+  Regra nova `DOC-0200-CEST-02` (ADV). Medido na frota: 27 ocorrências em 3 códigos, todas com
+  cara de erro real. **Bug que o teste não pegou:** `pg` devolve DATE como objeto `Date` e
+  `String(d).slice(0,10)` virava `"Sat Dec 31"` — a regra nunca disparava, em silêncio. O teste
+  passava porque eu montara o Map com strings. Extraído `isoData()` com teste próprio.
+
 
 - [x] **C190 órfão: export reescrevia o C170 sem realinhar o analítico**
   `encontrado: 15/09/2026` · `sanado: 15/09/2026` (prod) · `commit: 4a56830`
