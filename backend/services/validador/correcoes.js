@@ -44,11 +44,15 @@ function chaveNatural(reg, f, curChaveC100) {
         case '0200': return String(f[2] || '').trim();
         case 'C100': return String(f[9] || '').replace(/\D/g, '');
         case 'D100': return String(f[10] || '').replace(/\D/g, '');
-        case 'C170': return curChaveC100 + '#' + String(f[2] || '').trim(); // chave da NF + NUM_ITEM
+        // Filhos do C100 são ancorados na chave da NF. Sem ela (nota de papel/avulsa) não há
+        // identidade estável: a chave sairia como "#2" e colidiria entre TODAS as notas sem chave
+        // do arquivo. Devolver null = "não corrigível por chave" — é o [F4] levado até o fim.
+        case 'C170': return curChaveC100 ? curChaveC100 + '#' + String(f[2] || '').trim() : null; // chave da NF + NUM_ITEM
         case 'H005': return String(f[4] || '').trim() || 'unico'; // MOT_INV (estável; corrige DT_INV)
         case '1350': return String(f[2] || '').trim() || 'unico'; // SERIE da bomba (erro COMB-1350-1360-01 → chaveNatural=SERIE, casa o lacre de lmc_lacres)
         case '1360': return String(f[2] || '').trim() || 'unico'; // NUM_LACRE (corrige DT_APLICACAO)
         case 'C190': { // analítico: chave da NF + CST|CFOP|ALIQ (única por NF). Aplica correção de VL_ICMS/ALIQ/VL_RED_BC.
+            if (!curChaveC100) return null;                       // idem C170: sem chave da NF, sem identidade
             const aliq = String(parseFloat(String(f[4] || '0').replace(',', '.')) || 0);
             return curChaveC100 + '#' + String(f[2] || '').trim() + '|' + String(f[3] || '').trim() + '|' + aliq;
         }
@@ -65,6 +69,31 @@ function ordinalH005(kn, contador) {
     const c = (contador.get(kn) || 0) + 1;
     contador.set(kn, c);
     return c > 1 ? kn + '#' + c : kn;
+}
+
+// A CHV_NFE também não é única na prática: este ERP escritura a MESMA nota duas vezes — saída
+// (CFOP 5949) e entrada espelho (1949) — com a mesma chave de acesso. Como a chaveNatural de
+// C170/C190 começa pela chave da NF, uma correção gravada para o item de UMA delas casava nas DUAS.
+// Caso real: POSTO PREÇO BOM 01/2026 (arq 2598) — 52 C100 de chave duplicada, 48 das 176 correções
+// caindo nelas; a correção legítima do item da ENTRADA (ALIQ sem base) zerava também a ALIQ do item
+// da SAÍDA, que era tributado (BC 84,84 / ICMS 17,39) → C170 000/5949/0 contra C190 000/5949/20,5,
+// órfão nos dois sentidos E alíquota zerada num item tributado.
+//
+// Mesma solução do H005: desambigua por ORDEM de ocorrência. A 1ª ocorrência mantém a chave crua
+// (retrocompatível com tudo que já está em val_correcoes) e a 2ª+ recebe sufixo "@N" — "@" porque
+// "#" já separa o NUM_ITEM do C170 e a trinca do C190. O sufixo entra na ÂNCORA (a chave do C100),
+// então propaga sozinho para os filhos: "<chave>@2#<item>".
+//
+// Chave vazia (nota de papel/avulsa) NUNCA entra na contagem: notas distintas sem chave não podem
+// compartilhar ordinal, e o [F4] de `aplicar` já recusa casar chave vazia.
+//
+// Ordem no export: o dedup de C100 roda ANTES de `aplicar`, então a 2ª ocorrência normalmente já
+// foi removida e a correção dela simplesmente não casa — que é o desejado (a linha não existe mais).
+function ordinalChaveC100(chave, contador) {
+    if (!chave) return '';
+    const c = (contador.get(chave) || 0) + 1;
+    contador.set(chave, c);
+    return c > 1 ? chave + '@' + c : chave;
 }
 
 // Nome legível do campo (por registro:índice) para o relatório "o que foi corrigido".
@@ -126,10 +155,11 @@ function aplicar(outputLines, correcoes, log) {
     const aplicadasList = [];
     let curChaveC100 = '';
     const h005Cont = new Map();
+    const c100Cont = new Map();
     for (let i = 0; i < outputLines.length; i++) {
         const f = outputLines[i].split('|');
         const reg = f[1];
-        if (reg === 'C100') curChaveC100 = String(f[9] || '').replace(/\D/g, '');
+        if (reg === 'C100') curChaveC100 = ordinalChaveC100(String(f[9] || '').replace(/\D/g, ''), c100Cont);
         let kn = chaveNatural(reg, f, curChaveC100);
         if (reg === 'H005' && kn != null) kn = ordinalH005(kn, h005Cont);
         if (kn == null || kn === '') continue; // [F4] nunca casar chave vazia (C100 de papel/avulsa) → correção na NF errada
@@ -208,4 +238,4 @@ function enriquecerComNF(rows, mapC100) {
     return rows;
 }
 
-module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, ordinalH005, aplicar, parseChaveNF, fmtDataSped, mapaC100, enriquecerComNF };
+module.exports = { ensureTabela, buscarCorrecoes, chaveNatural, ordinalH005, ordinalChaveC100, aplicar, parseChaveNF, fmtDataSped, mapaC100, enriquecerComNF };

@@ -1,7 +1,7 @@
 // Validador SPED — engine PURO. Roda todas as regras do registry sobre o modelo e
 // agrega erros + cobertura por bloco. Sem IO. Determinístico e auditável.
 const regras = require('./rules');
-const { chaveNatural, ordinalH005 } = require('./correcoes');
+const { chaveNatural, ordinalH005, ordinalChaveC100 } = require('./correcoes');
 
 function validar(model) {
     const erros = [];
@@ -51,8 +51,12 @@ function validar(model) {
     const chavePorLinha = new Map();
     let curC100 = '';
     const h005Cont = new Map();
+    const c100Cont = new Map();
     for (const l of model.linhas) {
-        if (l.reg === 'C100') curC100 = String(l.f[9] || '').replace(/\D/g, '');
+        // ordinalChaveC100: a MESMA chave de acesso pode aparecer em 2+ C100 (saída + entrada
+        // espelho do mesmo documento). Sem o ordinal, a correção de um vazava para o outro —
+        // tem de casar com o que `aplicar` faz no export, senão a chave gravada não bate.
+        if (l.reg === 'C100') curC100 = ordinalChaveC100(String(l.f[9] || '').replace(/\D/g, ''), c100Cont);
         let kn = chaveNatural(l.reg, l.f, curC100);
         if (l.reg === 'H005' && kn != null) kn = ordinalH005(kn, h005Cont);
         chavePorLinha.set(l.n, kn);

@@ -43,7 +43,10 @@ const PORT = process.env.PORT || 15435;
 app.set('trust proxy', 1);
 
 app.use(helmet({ contentSecurityPolicy: false, referrerPolicy: { policy: 'no-referrer' } })); // V12: headers de segurança (CSP off — API não serve HTML)
-app.use(cors());
+// exposedHeaders: sem isto o navegador ESCONDE o Content-Disposition em requisição cross-origin, e
+// o front cai no nome montado localmente — foi o que fez o PDF de julho baixar como "..._2026-01.pdf".
+// Só expõe; não afeta origem, credenciais ou métodos permitidos.
+app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json());
 
 // Rate-limit de autenticação (V9): freia brute-force/credential-stuffing e DoS de CPU no bcrypt (single-thread).
@@ -70,7 +73,10 @@ const pool = new Pool({
     database: process.env.DB_DATABASE,
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
-    max: 120,                      // aumentado para suportar exportações em lote sem esgotamento
+    max: 90,                       // ABAIXO do max_connections do Postgres (100) — se o pool passar
+                                   // do teto do PG, pool.connect() FALHA ("Pool esgotado" → 503/502).
+                                   // Com 90 < 100 o pool ENFILEIRA e espera conexão livre (graceful),
+                                   // deixando folga p/ reservadas/superuser. (era 120 = maior que o PG.)
     connectionTimeoutMillis: 30000, // 30s de espera por conexão (antes 20s)
     idleTimeoutMillis: 15000,      // libera conexões ociosas mais rápido (antes 30s)
 });
@@ -5855,6 +5861,42 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo', authMiddleware, scopeRede(po
         if (dbClient) dbClient.release();
     }
 });
+// Cobertura de LASTRO por competência — alimenta o navegador de meses da Posição de Estoque,
+// que marca os períodos sem encerrante exportado (nesses o PDF é bloqueado com 409).
+// Endpoint isolado de propósito: some inteiro se a feature for revertida, sem tocar em /api/arquivos.
+app.get('/api/posicao-estoque/cobertura/:idEmpresa', authMiddleware, scopeRede(pool, 'empresa'), async (req, res) => {
+    const idEmpresa = parseInt(req.params.idEmpresa);
+    if (isNaN(idEmpresa)) return res.status(400).json({ message: 'ID de empresa inválido.' });
+    const db = await safeConnect(res);
+    if (!db) return;
+    try {
+        const arq = await db.query(
+            `SELECT id, periodo_apuracao, cnpj_empresa FROM sped_arquivos WHERE id_empresa = $1 AND periodo_apuracao IS NOT NULL`,
+            [idEmpresa]);
+        const cnpjs = [...new Set(arq.rows.map(r => String(r.cnpj_empresa || '').replace(/\D/g, '')).filter(Boolean))];
+        let comCob = new Set();
+        if (cnpjs.length) {
+            const enc = await db.query(
+                `SELECT DISTINCT competencia FROM encerrantes_exportados WHERE regexp_replace(cnpj_empresa,'\\D','','g') = ANY($1)`,
+                [cnpjs]);
+            comCob = new Set(enc.rows.map(r => String(r.competencia)));
+        }
+        res.json(arq.rows.map(r => ({
+            id: r.id,
+            competencia: String(r.periodo_apuracao).substring(0, 7),
+            tem_lastro: comCob.has(String(r.periodo_apuracao).substring(0, 7)),
+        })));
+    } catch (e) {
+        // Falha aqui é só cosmética (o navegador deixa de marcar); o bloqueio real vive na rota do PDF.
+        logger.warn('[PosicaoEstoque/cobertura] ' + e.message);
+        res.json([]);
+    } finally { db.release(); }
+});
+
+// Leitura da flag de lastro fora do try da rota (o require nunca deve derrubar o handler).
+function exigirLastroSafe() {
+    try { return require('./services/posicaoEstoqueLastro').exigirLastro(); } catch (_) { return true; }
+}
 app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, scopeRede(pool, 'sped'), async (req, res) => {
     const arquivoId = parseInt(req.params.id_arquivo);
     const { grupo } = req.query; // Captura o filtro de grupo enviado pelo frontend
@@ -5918,7 +5960,68 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, scopeRed
             WHERE p.id_sped_arquivo = $1
             ORDER BY p.descr_item
         `;
-        const { rows } = await dbClient.query(dataQuery, [arquivoId]);
+        let { rows } = await dbClient.query(dataQuery, [arquivoId]); // `let`: o guard de lastro reatribui
+
+        // PDF de Posição do Estoque tem que ESPELHAR o SPED exportado (missão: PDF == SPED).
+        // O estoque do SPED = fech_fisico do 1300, que o export grava em `encerrantes_exportados`
+        // (final = encerrante desta competência; abertura = encerrante do mês anterior). O lmc_movimentacao
+        // pode divergir (encerrante 1320 × 1300 ajustado). Aqui SOBREPOMOS o inicial/final do PDF pelos
+        // valores do encerrante exportado (com fallback no lmc quando o mês ainda não foi exportado).
+        try {
+            const comp = String(info.periodo_apuracao || '').substring(0, 7); // AAAA-MM
+            const [ay, am] = comp.split('-').map(Number);
+            const prev = (am === 1) ? `${ay - 1}-12` : `${ay}-${String(am - 1).padStart(2, '0')}`;
+            const cnpjNum = String(info.cnpj || '').replace(/\D/g, '');
+            const encQ = await dbClient.query(
+                `SELECT competencia, TRIM(cod_item) AS cod_item, fech_fisico_exportado
+                   FROM encerrantes_exportados
+                  WHERE regexp_replace(cnpj_empresa,'\\D','','g') = $1 AND competencia = ANY($2)`,
+                [cnpjNum, [comp, prev]]);
+            const finalMap = new Map(), inicMap = new Map();
+            for (const e of encQ.rows) {
+                const v = parseFloat(e.fech_fisico_exportado);
+                if (e.competencia === comp) finalMap.set(e.cod_item, v);
+                if (e.competencia === prev) inicMap.set(e.cod_item, v);
+            }
+            for (const r of rows) {
+                const cod = String(r.cod_item).trim();
+                if (inicMap.has(cod)) r.inicial = inicMap.get(cod);
+            }
+            // LASTRO: o `final` só vem do encerrante exportado (== FECH_FISICO do 1300 do SPED).
+            // Sem encerrante na competência, o valor cairia no lmc_movimentacao — que DIVERGE
+            // (01/2026: GASOLINA 9.347,09 no SPED × 9.128,93 no lmc). Então o PDF não sai.
+            // Só COMBUSTÍVEL tem contraparte no SPED (o bloco 1 não escritura loja) — a lista do LMC
+            // define de quem exigimos lastro. Sem ela seria fail-closed e barraria todo mês.
+            const _lmcProd = await dbClient.query(
+                `SELECT DISTINCT TRIM(cod_item) AS cod_item FROM lmc_movimentacao WHERE id_sped_arquivo = $1`, [arquivoId]);
+            const produtosLmc = new Set(_lmcProd.rows.map(r => r.cod_item));
+            const { avaliarLastro, exigirLastro } = require('./services/posicaoEstoqueLastro');
+            const _lastro = avaliarLastro(rows, finalMap, produtosLmc);
+            rows = _lastro.linhas;
+            if (!_lastro.ok) {
+                logger.warn(`[PosicaoEstoque] arquivo ${arquivoId} (${comp}): ${_lastro.semLastro.length} produto(s) sem encerrante exportado.`);
+                if (exigirLastro()) {
+                    return res.status(409).json({
+                        bloqueio: 'SEM_LASTRO_ENCERRANTE',
+                        message: 'Este período ainda não foi exportado — o estoque do PDF não teria como espelhar o SPED. Exporte o SPED desta competência e gere o PDF novamente.',
+                        competencia: comp,
+                        produtos: _lastro.semLastro.slice(0, 20),
+                        total: _lastro.semLastro.length,
+                    });
+                }
+            }
+        } catch (e) {
+            // Falha ao CONSULTAR o encerrante (banco fora, tabela ausente). Não dá para afirmar que o
+            // PDF espelharia o SPED, então trata como ausência de lastro em vez de seguir em silêncio.
+            logger.warn('[PosicaoEstoque] falha ao espelhar encerrantes_exportados: ' + e.message);
+            if (exigirLastroSafe()) {
+                return res.status(409).json({
+                    bloqueio: 'SEM_LASTRO_ENCERRANTE',
+                    message: 'Não foi possível confirmar o estoque exportado desta competência. Gere o PDF novamente; se persistir, exporte o SPED do período.',
+                    produtos: [], total: 0,
+                });
+            }
+        }
 
         // Aplicar filtro de grupo e limpar itens sem movimentação/estoque
         let data = rows.filter(r => r.inicial > 0 || r.entradas > 0 || r.saídas > 0 || r.final > 0);
@@ -5929,7 +6032,10 @@ app.get('/api/relatorio/rentabilidade/:id_arquivo/pdf', authMiddleware, scopeRed
         // 3. Gerar o PDF
         const doc = new PDFDocument({ margin: 30, size: 'A4' });
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=Posicao_Estoque_${info.cnpj}.pdf`);
+        // Nome canônico do PDF: "Posicao do Estoque_<cnpj>_<AAAA-MM>.pdf" (período no padrão dos demais relatórios).
+        // filename com espaços → precisa de aspas. O frontend lê este header para nomear o download.
+        const _periodoPdf = String(info.periodo_apuracao || '').substring(0, 7);
+        res.setHeader('Content-Disposition', `attachment; filename="Posicao do Estoque_${info.cnpj}_${_periodoPdf}.pdf"`);
         doc.pipe(res);
 
         // Cabeçalho
@@ -8266,24 +8372,27 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             const cap = parseFloat(r.capacidade);
             if (r.cod_item) mapCapacidadesPorItem.set(r.cod_item, cap);
         });
-        const ajustesC100 = await dbClient.query('SELECT num_doc, vl_doc_ajustado, chv_nfe FROM documentos_c100 WHERE id_sped_arquivo = $1 AND vl_doc_ajustado IS NOT NULL', [arquivoId]);
-        const mapC100 = new Map(ajustesC100.rows.map(r => [r.num_doc + '_' + (r.chv_nfe || ''), r.vl_doc_ajustado]));
+        const ajustesC100 = await dbClient.query('SELECT num_doc, vl_doc_ajustado, chv_nfe, ind_oper FROM documentos_c100 WHERE id_sped_arquivo = $1 AND vl_doc_ajustado IS NOT NULL', [arquivoId]);
+        const { chaveDocC100 } = require('./services/spedCostureiraService');
+        // chaveDocC100 inclui o IND_OPER: num_doc+chv_nfe colidem entre a nota de saída e a entrada
+        // espelho do MESMO documento, e a última inserida sobrescrevia a outra no Map.
+        const mapC100 = new Map(ajustesC100.rows.map(r => [chaveDocC100(r.ind_oper, r.num_doc, r.chv_nfe), r.vl_doc_ajustado]));
 
         const ajustesC190 = await dbClient.query(`
-            SELECT r190.id, r190.cst_icms, r190.cfop, r190.aliq_icms, r190.vl_opr_ajustado, r190.vl_bc_icms_ajustado, r190.vl_icms_ajustado, doc.num_doc, doc.chv_nfe
+            SELECT r190.id, r190.cst_icms, r190.cfop, r190.aliq_icms, r190.vl_opr_ajustado, r190.vl_bc_icms_ajustado, r190.vl_icms_ajustado, doc.num_doc, doc.chv_nfe, doc.ind_oper
             FROM documentos_c190 r190
             JOIN documentos_c100 doc ON r190.id_documento_c100 = doc.id
             WHERE doc.id_sped_arquivo = $1 AND (r190.vl_opr_ajustado IS NOT NULL OR r190.vl_bc_icms_ajustado IS NOT NULL OR r190.vl_icms_ajustado IS NOT NULL)
         `, [arquivoId]);
-        const mapC190 = new Map(ajustesC190.rows.map(r => [`${r.num_doc}_${r.chv_nfe || ''}_${r.cst_icms}_${r.cfop}_${parseFloat(r.aliq_icms).toFixed(2)}`, r]));
+        const mapC190 = new Map(ajustesC190.rows.map(r => [`${chaveDocC100(r.ind_oper, r.num_doc, r.chv_nfe)}_${r.cst_icms}_${r.cfop}_${parseFloat(r.aliq_icms).toFixed(2)}`, r]));
 
         const c170Itens = await dbClient.query(`
-            SELECT doc.num_doc, doc.chv_nfe, item.num_item, item.cod_item, item.cst_icms, item.cfop, item.cst_pis, item.cst_cofins
+            SELECT doc.num_doc, doc.chv_nfe, doc.ind_oper, item.num_item, item.cod_item, item.cst_icms, item.cfop, item.cst_pis, item.cst_cofins
             FROM documentos_itens_c170 item
             JOIN documentos_c100 doc ON item.id_documento_c100 = doc.id
             WHERE doc.id_sped_arquivo = $1
         `, [arquivoId]);
-        const mapC170 = new Map(c170Itens.rows.map(r => [`${r.num_doc}_${r.chv_nfe || ''}_${r.num_item}_${r.cod_item}`, r]));
+        const mapC170 = new Map(c170Itens.rows.map(r => [`${chaveDocC100(r.ind_oper, r.num_doc, r.chv_nfe)}_${r.num_item}_${r.cod_item}`, r]));
 
         // 1.3 Coletar COD_ITEMs referenciados em outros blocos (C170 e LMC 1300)
         // O validador do SPED exige que todo 0200 tenha ao menos uma referência em outro bloco.
@@ -8593,27 +8702,17 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
         // Espelha o dedup de D100: remove a 2ª+ ocorrência de uma chave e seus filhos C1xx (C170/C190 etc).
         // Chave de acesso vazia NUNCA é deduplicada (evita fundir notas distintas sem chave).
         {
-            const c100Keys = new Set();
-            let skipC100 = false;
-            const dedupLines = [];
-            let dedupCount = 0;
-            for (const line of fileLines) {
-                if (!line || !line.startsWith('|')) { dedupLines.push(line); continue; }
-                const reg = line.split('|')[1];
-                if (reg === 'C100') {
-                    const chave = (line.split('|')[9] || '').trim();
-                    if (chave && c100Keys.has(chave)) { skipC100 = true; dedupCount++; continue; }
-                    if (chave) c100Keys.add(chave);
-                    skipC100 = false;
-                } else if (skipC100 && reg && reg.startsWith('C') && reg > 'C100' && reg < 'C200') {
-                    continue;
-                } else { skipC100 = false; }
-                dedupLines.push(line);
-            }
-            if (dedupCount > 0) {
-                fileLines = dedupLines;
-                changelog.add({ bloco: 'C', registro: 'C100', regraId: 'DOC-DUP', motivo: `${dedupCount} C100 duplicado(s) removido(s) (chave repetida) + filhos`, escopo: 'registro', antes: `${dedupCount} duplicado(s)`, depois: '(removidos)', origem: 'remocao', classe: 'estrutural-seguro' });
-                logger.info(`[Export] Removidos ${dedupCount} C100 duplicados (chave repetida) do arquivo ${arquivoId}.`);
+            // deduparC100 remove a 2ª+ ocorrência de cada chave + filhos C1xx E ABATE do
+            // E110.VL_TOT_DEBITOS o ICMS dos C190 de débito que foram embora (CFOP 5/6/7 + 1605).
+            // Sem esse abatimento o arquivo saía com Σ analíticos < E110 e o PVA barrava
+            // (caso real: arq 2350, 52 duplicados × 48,99). O recalcularE110, mais adiante,
+            // lê o f2 já abatido e cascateia saldo/ICMS a recolher.
+            const { deduparC100 } = require('./services/spedCostureiraService');
+            const _dedup = deduparC100(fileLines, changelog);
+            if (_dedup.removidos > 0) {
+                fileLines = _dedup.linhas;
+                changelog.add({ bloco: 'C', registro: 'C100', regraId: 'DOC-DUP', motivo: `${_dedup.removidos} C100 duplicado(s) removido(s) (chave repetida) + filhos`, escopo: 'registro', antes: `${_dedup.removidos} duplicado(s)`, depois: '(removidos)', origem: 'remocao', classe: 'estrutural-seguro' });
+                logger.info(`[Export] Removidos ${_dedup.removidos} C100 duplicados (chave repetida) do arquivo ${arquivoId}; ICMS abatido do E110: ${(_dedup.icmsAbatido / 100).toFixed(2)}.`);
             }
         }
 
@@ -8698,7 +8797,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
 
         let linesProcessed = 0;
         let changesApplied = 0;
-        let lastC100 = { numDoc: '', chvNfe: '' };
+        let lastC100 = { numDoc: '', chvNfe: '', indOper: '' };
 
         let encerrantesBombasMap = {}; // Rastreador global contínuo (Bico -> Último Encerrante Final)
         const ultimoEncOrigPorBico = new Map(); // Bico -> enc_inic original do último processamento (detecção multiproduto)
@@ -9163,7 +9262,11 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
 
             if (ancoraFisico !== null) {
                 // Verificar se a âncora fica dentro do ANP com o escritural atual
-                const anpAncora = realEscr > 0 ? (Math.abs(realEscr - ancoraFisico) / ancoraFisico * 100) : 0;
+                // Base do % ANP = volume movimentado (abert+entr), MESMA base do escudoAnpMae.
+                // Antes dividia por ancoraFisico (estoque residual): tanque fechando vazio fazia
+                // qualquer perda estourar 0,60% e o FECH medido do LMC era descartado, inflando
+                // o estoque e propagando o erro pelo mes inteiro.
+                const anpAncora = (realEscr > 0 && realDisp > 0) ? (Math.abs(realEscr - ancoraFisico) / realDisp * 100) : 0;
                 if (anpAncora <= 0.60) {
                     realFisico = ancoraFisico;
                 } else {
@@ -9201,7 +9304,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                     realEscr = Number((realDisp - realSaida).toFixed(3));
                     const _bf = escudoAnpMae(realAbert, realEntr, realEscr, 0, 0);
                     const _af = (novo.fisicoDb !== null && novo.fisicoDb !== undefined && novo.fisicoDb > 0) ? Number(novo.fisicoDb.toFixed(3)) : null;
-                    if (_af !== null && realEscr > 0 && (Math.abs(_af - realEscr) / (_af > 0 ? _af : 1) * 100) <= 0.60) {
+                    if (_af !== null && realEscr > 0 && realDisp > 0 && (Math.abs(_af - realEscr) / realDisp * 100) <= 0.60) {
                         realFisico = _af;
                     } else { realFisico = _bf.fisico; }
                     if (realFisico >= realEscr) { realPerda = 0; realGanho = Number((realFisico - realEscr).toFixed(3)); }
@@ -9212,7 +9315,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             // Se perda/ganho resultante excede 0.60%, ajusta saída para que escritural
             // fique dentro do limite. Última barreira antes de escrever no SPED.
             if (realFisico > 0 && realEscr > 0) {
-                const _anpPct = Math.abs(realEscr - realFisico) / realFisico * 100;
+                const _anpPct = realDisp > 0 ? (Math.abs(realEscr - realFisico) / realDisp * 100) : 0;
                 if (_anpPct > 0.60) {
                     logger.info(`[ESCUDO ANP FINAL] ${orig.codItem} dt=${pending1300.line.split('|')[3]}: realDisp=${realDisp.toFixed(1)} realSaida=${realSaida.toFixed(1)} realEscr=${realEscr.toFixed(1)} realFisico=${realFisico.toFixed(1)} ANP=${_anpPct.toFixed(2)}% → CORRIGINDO`);
                 }
@@ -9589,15 +9692,18 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                 const tk1310Indices = []; // índices dos 1310 em linhas1310
                 const tk1320VendasPorTanque = []; // soma vendas 1320 por tanque
 
+                const tk1320IndicesPorTanque = []; // índices das linhas 1320 de cada tanque
                 for (let li = 0; li < linhas1310.length; li++) {
                     const lParts = linhas1310[li].split('|');
                     if (lParts[1] === '1310') {
                         currentTk1310Idx = li;
                         tk1310Indices.push(li);
                         tk1320VendasPorTanque.push(0);
+                        tk1320IndicesPorTanque.push([]);
                     } else if (lParts[1] === '1320' && tk1310Indices.length > 0) {
                         const v = parseFloat((lParts[11] || '0').replace(',', '.'));
                         tk1320VendasPorTanque[tk1320VendasPorTanque.length - 1] += v;
+                        tk1320IndicesPorTanque[tk1320IndicesPorTanque.length - 1].push(li);
                     }
                 }
 
@@ -9608,6 +9714,35 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                     const tkParts = linhas1310[idx].split('|');
                     const saidaTk = parseFloat((tkParts[6] || '0').replace(',', '.'));
                     const somaBicos = Number(tk1320VendasPorTanque[ti].toFixed(3));
+
+                    // O LMC PREVALECE: quando a redistribuicao atribuiu MAIS venda do que os
+                    // bicos registraram (bico zerado no arquivo, ou bico que caiu no curto-circuito
+                    // de duplicata/multiproduto), a diferenca vai para os bicos deste tanque em vez
+                    // de a saida do 1310 ser rebaixada. Rebaixar descartava a venda redistribuida,
+                    // inflava o estoque e a deriva se propagava por todo o mes (e pelos meses
+                    // seguintes, via encerrantes_exportados).
+                    const _idxBicos = tk1320IndicesPorTanque[ti] || [];
+                    if (saidaTk - somaBicos > 0.01 && _idxBicos.length > 0) {
+                        let _falta = Number((saidaTk - somaBicos).toFixed(3));
+                        for (let bi = 0; bi < _idxBicos.length; bi++) {
+                            const _ultimo = (bi === _idxBicos.length - 1);
+                            const _bp = linhas1310[_idxBicos[bi]].split('|');
+                            const _vAtual = parseFloat((_bp[11] || '0').replace(',', '.')) || 0;
+                            const _quota = _ultimo ? _falta : Number((_falta / _idxBicos.length).toFixed(3));
+                            if (!_ultimo) _falta = Number((_falta - _quota).toFixed(3));
+                            const _vNovo = Number((_vAtual + _quota).toFixed(3));
+                            const _abertB = parseFloat((_bp[9] || '0').replace(',', '.')) || 0;
+                            const _aferiB = parseFloat((_bp[10] || '0').replace(',', '.')) || 0;
+                            // FECHA = ABERT + VENDAS + AFERI (mesma aritmetica em ml usada no PASS 3)
+                            const _mlFecha = Math.round(_abertB * 1000) + Math.round(_vNovo * 1000) + Math.round(_aferiB * 1000);
+                            _bp[11] = _vNovo.toFixed(3).replace('.', ',');
+                            _bp[8] = (_mlFecha / 1000).toFixed(3).replace('.', ',');
+                            linhas1310[_idxBicos[bi]] = _bp.join('|');
+                            encerrantesBombasMap[_bp[2]] = _mlFecha / 1000;
+                        }
+                        somaSaidaAjustada += saidaTk;
+                        continue; // saida do 1310 preservada: nao rebaixar
+                    }
 
                     if (Math.abs(saidaTk - somaBicos) > 0.01) {
                         // Ajustar saída do 1310 para = soma dos 1320
@@ -9758,14 +9893,19 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                 let date_end   = fields[5]; // DDMMYYYY
 
                 if (date_start && date_start.length === 8) {
-                    let year = parseInt(date_start.substring(4, 8), 10);
                     // Leiaute 020 vale para PERÍODOS a partir de jan/2026. Períodos de 2025 e
                     // anteriores permanecem no leiaute declarado (ex.: 019): o PVA valida o 0220
                     // com 4 campos e o 1310 SEM CAP_TANQUE (10 campos) já em 019. NÃO transmutar
                     // 2025 p/ 020 — isso exigiria CAP_TANQUE indevido e quebra o 1310 ("esperado 10").
-                    if (year >= 2026 && current_version === '019') {
-                        fields[2] = '020'; // Transmuta silenciosamente para salvar a importação no PVA
+                    // A regra era `=== '019'` e deixava passar o 018 (POSTO PIRAÍ II 08/2026 → 156
+                    // erros no PVA). `versaoAlvoLeiaute` compara por ORDEM: qualquer versão < 020.
+                    const { versaoAlvoLeiaute } = require('./services/spedCostureiraService');
+                    const _verAlvo = versaoAlvoLeiaute(current_version, date_start);
+                    if (_verAlvo) {
+                        const _antes = fields[2];
+                        fields[2] = _verAlvo; // Transmuta silenciosamente para salvar a importação no PVA
                         changesApplied++;
+                        if (changelog) changelog.add({ bloco: '0', registro: '0000', regraId: 'EST-0000-VER-01', campo: 'COD_VER', antes: _antes, depois: _verAlvo, escopo: 'campo', origem: 'auto', classe: 'estrutural-seguro', motivo: `leiaute ${_antes} não vale para período de ${date_start.substring(4, 8)} — transmutado para ${_verAlvo}` });
                     }
                     // Fix B: captura período para autocorreção de COD_SIT
                     const dd0 = date_start.substring(0,2), mm0 = date_start.substring(2,4), yy0 = date_start.substring(4,8);
@@ -10101,9 +10241,9 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             if (fields.length >= 2 && fields[1] === 'C100') {
                 const numDoc = fields[8];
                 const chvNfe = fields[9];
-                lastC100 = { numDoc, chvNfe };
+                lastC100 = { numDoc, chvNfe, indOper: fields[2] };
 
-                const key = `${numDoc}_${chvNfe}`;
+                const key = chaveDocC100(fields[2], numDoc, chvNfe);
                 if (mapC100.has(key)) {
                     fields[12] = parseFloat(mapC100.get(key)).toFixed(2).replace('.', ',');
                     changesApplied++;
@@ -10116,7 +10256,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             if (fields.length >= 2 && fields[1] === 'C170') {
                 const numItem = fields[2];
                 const codItem = fields[3];
-                const key = `${lastC100.numDoc}_${lastC100.chvNfe || ''}_${numItem}_${codItem}`;
+                const key = `${chaveDocC100(lastC100.indOper, lastC100.numDoc, lastC100.chvNfe)}_${numItem}_${codItem}`;
 
                 // Fix A (inline): sanitiza IND_MOV para evitar "0,00"/"1,00" que desalinha campos no PVA
                 let c170Modified = false;
@@ -10151,7 +10291,42 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                     const _cfopDb = String(row.cfop || '').trim();
                     const _bancoCorrompidoLegado = /^[01]$/.test(_cstDb) && !/^[1-7]\d{3}$/.test(_cfopDb);
 
-                    if (!ehForcadoUsoConsumo && !_bancoCorrompidoLegado) {
+                    // GUARD anti-CONTAMINAÇÃO POR XML: `sincronizarNotasInjetadas` regrava o C170 a partir
+                    // do XML do FORNECEDOR, e quando ele é optante do Simples grava o <CSOSN> no campo do
+                    // CST_ICMS e vira o 1º dígito da CFOP de SAÍDA sem mapear (5929 → 1929, que não existe
+                    // na tabela de CFOP). O .txt do ERP, nessas notas, já está certo e casado com o C190 —
+                    // então o registro do banco é DESCARTADO inteiro (CST e CFOP vieram do mesmo registro
+                    // contaminado). Sem isto o export emitia CST 400 / CFOP 1929 no C170 e deixava o C190
+                    // órfão. Caso real: NF 308 de 03/2026 do POSTO PREÇO BOM (XML: CFOP 5929 + CSOSN 400).
+                    //
+                    // Varredura da frota (2026-09-15) achou 99 itens contaminados em ~20 arquivos de
+                    // várias empresas. O sinal CONFIÁVEL é o CST, não a CFOP: o CSOSN 500 aparece tanto
+                    // com CFOP flipada (1405, de 5405) quanto com CFOP de entrada perfeitamente válida
+                    // (1403, 1652). Por isso o guard é ancorado no CST, com a CFOP como reforço.
+                    //
+                    //  (a) CSOSN INEQUÍVOCO — não pode ser CST_ICMS de jeito nenhum: a situação 01/02/03
+                    //      não existe na Tabela B e a origem só vai de 0 a 8 (logo 900 é impossível).
+                    //  (b) CSOSN AMBÍGUO (300/400/500) — também é CST válido (origem+00), então exige
+                    //      duas confirmações: o .txt tem um CST legítimo da Tabela B E a SITUAÇÃO (2
+                    //      últimos dígitos) difere. Assim um de-para que só mexe na ORIGEM (060→160)
+                    //      continua passando, e o padrão de contaminação (.txt 060 ↔ banco 500) não.
+                    //  (c) CFOP impossível — sem 4 dígitos (o padStart geraria '0220'), ou 1929/2929,
+                    //      que não existem na tabela e só surgem do flip de 5929/6929. Diferente de
+                    //      CFOP_ENTRADA_CORRIGIR não há para onde remapear: é compra comum e o .txt
+                    //      já traz a CFOP certa.
+                    const CSOSN_INEQUIVOCO = new Set(['101', '102', '103', '201', '202', '203', '900']);
+                    const CSOSN_AMBIGUO = new Set(['300', '400', '500']);
+                    const CFOP_ENTRADA_INEXISTENTE = new Set(['1929', '2929']);
+                    const SIT_TABELA_B = new Set(['00', '10', '20', '30', '40', '41', '50', '51', '60', '61', '70', '90']);
+                    const _cstTxt = String(fields[10] || '').trim();
+                    const _txtEhCstValido = /^[0-8]\d{2}$/.test(_cstTxt) && SIT_TABELA_B.has(_cstTxt.slice(1));
+                    const _bancoContaminadoXml =
+                        CSOSN_INEQUIVOCO.has(_cstDb)
+                        || (CSOSN_AMBIGUO.has(_cstDb) && _txtEhCstValido && _cstTxt.slice(1) !== _cstDb.slice(1))
+                        || (!!_cfopDb && !/^\d{4}$/.test(_cfopDb))
+                        || CFOP_ENTRADA_INEXISTENTE.has(_cfopDb);
+
+                    if (!ehForcadoUsoConsumo && !_bancoCorrompidoLegado && !_bancoContaminadoXml) {
                         if (row.cst_icms && fields[10] !== row.cst_icms) {
                             fields[10] = String(row.cst_icms).padStart(3, '0');
                             mapChanged = true;
@@ -10186,7 +10361,7 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                 const cst = fields[2];
                 const cfop = fields[3];
                 const aliq = parseFloat(fields[4].replace(',', '.')).toFixed(2);
-                const key = `${lastC100.numDoc}_${lastC100.chvNfe || ''}_${cst}_${cfop}_${aliq}`;
+                const key = `${chaveDocC100(lastC100.indOper, lastC100.numDoc, lastC100.chvNfe)}_${cst}_${cfop}_${aliq}`;
 
                 if (mapC190.has(key)) {
                     const aj = mapC190.get(key);
@@ -10423,6 +10598,21 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
             }
         }
 
+        // ── C190 órfão: realinha a chave do analítico aos itens (C170) da mesma NF ──
+        // O export reescreve CST_ICMS/CFOP do C170 a partir de documentos_itens_c170 (de-para,
+        // sync de XML, CFOP_ENTRADA_CORRIGIR) e o C190 ficava com a chave do .txt original →
+        // "Combinação CST/CFOP/ALIQ do C190 sem item (C170) correspondente" (DOC-C190-01 / PVA).
+        // Roda DEPOIS do uso/consumo x90 (que já casa C170≡C190 no seu recorte) para pegar o
+        // resto. Só renomeia a chave quando o alvo é inequívoco; nunca mexe em valores.
+        if (!pular('DOC-C190-01')) {
+            const { realinharC190ComC170 } = require('./services/spedCostureiraService');
+            const _realC190 = realinharC190ComC170(outputLines, changelog);
+            if (_realC190 !== outputLines) {
+                outputLines.length = 0;
+                for (const _l of _realC190) outputLines.push(_l);
+            }
+        }
+
         // ── Normalizar 0221 (item atômico): cada um sob o seu 0200 correto ─────
         // Alguns ERPs emitem o 0221 fora de ordem (após outro 0200) → o PVA o trata
         // como órfão e rejeita: "COD_ITEM_ATOMICO ... deve existir no COD_ITEM de um
@@ -10572,6 +10762,12 @@ app.get('/api/exportar-sped/:id', authMiddleware, demoPaywall, scopeRede(pool, '
                 const _r5929 = corrigir5929Bitributacao(outputLines, uf5929, changelog);
                 if (_r5929 !== outputLines) { outputLines.length = 0; for (const _l of _r5929) outputLines.push(_l); }
             }
+        } catch (_) {}
+        // C113 (documento referenciado) com DT_DOC posterior ao C100 pai — correção determinística
+        // (NF referenciada não pode ser datada antes dos cupons NFC-e que referencia). Muta in-place.
+        try {
+            const { corrigirC113DataRef } = require('./services/spedCostureiraService');
+            corrigirC113DataRef(outputLines, changelog);
         } catch (_) {}
         {
             const { recalcularE110, recalcularE116 } = require('./services/spedCostureiraService');

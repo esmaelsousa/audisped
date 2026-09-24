@@ -872,6 +872,15 @@ function normalizarUsoConsumoCst90(linhas, log) {
 // C800/C850/C860) — sem ela o 5929 pode ser débito real. OPT-IN: o export só chama quando o cliente aciona
 // "Corrigir SPED" (ação explícita + trilha). Campos C190: f2=CST f3=CFOP f4=ALIQ f5=VL_OPR f6=VL_BC f7=VL_ICMS.
 function corrigir5929Bitributacao(linhas, uf, log) {
+    // DESLIGADA (decisão fiscal do Esmael, 2026-08-21): o sistema NÃO pode zerar a base de
+    // cálculo / ICMS que veio no SPED ORIGINAL. Se a NF (ex.: 5.929 CST 000) trouxe base no
+    // original, deve ser PRESERVADA no export ("se houve no original, mantém"). Esta correção de
+    // "bitributação ECF" zerava a base (CST x00→x90) — o que viola essa regra e gerava falso-
+    // positivo (o gate era por arquivo, não por nota). Neutralizada: retorna as linhas inalteradas.
+    // Efeito: nenhum export zera a base da 5.929, mesmo com o marcador DOC-C100-5929-01 ativo.
+    // Código abaixo preservado como histórico (inalcançável).
+    return linhas;
+    /* eslint-disable no-unreachable */
     const CFOP = new Set(['5929', '6929']);
     if (['MG', 'RN', 'SC'].includes(String(uf || '').toUpperCase())) return linhas; // exceção legal por UF
     const num = (v) => parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0;
@@ -967,6 +976,51 @@ function corrigir5929Bitributacao(linhas, uf, log) {
         i = j;
     }
     return out;
+}
+
+// Corrige DT_DOC de C113 (documento fiscal referenciado) POSTERIOR à data do C100 pai.
+// PVA/E-Auditor: "Data inválida. Informar data menor ou igual à data de emissão do documento
+// fiscal do Registro C100." Uma NOTA FISCAL REFERENCIADA (mod 55/COD_SIT 08/VL_DOC 0) que aponta
+// cupons NFC-e (C113) não pode ser datada ANTES dos cupons que referencia. Fix determinístico:
+// para cada C100 com C113 filhos, se a data do C100 < maior DT_DOC entre os C113, sobe DT_DOC e
+// DT_E_S do C100 para esse maior. NÃO altera os C113 (datas reais dos cupons). No-op se já coerente.
+// Campos (split '|', vazio na pos 0): C100 DT_DOC=[10], DT_E_S=[11]; C113 DT_DOC=[9]; 0000 DT_FIN=[5].
+// CLAMP: nunca sobe a data do C100 para FORA do período (> DT_FIN do 0000) — isso geraria
+// "DT_E_S > data final do 0000". Se o maior C113 for de outro mês (cupom fora do período = erro
+// de ERP), a NF NÃO é ajustada; fica sinalizada como ADV (corrigir na origem). Só o caso "dentro
+// do período" (Padrão A) é auto-corrigido.
+function corrigirC113DataRef(linhas, log) {
+    const ymd = (d) => { const s = String(d || '').replace(/\D/g, ''); return s.length === 8 ? s.slice(4, 8) + s.slice(2, 4) + s.slice(0, 2) : ''; };
+    const l0000 = linhas.find(l => l.split('|')[1] === '0000');
+    const dtFin = l0000 ? l0000.split('|')[5] : '';
+    const limite = ymd(dtFin); // fim do período de apuração
+    let c100Idx = -1, maxC113 = '';
+    const flush = () => {
+        if (c100Idx < 0 || !maxC113) return;
+        const f = linhas[c100Idx].split('|');
+        if (f.length <= 11) return;
+        if (ymd(maxC113) <= ymd(f[10])) return; // já coerente
+        if (limite && ymd(maxC113) > limite) {
+            // Cupom referenciado é de FORA do período (ex.: maio num arquivo de abril) = erro de ERP.
+            // Não bumpar (evita DT_E_S fora do 0000). Sinaliza para correção na origem.
+            if (log) log.add({ registro: 'C100', regraId: 'DOC-C113-DTREF-02', motivo: `NF referencia cupom (C113 ${maxC113}) FORA do período de apuração (fim ${dtFin}) — corrigir na origem (cupom pertence a outro mês)`, escopo: 'campo', linha: c100Idx, campo: 'DT_DOC', antes: f[10], depois: f[10], origem: 'fiscal', classe: 'alerta' });
+            return;
+        }
+        const antes = `${f[10]}/${f[11]}`;
+        f[10] = maxC113; f[11] = maxC113;
+        linhas[c100Idx] = f.join('|');
+        if (log) log.add({ registro: 'C100', regraId: 'DOC-C113-DTREF-01', motivo: 'NF referenciada com C113 datado após o C100: DT_DOC/DT_E_S ajustados p/ o cupom mais recente referenciado (PVA: C113 <= C100)', escopo: 'campo', linha: c100Idx, campo: 'DT_DOC/DT_E_S', antes, depois: `${f[10]}/${f[11]}`, origem: 'fiscal', classe: 'fiscal-deterministico' });
+    };
+    for (let i = 0; i < linhas.length; i++) {
+        const reg = linhas[i].split('|')[1];
+        if (reg === 'C100') { flush(); c100Idx = i; maxC113 = ''; continue; }
+        if (reg === 'C113' && c100Idx >= 0) {
+            const dt = linhas[i].split('|')[9];
+            if (!maxC113 || ymd(dt) > ymd(maxC113)) maxC113 = dt;
+        }
+    }
+    flush();
+    return linhas;
 }
 
 /**
@@ -1427,13 +1481,258 @@ function preencherE116CodRecVazio(linhas, codRec, log) {
     return n;
 }
 
+
+/**
+ * DOC-C190-01 — realinha a CHAVE (CST|CFOP|ALIQ) do C190 quando os itens (C170) da mesma NF
+ * foram reescritos no export e o analítico ficou órfão.
+ *
+ * Por que existe: o export reescreve CST_ICMS/CFOP do C170 a partir de `documentos_itens_c170`
+ * (de-para por fornecedor, sync de XML, CFOP_ENTRADA_CORRIGIR) mas NÃO tocava no C190, que
+ * continuava com a chave do .txt original. Resultado: "Combinação CST/CFOP/ALIQ do C190 sem
+ * item (C170) correspondente" — erro do PVA e da nossa regra DOC-C190-01.
+ * Caso real: POSTO PREÇO BOM (50922123000158) 03/2026, NFs 396823/396439 — o .txt trazia
+ * C170/C190 casados em 060/1102 e o banco tinha CFOP 1655 (flip ingênuo 5655→1655 do sync de
+ * XML), que o CFOP_ENTRADA_CORRIGIR converte p/ 1652 → o C190 060/1102 virava órfão.
+ *
+ * O que faz: SÓ renomeia a chave do C190 órfão para a chave de um C170 da MESMA NF, quando o
+ * alvo é INEQUÍVOCO. NUNCA altera valores (VL_OPR/BC/ICMS/ST/IPI ficam intactos) — o analítico
+ * descreve os mesmos itens, só passa a descrevê-los com a tributação que os itens realmente têm.
+ * Se a renomeação colidir com outro C190 da NF, funde os dois somando f5..f11 (o C190 é, por
+ * definição, um registro único por chave).
+ *
+ * Desempate em 2 tiers, aceitando apenas quando resta UM candidato:
+ *   1) mesmo CST e mesma ALIQ (só a CFOP mudou)  ← o caso comum (de-para de CFOP)
+ *   2) mesma CFOP e mesma ALIQ (só o CST mudou)
+ * Ambíguo → não mexe (a detecção continua reportando; adivinhar seria pior que reportar).
+ *
+ * POR QUE NÃO EXISTE UM TIER "só a ALIQ bate": um item cujo CST **e** CFOP mudaram por inteiro não
+ * é reclassificação, é outro registro — e na prática é a assinatura do C170 contaminado pelo
+ * `sincronizarNotasInjetadas` (grava o CSOSN do fornecedor Simples como CST e vira o 1º dígito da
+ * CFOP de saída: 5929→1929, inexistente). Casar por alíquota propagaria esse lixo para o analítico.
+ * Nesses casos o C190 permanece órfão DE PROPÓSITO: o erro fica visível no Validador, que é melhor
+ * do que um SPED silenciosamente errado. (Caso real: NF 308 de 03/2026 do POSTO PREÇO BOM.)
+ *
+ * Byte-seguro: sem C190 órfão em nenhuma NF devolve o array ORIGINAL (mesma referência) →
+ * export byte-idêntico, golden preservado.
+ */
+function realinharC190ComC170(linhas, log) {
+    if (!Array.isArray(linhas) || !linhas.length) return linhas;
+    const naAliq = (v) => String(parseFloat(String(v || '0').replace(',', '.')) || 0);
+    const k170 = (f) => `${String(f[10] || '').trim()}|${String(f[11] || '').trim()}|${naAliq(f[14])}`;
+    const k190 = (f) => `${String(f[2] || '').trim()}|${String(f[3] || '').trim()}|${naAliq(f[4])}`;
+
+    // 1) Por NF: descobre os C190 órfãos e escolhe (se inequívoco) a chave de C170 de destino.
+    const renomear = new Map(); // índice da linha C190 -> chave nova "CST|CFOP|ALIQ"
+    let i = 0;
+    while (i < linhas.length) {
+        if (linhas[i].split('|')[1] !== 'C100') { i++; continue; }
+        const numDoc = linhas[i].split('|')[8] || '?';
+        let j = i + 1;
+        const c170 = [], c190 = [];
+        while (j < linhas.length && linhas[j].split('|')[1] !== 'C100') {
+            const g = linhas[j].split('|');
+            if (g[1] === 'C170' && g.length > 14) c170.push(k170(g));
+            else if (g[1] === 'C190' && g.length > 4) c190.push({ idx: j, chave: k190(g) });
+            j++;
+        }
+        i = j;
+        if (!c170.length || !c190.length) continue;          // perfil B / NFC-e: não cruza
+        const setItens = new Set(c170);
+        const alvos = [...setItens];
+        for (const c of c190) {
+            if (setItens.has(c.chave)) continue;              // já casa → intocado
+            const [cst, cfop, aliq] = c.chave.split('|');
+            const tiers = [
+                alvos.filter(a => { const p = a.split('|'); return p[0] === cst && p[2] === aliq; }),
+                alvos.filter(a => { const p = a.split('|'); return p[1] === cfop && p[2] === aliq; }),
+            ];
+            const tier = tiers.find(t => t.length > 0);
+            if (!tier || tier.length !== 1) continue;         // sem candidato ou ambíguo → não adivinha
+            renomear.set(c.idx, { nova: tier[0], antiga: c.chave, numDoc });
+        }
+    }
+    if (!renomear.size) return linhas;                        // nada órfão → byte-idêntico
+
+    // 2) Aplica a renomeação (só os 3 campos de chave; os valores passam verbatim).
+    const out = linhas.slice();
+    for (const [idx, r] of renomear) {
+        const f = out[idx].split('|');
+        const [cst, cfop] = r.nova.split('|');
+        const antesAliq = f[4];
+        f[2] = cst; f[3] = cfop;                              // ALIQ não muda: o tier exige igualdade
+        out[idx] = f.join('|');
+        if (log) log.add({
+            registro: 'C190', regraId: 'DOC-C190-01',
+            motivo: `analítico órfão realinhado aos itens da NF ${r.numDoc} (o C170 foi reescrito no export)`,
+            escopo: 'campo', linha: idx, campo: 'CST/CFOP',
+            antes: r.antiga.replace(/\|/g, '/'), depois: `${cst}/${cfop}/${naAliq(antesAliq)}`,
+            origem: 'fiscal', classe: 'fiscal-deterministico',
+        });
+    }
+
+    // 3) Funde C190 que passaram a colidir dentro da mesma NF (o C190 é único por chave).
+    const fundido = [];
+    let p = 0;
+    while (p < out.length) {
+        if (out[p].split('|')[1] !== 'C100') { fundido.push(out[p]); p++; continue; }
+        fundido.push(out[p]);
+        let q = p + 1;
+        const bloco = [], idxPorChave = new Map();
+        while (q < out.length && out[q].split('|')[1] !== 'C100') {
+            const g = out[q].split('|');
+            if (g[1] === 'C190' && g.length > 4) {
+                const chave = k190(g);
+                if (idxPorChave.has(chave)) {
+                    const ex = bloco[idxPorChave.get(chave)].split('|');
+                    for (let k = 5; k <= 11; k++) {
+                        const a = parseFloat(String(ex[k] || '0').replace(',', '.')) || 0;
+                        const b = parseFloat(String(g[k] || '0').replace(',', '.')) || 0;
+                        ex[k] = (a + b).toFixed(2).replace('.', ',');
+                    }
+                    bloco[idxPorChave.get(chave)] = ex.join('|');
+                } else { idxPorChave.set(chave, bloco.length); bloco.push(out[q]); }
+            } else bloco.push(out[q]);
+            q++;
+        }
+        for (const b of bloco) fundido.push(b);
+        p = q;
+    }
+    return fundido;
+}
+
+/**
+ * Dedup de C100 por CHAVE DE ACESSO (NF-e reinjetada gera C100 repetido) — remove a 2ª+ ocorrência
+ * e seus filhos C1xx — E ABATE do E110 o ICMS que foi embora junto.
+ *
+ * Por que o abatimento existe: os C190 dos duplicados carregam ICMS que o ERP somou no
+ * VL_TOT_DEBITOS do E110. Removendo os registros sem mexer no E110, o arquivo sai com
+ * Σ analíticos < E110 e o PVA barra: "O valor deve ser igual à soma do campo VL_ICMS dos registros
+ * C190, C320, C390, ... para CFOP iniciado por 5, 6, 7 e CFOP 1605".
+ * Caso real: POSTO PREÇO BOM (10795278000156) 01/2026, arq 2350 — 52 duplicados carregando
+ * exatamente 48,99; o PVA esperava 40.550,29 e o E110 declarava 40.599,28. (21 arquivos na frota.)
+ *
+ * Fiscalmente: a nota estava escriturada em DOBRO, logo o débito estava dobrado — abater é o certo.
+ * Decisão do Esmael em 2026-09-15, ciente de que isso REDUZ o ICMS a recolher.
+ *
+ * Só entra no abatimento o ICMS que compõe o débito, com o MESMO filtro do PVA: CFOP iniciando em
+ * 5/6/7, mais o 1605. Duplicado de ENTRADA é removido sem abater (não estava no VL_TOT_DEBITOS).
+ *
+ * O E110 recebe só o decremento do f2 (VL_TOT_DEBITOS); o `recalcularE110`, que roda depois no
+ * export, lê o f2 verbatim e cascateia sozinho para VL_SLD_APURADO / VL_ICMS_RECOLHER /
+ * VL_SLD_CREDOR_TRANSPORTAR — e o `recalcularE116` ajusta o VL_OR na sequência.
+ *
+ * GATES: chave vazia NUNCA deduplica (fundiria notas distintas). Com MAIS DE UM E110 no arquivo o
+ * abatimento é PULADO (não dá para saber a qual apuração o duplicado pertence) — os duplicados
+ * ainda são removidos e o log registra o abatimento não aplicado.
+ *
+ * Byte-seguro: sem duplicado devolve o array ORIGINAL (mesma referência) → export byte-idêntico.
+ *
+ * @returns {{linhas: string[], removidos: number, icmsAbatido: number}} icmsAbatido em CENTAVOS.
+ */
+function deduparC100(linhas, log) {
+    if (!Array.isArray(linhas) || !linhas.length) return { linhas, removidos: 0, icmsAbatido: 0 };
+    const cent = (v) => Math.round((parseFloat(String(v == null ? '0' : v).replace(',', '.')) || 0) * 100);
+    const fmt = (ct) => (ct / 100).toFixed(2).replace('.', ',');
+    const ehDebito = (cfop) => { const s = String(cfop || '').trim(); return /^[567]/.test(s) || s === '1605'; };
+
+    const chaves = new Set();
+    const out = [];
+    let pulando = false, removidos = 0, icms = 0;
+    for (const line of linhas) {
+        if (!line || line[0] !== '|') { out.push(line); continue; }
+        const f = line.split('|');
+        const reg = f[1];
+        if (reg === 'C100') {
+            const chave = String(f[9] || '').trim();
+            if (chave && chaves.has(chave)) { pulando = true; removidos++; continue; }
+            if (chave) chaves.add(chave);
+            pulando = false;
+        } else if (pulando && reg && reg[0] === 'C' && reg > 'C100' && reg < 'C200') {
+            if (reg === 'C190' && ehDebito(f[3])) icms += cent(f[7]); // ICMS que sai do débito
+            continue;
+        } else { pulando = false; }
+        out.push(line);
+    }
+    if (!removidos) return { linhas, removidos: 0, icmsAbatido: 0 }; // nada duplicado → byte-idêntico
+
+    // Abate o VL_TOT_DEBITOS do E110 — só quando há exatamente UM E110 (senão a apuração é ambígua).
+    let abatido = 0;
+    if (icms > 0) {
+        const idx = [];
+        for (let i = 0; i < out.length; i++) if (out[i] && out[i][0] === '|' && out[i].split('|')[1] === 'E110') idx.push(i);
+        if (idx.length === 1) {
+            const f = out[idx[0]].split('|');
+            if (f.length > 14) {
+                const antes = f[2];
+                f[2] = fmt(Math.max(0, cent(f[2]) - icms));
+                out[idx[0]] = f.join('|');
+                abatido = icms;
+                if (log) log.add({ bloco: 'E', registro: 'E110', regraId: 'DOC-DUP-E110', escopo: 'campo', linha: idx[0], campo: 'VL_TOT_DEBITOS', antes, depois: f[2], origem: 'auto', classe: 'fiscal-deterministico', motivo: `ICMS dos C190 removidos junto com ${removidos} C100 duplicado(s) abatido do débito (Σ ${fmt(icms)})` });
+            }
+        } else if (log) {
+            log.add({ bloco: 'E', registro: 'E110', regraId: 'DOC-DUP-E110', escopo: 'registro', antes: fmt(icms), depois: '(não abatido)', origem: 'auto', classe: 'fiscal-deterministico', motivo: `${idx.length} E110 no arquivo — não dá p/ saber a qual apuração pertencem os duplicados; VL_TOT_DEBITOS preservado. Conferir manualmente.` });
+        }
+    }
+    return { linhas: out, removidos, icmsAbatido: abatido };
+}
+
+/**
+ * Chave de um DOCUMENTO C100 para os mapas que o export usa ao reescrever C100/C170/C190 a partir
+ * do banco. Inclui o IND_OPER porque num_doc + chv_nfe NÃO identificam um documento: este ERP
+ * escritura a mesma nota duas vezes — saída (CFOP 5949) e entrada espelho (1949) — com o mesmo
+ * número E a mesma chave de acesso. Sem o IND_OPER as duas colidiam no Map, a última inserida
+ * (a entrada) vencia, e os dados dela eram aplicados sobre a nota que sobrevive ao dedup (a saída):
+ * o C170 saía 090/1949 enquanto o C190 seguia 000/5949 → C190 órfão + alíquota trocada.
+ * Caso real: POSTO PREÇO BOM 01/2026 — 52 chaves com 2+ C100, 48 bloqueantes no Re-validar.
+ *
+ * Fonte ÚNICA da chave: o lado que monta o Map (linhas do banco) e o lado que casa no loop (linhas
+ * do .txt) precisam concordar byte a byte. Antes a regra estava escrita duas vezes e divergiu.
+ * IND_OPER vem de documentos_c100.ind_oper no banco e do campo 2 do C100 no arquivo.
+ */
+function chaveDocC100(indOper, numDoc, chvNfe) {
+    return `${indOper == null ? '' : String(indOper)}_${numDoc == null ? '' : String(numDoc)}_${chvNfe == null ? '' : String(chvNfe)}`;
+}
+
+/**
+ * Versão de leiaute que o arquivo DEVE ter, dado o período — ou null se não há o que mudar.
+ *
+ * O leiaute 020 vale para períodos a partir de jan/2026 e acrescenta o CAP_TANQUE ao 1310. ERPs
+ * ainda emitem em versão antiga, e o PVA reprova no 0000 ("A versão de leiaute apresentada não é
+ * válida para o período informado") arrastando todo 1310 para "número de campos difere do leiaute".
+ *
+ * Antes a transmutação testava `=== '019'`. O POSTO PIRAÍ II (09172184000222) 08/2026 chegou em
+ * **018**, escapou da igualdade e o PVA devolveu 156 erros. Aqui a comparação é por ORDEM: qualquer
+ * versão anterior a 020 num período de 2026+ é alvo. Medido naquele arquivo, só o 1310 muda de 018
+ * para 020 (9 → 10 campos); os outros 43 registros catalogados já são válidos — então transmutar é
+ * seguro, desde que o CAP_TANQUE seja preenchido (regra de 2026 do export faz isso, e ABORTA com
+ * 422 se a capacidade não existir em lugar nenhum).
+ *
+ * Períodos de 2025 e anteriores ficam na versão declarada: lá o 1310 não tem CAP_TANQUE e subir a
+ * versão quebraria o registro no sentido oposto. Nunca REBAIXA (021 continua 021).
+ * Entrada suja (versão não-COD_VER, data sem 8 dígitos) → null, para não transmutar no escuro.
+ */
+function versaoAlvoLeiaute(versaoAtual, dtIni) {
+    const v = String(versaoAtual == null ? '' : versaoAtual).trim();
+    const d = String(dtIni == null ? '' : dtIni).trim();
+    if (!/^\d{3}$/.test(v)) return null;          // COD_VER é sempre 3 dígitos
+    if (!/^\d{8}$/.test(d)) return null;
+    const ano = parseInt(d.substring(4, 8), 10);
+    if (!(ano >= 2026)) return null;              // fronteira é o PERÍODO, não a data de hoje
+    return v < '020' ? '020' : null;              // 3 dígitos zero-padded → comparação lexical serve
+}
+
 module.exports = {
     injetarXmlEPersistir,
+    versaoAlvoLeiaute,
+    chaveDocC100,
+    deduparC100,
+    realinharC190ComC170,
     corrigirC191FcpRet,
     corrigirSerChave,
     corrigirD100IndEmitOper,
     corrigirD100Cancelado,
     dedupar0200,
+    corrigirC113DataRef,
     zerarBaseMonofasicoEntrada,
     preencherE116CodRecVazio,
     gerarSpedFragmentado,

@@ -147,6 +147,7 @@ const ESCOPO = {
   'GET /api/estoque-resumo/:id_arquivo': 'sped',
   'GET /api/relatorio/rentabilidade/:id_arquivo': 'sped',
   'GET /api/relatorio/rentabilidade/:id_arquivo/pdf': 'sped',
+  'GET /api/posicao-estoque/cobertura/:idEmpresa': 'empresa',
   'GET /api/lmc/tanques-sugeridos/:id_arquivo': 'sped',
   'GET /api/lmc/lacres-bombas/:id_arquivo': 'sped',
   'GET /api/cad/credenciadoras-1601/:id_arquivo': 'sped',

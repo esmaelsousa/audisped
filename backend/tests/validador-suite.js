@@ -136,6 +136,15 @@ t('cest: erro carrega e.ncm (NCM do produto) p/ a lista suspensa', () => { const
 t('c190 +: combinação ausente no C170 dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5405' })]), 'DOC-C190-01')));
 t('c190 -: combinação batendo com C170 não dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5102' })]), 'DOC-C190-01')));
 
+// DOC-C170-C190-01 (direção INVERSA: combinação do C170 sem C190). O PVA cobra os dois sentidos —
+// no relatório real do POSTO PREÇO BOM 03/2026, 13 dos 21 erros eram deste lado, e éramos cegos a ele.
+t('c170->c190 +: item sem analitico correspondente dispara', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '1652' }), C190({ cfop: '1102' })]), 'DOC-C170-C190-01')));
+t('c170->c190 -: item casado com o analitico nao dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' }), C190({ cfop: '5102' })]), 'DOC-C170-C190-01')));
+t('c170->c190 -: NF sem C190 (perfil B) nao dispara', () => assert.ok(!fires(H([C100(CHAVE()), C170({ cfop: '5102' })]), 'DOC-C170-C190-01')));
+t('c170->c190 -: NF cancelada nao dispara', () => assert.ok(!fires(H([C100(CHAVE(), { sit: '02' }), C170({ cfop: '1652' }), C190({ cfop: '1102' })]), 'DOC-C170-C190-01')));
+t('c170->c190 +: cada combinacao orfa reporta uma vez so', () => { const e = run(H([C100(CHAVE()), C170({ item: '1', cfop: '1652' }), C170({ item: '2', cfop: '1652' }), C190({ cfop: '1102' })])).erros.filter(x => x.regra_id === 'DOC-C170-C190-01'); assert.equal(e.length, 1); });
+t('c170->c190: aliq divergente conta como combinacao distinta', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102', aliq: '18,00' }), C190({ cfop: '5102', aliq: '12,00' })]), 'DOC-C170-C190-01')));
+
 // DOC-C170-CFOP-01 (CFOP inválido no C170, ex.: 0061)
 t('cfop-c170 +: CFOP 0061 dispara', () => assert.ok(fires(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|0,00|0,00|0,00|0,00|0,00|0|']), 'DOC-C170-CFOP-01')));
 t('cfop-c170 +: sugere COD_NAT quando é CFOP válido', () => assert.ok(firesDet(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|']), 'DOC-C170-CFOP-01', '1652')));
@@ -480,11 +489,11 @@ t('1003 M4: NF com split 060/061 (2 C190 5929) = 1 achado por documento', () => 
     const b = `|C190|061|5929|0,00|150,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
     assert.equal(run(H([C100(CHAVE()), a, b])).erros.filter(e => e.regra_id === 'DOC-C100-5929-01').length, 1);
 });
-t('1003 M4: se qualquer C190 é FORTE (ICMS≠0), o documento é BLOQ', () => {
+t('1003 M4: FORTE (ICMS≠0) agora é ADV (preserva base do original; alerta informativo, não bloqueia)', () => {
     const fraco = `|C190|060|5929|0,00|100,00|0,00|0,00|0,00|0,00|0,00|0,00||`;
     const forte = `|C190|061|5929|20,50|9574,80|160,00|32,80|0,00|0,00|0,00|0,00||`;
     const e = run(H([C100(CHAVE()), fraco, forte])).erros.find(x => x.regra_id === 'DOC-C100-5929-01');
-    assert.equal(e.severidade, 'BLOQ');
+    assert.equal(e.severidade, 'ADV');
 });
 
 // ---------- COMB-1300-1320-01 (ref. 2023: VOL_SAIDAS 1300 ≠ Σ VOL_VENDAS 1320) ----------

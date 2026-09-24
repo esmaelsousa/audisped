@@ -17,7 +17,9 @@ module.exports = [
     require('./r_participante_0150'),  // CAD-0150-07: COD_PART (C100/D100) sem 0150
     require('./r_participante_0150_1601'), // CAD-0150-08: COD_PART do 1601 sem 0150
     require('./r_ncm_0200'),           // CAD-0200-03: mercadoria sem NCM válido
+    require('./r_0000_versao_periodo'), // EST-0000-VER-01: COD_VER x período (leiaute 020 em 2026+)
     require('./r_c190_x_c170'),        // DOC-C190-01: combinação CST/CFOP/ALIQ do C190 sem C170
+    require('./r_c170_x_c190'),        // DOC-C170-C190-01: direção inversa — C170 sem C190
     require('./r_cfop_c170_invalido'), // DOC-C170-CFOP-01: CFOP inválido no C170 (ex.: 0061)
     require('./r_bloco1_equipamentos_lmc'), // COMB-1350-1360-01: bomba (1350) sem lacre (1360)
     require('./r_c100_extemporaneo'),  // DOC-C100-DTES-01: C100 com DT_E_S > data final do período
