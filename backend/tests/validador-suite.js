@@ -145,6 +145,75 @@ t('c170->c190 -: NF cancelada nao dispara', () => assert.ok(!fires(H([C100(CHAVE
 t('c170->c190 +: cada combinacao orfa reporta uma vez so', () => { const e = run(H([C100(CHAVE()), C170({ item: '1', cfop: '1652' }), C170({ item: '2', cfop: '1652' }), C190({ cfop: '1102' })])).erros.filter(x => x.regra_id === 'DOC-C170-C190-01'); assert.equal(e.length, 1); });
 t('c170->c190: aliq divergente conta como combinacao distinta', () => assert.ok(fires(H([C100(CHAVE()), C170({ cfop: '5102', aliq: '18,00' }), C190({ cfop: '5102', aliq: '12,00' })]), 'DOC-C170-C190-01')));
 
+// ── Tabelas oficiais de CFOP/CEST (importadas em 24/09/2026) ────────────────────────────────
+// Antes: `cad_cfops` tinha 8 linhas feitas à mão e a regra só validava FORMATO — por isso o CFOP
+// 1929 (que NÃO existe na tabela oficial) passava batido e gerou C190 órfão no POSTO PREÇO BOM.
+// O domínio agora traz cfopSet (existe), cfopGrupo (é cabeçalho, não é CFOP de item) e cfopTipo (E/S).
+const DOM_CFOP = {
+    cfopSet: new Set(['1102', '1652', '5102', '5929', '1949', '5949', '1650', '1556']),
+    cfopGrupo: new Set(['1650']),                       // 1.650 é título de grupo, não CFOP de item
+    cfopTipo: new Map([['1102', 'E'], ['1652', 'E'], ['1556', 'E'], ['1949', 'E'],
+                       ['5102', 'S'], ['5929', 'S'], ['5949', 'S'], ['1650', 'E']]),
+    cestSet: new Set(['0600200', '0100400']),
+    cestNcm: new Map([['0600200', ['27101259']]]),
+    cestFim: new Map([['0100400', '2020-12-31']]),      // revogado no fim de 2020
+};
+const comCfop = (linhas, opts) => { const m = parseSped(H(linhas, opts)); m.dominio = DOM_CFOP; return validar(m).erros; };
+const C170cfop = (cfop) => `|C170|1|IT|PROD|1|UN|10,00|0,00|0|000|${cfop}||0,00|0,00|0,00|0,00|0,00|0,00|0|`;
+
+t('cfop-tabela +: CFOP inexistente na tabela oficial dispara', () => {
+    const e = comCfop([C100(CHAVE()), C170cfop('1929')]).find(x => x.regra_id === 'DOC-C170-CFOP-01');
+    assert.ok(e && /não existe/i.test(e.detalhe), 'esperava detalhe de código inexistente, veio: ' + (e && e.detalhe));
+});
+t('cfop-tabela +: cabeçalho de grupo (1650) dispara com mensagem própria', () => {
+    const e = comCfop([C100(CHAVE()), C170cfop('1650')]).find(x => x.regra_id === 'DOC-C170-CFOP-01');
+    assert.ok(e && /grupo/i.test(e.detalhe), 'esperava detalhe de cabeçalho de grupo, veio: ' + (e && e.detalhe));
+});
+t('cfop-tabela -: CFOP real da tabela não dispara', () => assert.ok(!comCfop([C100(CHAVE()), C170cfop('1102')]).some(e => e.regra_id === 'DOC-C170-CFOP-01')));
+t('cfop-tabela -: sem domínio carregado, mantém só a checagem de FORMATO (degradação segura)', () => {
+    assert.ok(!fires(H([C100(CHAVE()), C170cfop('1929')]), 'DOC-C170-CFOP-01'), '1929 tem formato ok: sem tabela, não pode disparar');
+    assert.ok(fires(H([C100(CHAVE()), C170cfop('0061')]), 'DOC-C170-CFOP-01'), 'formato inválido dispara mesmo sem tabela');
+});
+t('cfop-tabela: formato inválido tem precedência sobre existência', () => {
+    const e = comCfop([C100(CHAVE()), C170cfop('0061')]).find(x => x.regra_id === 'DOC-C170-CFOP-01');
+    assert.ok(e && /4 dígitos/.test(e.detalhe), 'formato primeiro; veio: ' + (e && e.detalhe));
+});
+
+// isoData — a conversão que o meu teste de regra NÃO cobria: eu montei o Map com strings, então
+// a regra passava verde enquanto o caminho real (pg devolve DATE como objeto Date) entregava
+// "Sat Dec 31" e o filtro nunca casava. Silencioso: a regra simplesmente não disparava.
+const { isoData } = require('../services/validador/dominio');
+t('isoData: objeto Date do pg vira AAAA-MM-DD', () => assert.equal(isoData(new Date(2020, 11, 31)), '2020-12-31'));
+t('isoData: não desloca o dia por fuso (Brasil -03 com toISOString cairia em 30/12)', () => {
+    assert.equal(isoData(new Date(2022, 0, 1)), '2022-01-01');
+    assert.equal(isoData(new Date(2022, 11, 31)), '2022-12-31');
+});
+t('isoData: string já formatada passa intacta', () => assert.equal(isoData('2022-12-31'), '2022-12-31'));
+t('isoData: nulo/indefinido/Date inválida → vazio', () => {
+    assert.equal(isoData(null), '');
+    assert.equal(isoData(undefined), '');
+    assert.equal(isoData(new Date('lixo')), '');
+});
+
+// DOC-0200-CEST-02 — CEST revogado ANTES da competência do arquivo.
+t('cest-vigencia +: CEST revogado em 2020 num arquivo de 2022 dispara', () => {
+    const e = comCfop(['|0200|P1|BOMBONA| | |UN|00|39233090| |39| |20,50|0100400|'], { dtIni: '01022022', dtFin: '28022022' })
+        .find(x => x.regra_id === 'DOC-0200-CEST-02');
+    assert.ok(e && /2020-12-31/.test(e.detalhe), 'veio: ' + (e && e.detalhe));
+});
+t('cest-vigencia -: o mesmo CEST numa competência DENTRO da vigência não dispara', () => {
+    assert.ok(!comCfop(['|0200|P1|BOMBONA| | |UN|00|39233090| |39| |20,50|0100400|'], { dtIni: '01022020', dtFin: '29022020' })
+        .some(e => e.regra_id === 'DOC-0200-CEST-02'));
+});
+t('cest-vigencia -: CEST sem data fim (vigente) não dispara', () => {
+    assert.ok(!comCfop(['|0200|P1|GASOLINA| | |L|00|27101259| |06| |18,00|0600200|'], { dtIni: '01022026', dtFin: '28022026' })
+        .some(e => e.regra_id === 'DOC-0200-CEST-02'));
+});
+t('cest-vigencia -: sem CEST no produto não dispara', () => {
+    assert.ok(!comCfop(['|0200|P1|X| | |UN|00|39233090| |39| |20,50||'], { dtIni: '01022026', dtFin: '28022026' })
+        .some(e => e.regra_id === 'DOC-0200-CEST-02'));
+});
+
 // DOC-C170-CFOP-01 (CFOP inválido no C170, ex.: 0061)
 t('cfop-c170 +: CFOP 0061 dispara', () => assert.ok(fires(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|0,00|0,00|0,00|0,00|0,00|0|']), 'DOC-C170-CFOP-01')));
 t('cfop-c170 +: sugere COD_NAT quando é CFOP válido', () => assert.ok(firesDet(H([C100(CHAVE()), '|C170|1|1|GASOLINA|4000|L|21400,00|0,00|0|000|0061|1652|0,00|']), 'DOC-C170-CFOP-01', '1652')));
