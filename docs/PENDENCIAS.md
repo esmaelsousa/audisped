@@ -10,13 +10,15 @@ Itens abertos ficam no topo. Ao fechar um, marque o `[x]` e preencha a data de s
 
 ## 🔴 Abertos — bloqueiam entrega ou risco fiscal
 
-- [ ] **PVA rejeita o CEST `0300100` (água mineral) — causa ainda desconhecida**
-  `encontrado: 15/09/2026` · `sanado: —`
-  Eu havia levantado a hipótese de **revogação**. A tabela oficial importada em 24/09 **desmente**:
-  `03.001.00` está vigente desde 2018, sem data fim. Então a rejeição do PVA tem outra causa —
-  provavelmente o par CEST×NCM ou CEST×descrição (água em garrafa de vidro ≠ embalagem de 20 L são
-  CESTs diferentes dentro do segmento 03). A planilha não traz NCM, então essa carta não resolve.
-  *Caso: POSTO PREÇO BOM, produto 3154599 AGUA MINERAL 20 L.*
+- [ ] **AUD-028 — Regra de CEST revogado cobre só 6 de 28 casos**
+  `encontrado: 24/09/2026` · `sanado: —`
+  A `DOC-0200-CEST-02` compara `vigencia_fim` com a competência. Mas na tabela oficial **só 6
+  códigos têm data fim** — outros **22 estão marcados apenas com `descricao = 'REVOGADO'`**, com
+  vigência vazia. A regra enxerga 6 de 28.
+  **Medido na frota:** 34 arquivos de 9 CNPJs usam CEST revogado. Concentração em água mineral
+  (`0300100` ×26, `0300400` ×4, `0300200` ×2) e material de construção (`1002300` ×5).
+  **Ação:** estender a regra para tratar `descricao='REVOGADO'` como revogado, e sugerir o
+  substituto quando houver um óbvio (ver AUD-014).
 
 - [ ] **`sincronizarNotasInjetadas` grava dado inválido (a FONTE do lixo)**
   `encontrado: 15/09/2026` · `sanado: —`
@@ -128,6 +130,17 @@ Itens abertos ficam no topo. Ao fechar um, marque o `[x]` e preencha a data de s
 ---
 
 ## ✅ Sanados
+
+- [x] **AUD-014 — PVA rejeitava o CEST `0300100` (ÁGUA MINERAL 20 L)**
+  `encontrado: 15/09/2026` · `sanado: 24/09/2026` · *correção no cadastro do ERP, não em código*
+  O código **foi revogado**, e a tabela oficial registra isso na **descrição** (`REVOGADO`), não na
+  coluna de vigência — que está vazia. Por isso eu havia concluído, olhando só a data, que ele
+  estava vigente. **Minha verificação foi rasa; a hipótese original de revogação estava certa.**
+  O CEST correto para o produto é **`0302500`** — *"Água mineral em embalagens retornáveis com
+  capacidade igual ou superior a 20 (vinte) litros"*, vigente, NCM `22011000` (o mesmo do produto).
+  Se a embalagem for descartável, o correto é `0300504`.
+  Corrigir no **cadastro do produto no ERP**, senão volta todo mês.
+
 
 - [x] **Tabelas oficiais de CFOP e CEST ausentes do banco**
   `encontrado: 15/09/2026` · `sanado: 24/09/2026` · `commit: 9dbd52d`
